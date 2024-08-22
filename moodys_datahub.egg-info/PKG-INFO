@@ -3,7 +3,7 @@ Name: moodys_datahub
 Version: 0.0.1
 Summary: moody datahub package
 Author-email: Kristoffer Gulmark Poulsen <kgp.lib@cbs.dk>
-Requires-Python: >=3.10.12
+Requires-Python: >=3.9.16
 Description-Content-Type: text/markdown
 Requires-Dist: asyncio
 Requires-Dist: bcrypt
@@ -28,3 +28,6 @@ Requires-Dist: rapidfuzz
 Requires-Dist: tqdm
 Requires-Dist: tzdata
 Requires-Dist: widgetsnbextension
+
+# moodys_datahub
+moodys_datahub

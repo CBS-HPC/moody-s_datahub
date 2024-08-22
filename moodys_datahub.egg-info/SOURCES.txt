@@ -1,6 +1,8 @@
 MANIFEST.in
 README.md
 pyproject.toml
+dist/moodys_datahub-0.0.1-py3-none-any.whl
+dist/moodys_datahub-0.0.1.tar.gz
 moodys_datahub/__init__.py
 moodys_datahub/tools.py
 moodys_datahub/utils.py
@@ -9,7 +11,14 @@ moodys_datahub.egg-info/SOURCES.txt
 moodys_datahub.egg-info/dependency_links.txt
 moodys_datahub.egg-info/requires.txt
 moodys_datahub.egg-info/top_level.txt
+moodys_datahub/data/__init__.py
 moodys_datahub/data/country_codes.xlsx
 moodys_datahub/data/data_dict.xlsx
+moodys_datahub/data/data_products - Kopi.xlsx
 moodys_datahub/data/data_products.xlsx
 moodys_datahub/data/date_cols.xlsx
+orbis.egg-info/PKG-INFO
+orbis.egg-info/SOURCES.txt
+orbis.egg-info/dependency_links.txt
+orbis.egg-info/requires.txt
+orbis.egg-info/top_level.txt
