@@ -1,0 +1,15 @@
+MANIFEST.in
+README.md
+pyproject.toml
+moodys_datahub/__init__.py
+moodys_datahub/tools.py
+moodys_datahub/utils.py
+moodys_datahub.egg-info/PKG-INFO
+moodys_datahub.egg-info/SOURCES.txt
+moodys_datahub.egg-info/dependency_links.txt
+moodys_datahub.egg-info/requires.txt
+moodys_datahub.egg-info/top_level.txt
+moodys_datahub/data/country_codes.xlsx
+moodys_datahub/data/data_dict.xlsx
+moodys_datahub/data/data_products.xlsx
+moodys_datahub/data/date_cols.xlsx

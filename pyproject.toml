@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "moodys_datahub"
+authors = [
+    {name = "Kristoffer Gulmark Poulsen", email = "kgp.lib@cbs.dk"}
+]
+description = "moody datahub package"
+version = "0.0.1"
+readme = "README.md"
+requires-python = ">=3.10.12"
+dependencies = [
+    "asyncio",
+    "bcrypt",
+    "cffi",
+    "cramjam",
+    "cryptography",
+    "et-xmlfile",
+    "fastavro",
+    "fastparquet",
+    "fsspec",
+    "ipywidgets",
+    "jupyterlab-widgets",
+    "openpyxl",
+    "pandas",
+    "paramiko",
+    "pyarrow",
+    "pycparser",
+    "pynacl",
+    "pysftp",
+    "pytz",
+    "rapidfuzz",
+    "tqdm",
+    "tzdata",
+    "widgetsnbextension"
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["moodys_datahub"]
+
+[tool.setuptools.package-data]
+moodys_datahub = ["data/data_dict.xlsx", "data/data_products.xlsx","data/country_codes.xlsx","data/date_cols.xlsx"]

@@ -1,0 +1,29 @@
+Metadata-Version: 2.1
+Name: orbis
+Version: 0.0.1
+Summary: moody datahub package
+Author-email: Kristoffer Gulmark Poulsen <kgp.lib@cbs.dk>
+Requires-Python: >=3.10.12
+Description-Content-Type: text/markdown
+Requires-Dist: bcrypt
+Requires-Dist: cffi
+Requires-Dist: cramjam
+Requires-Dist: cryptography
+Requires-Dist: et-xmlfile
+Requires-Dist: fastavro
+Requires-Dist: fastparquet
+Requires-Dist: fsspec
+Requires-Dist: ipywidgets
+Requires-Dist: jupyterlab-widgets
+Requires-Dist: openpyxl
+Requires-Dist: pandas
+Requires-Dist: paramiko
+Requires-Dist: pyarrow
+Requires-Dist: pycparser
+Requires-Dist: pynacl
+Requires-Dist: pysftp
+Requires-Dist: pytz
+Requires-Dist: rapidfuzz
+Requires-Dist: tqdm
+Requires-Dist: tzdata
+Requires-Dist: widgetsnbextension

@@ -1,0 +1,4 @@
+include moodys_datahub/data/data_dict.xlsx
+include moodys_datahub/data/data_products.xlsx
+include moodys_datahub/data/country_codes.xlsx
+include moodys_datahub/data/date_cols.xlsx
