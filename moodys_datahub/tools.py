@@ -206,15 +206,18 @@ class Sftp:
                     self.tables_available(save_to=False)
 
                 df = self._tables_available.query(f"`Base Directory` == '{self._remote_path}'")
-                
+        
                 if df.empty:
                     df = self._tables_available.query(f"`Export` == '{self._remote_path}'")
                     self._set_table = None
-                else:
-                    self._set_table = df['Table'].iloc[0]
+                else:                 
+                    if (self._set_table and self._set_table not in df['Table'].values) or not self._set_table:
+                        self._set_table = df['Table'].iloc[0]
                 
-                if not df.empty:    
-                    self.set_data_product = df['Data Product'].iloc[0]
+                if not df.empty:
+                    if (self._set_data_product and self._set_data_product not in df['Data Product'].values) or not self._set_data_product:    
+                        self.set_data_product = df['Data Product'].iloc[0]
+ 
  
     @property
     def remote_files(self):
@@ -280,7 +283,7 @@ class Sftp:
                 self._select_cols = None 
                 self.query = None
                 self.query_args = None
-                self.remote_path = df['Export'].iloc[0]
+                #self.remote_path = df['Export'].iloc[0]
                 self._time_stamp = df['Timestamp'].iloc[0]
 
     @property
@@ -288,7 +291,7 @@ class Sftp:
         return self._set_table
 
     @set_table.setter
-    def set_table(self, table:str):
+    def set_table(self, table):
         """
         Set or retrieve the current table.
 
@@ -310,7 +313,12 @@ class Sftp:
             self.query_args = None
 
         elif table is not self._set_table:
-            df = self._tables_available.query(f"`Table` == '{table}'")
+            
+            if self._set_data_product is None:
+                df = self._tables_available.query(f"`Table` == '{table}'")
+            else:
+                df = self._tables_available.query(f"`Table` == '{table}' &  `Data Product` == '{self._set_data_product}'")
+
             if df.empty:
                 df = self._tables_available.query(f"`Table`.str.contains('{table}', case=False, na=False,regex=False)")
                 if len(df) >1:
@@ -318,13 +326,16 @@ class Sftp:
                     print(f"Multiple tables partionally match '{table}' : {matches['Table'].tolist()} from {matches['Data Product'].tolist()}. Please set right table" )
                 elif df.empty:    
                     print("No such Table was found. Please set right table")
+                self._set_table = None
             elif len(df) > 1:
                 if self._set_data_product is None: 
                     matches   = df[['Data Product','Table']].drop_duplicates()
                     print(f"Multiple tables match '{table}' : {matches['Table'].tolist()} from {matches['Data Product'].tolist()}. Please set Data Product using the '.set_data_product' property")
+          
                 elif len(df['Export'].unique()) > 1:
                     matches   = df[['Data Product','Table','Export']].drop_duplicates()
                     print(f"Multiple version of '{table}' are detected: {matches['Table'].tolist()} from {matches['Data Product'].tolist()} with export paths ('Base Directory') {matches['Base Directory'].tolist()} .Please Set the '.remote_path' property with the correct 'Base Directory' Path")
+                self._set_table = None    
             else:
                 self._set_table = table
                 self.set_data_product = df['Data Product'].iloc[0]
@@ -339,7 +350,6 @@ class Sftp:
        
     @bvd_list.setter
     def bvd_list(self, bvd_list = None):
-        
         def load_bvd_list(file_path, df_bvd ,delimiter='\t'):
             # Get the file extension
             file_extension = file_path.split('.')[-1].lower()
@@ -581,6 +591,7 @@ class Sftp:
         async def f(self):
             Select_obj = _SelectData(self._tables_backup)
             selected_product, selected_table = await Select_obj.display_widgets()
+   
             self.set_data_product = selected_product
             self.set_table = selected_table
 
@@ -1155,13 +1166,12 @@ class Sftp:
             num_workers = int(num_workers) 
         else: 
             num_workers = -1
+        
+        if num_workers < 1:
+            num_workers =int(psutil.virtual_memory().total/ (1024 ** 3)/12)
 
         # Read multithreaded
-        if num_workers != 1:
-            
-            if num_workers < 1:
-                    num_workers =int(psutil.virtual_memory().total/ (1024 ** 3)/12)
-
+        if num_workers != 1 and len(files) > 1:
             def batch_processing():
                 def batch_list(input_list, batch_size):
                     """Splits the input list into batches of a given size."""
@@ -1170,7 +1180,6 @@ class Sftp:
                         batches.append(input_list[i:i + batch_size])
                     return batches
 
-         
                 batches = batch_list(files,num_workers)
 
                 lists = []
@@ -1200,7 +1209,7 @@ class Sftp:
         
         else: # Read Sequential
             print(f'Processing  {len(files)} files in sequence')
-            dfs, file_names, flags = self._process_sequential(files, destination, select_cols, date_query, bvd_query, query, query_args)
+            dfs, file_names, flags = self._process_sequential(files, destination, select_cols, date_query, bvd_query, query, query_args,num_workers)
         
         flag =  all(flags) 
 
@@ -1237,7 +1246,10 @@ class Sftp:
         process.start()
 
         self._download_finished = False 
-        
+
+    def specify_data_product(self):
+        print("Not working yet!!")
+
     def get_column_names(self,save_to:str=False, files = None):
         """
         Retrieve column names from a DataFrame or dictionary and save them to a file.
@@ -1377,15 +1389,18 @@ class Sftp:
                 repeating = row['Repeating']
                 tables = sftp.listdir(export)
 
-                if pd.isna(data_product):
-                    data_product= _table_match(tables)
-
                 full_paths  = [export + '/' + table for table in tables]
+                full_paths = [os.path.dirname(full_path) if full_path.endswith('.csv') else full_path for full_path in full_paths]
+                              
+                if pd.isna(data_product):
+                    data_product, tables = _table_match(tables)
 
                 # Append a dictionary with export, timestamp, and modified_list to the list
-                for full_path in full_paths:
+                for full_path, table in zip(full_paths,tables):
+
                     data.append({'Data Product':data_product,
-                                 'Table': os.path.basename(full_path),
+                                 #'Table': os.path.basename(full_path),
+                                 'Table': table,
                                  'Base Directory': full_path,
                                  'Timestamp': timestamp,
                                  'Repeating':repeating,
@@ -1558,7 +1573,11 @@ class Sftp:
         if path is not None:
             if mode == "local" or mode is None:
                 if os.path.exists(path):
-                    files = os.listdir(path)
+                    if os.path.isdir(path):
+                        files = os.listdir(path)
+                    elif os.path.isfile(path):
+                        files = [os.path.basename(path)]
+                        path  = os.path.dirname(path)
                 else:
                     if mode is None:
                         mode = "remote"
@@ -1570,9 +1589,20 @@ class Sftp:
                 sftp = self.connect()
                 if sftp.exists(path):
                     files = sftp.listdir(path)
+                    if not files:
+                        files = [os.path.basename(path)]
+                        path  = os.path.dirname(path)
                 else:
                     print(f"Remote path is invalid:'{path}'")
                     path = None
+
+            if len(files) > 1 and any(file.endswith('.csv') for file in files):
+                if self._set_table is not None:
+                    # Find the file that matches the match_string without the .csv suffix
+                    files = [next((file for file in files if os.path.splitext(file)[0] == self._set_table), None)]
+                else:
+                    print( "Please set Data Product ('.set_data_product') and ('.set_table') before setting Remote Path containg .csv")
+
         else:
             files = []
         return files,path
@@ -1624,18 +1654,30 @@ class Sftp:
         
         return local_file, flag
 
-    def _curate_file(self,flag:bool,file:str,destination:str,local_file:str,select_cols:list, date_query:list=[None,None,None,"remove"], bvd_query:str = None, query = None, query_args:list = None):
+    def _curate_file(self,flag:bool,file:str,destination:str,local_file:str,select_cols:list, date_query:list=[None,None,None,"remove"], bvd_query:str = None, query = None, query_args:list = None,num_workers:int = -1):
         df = None 
         file_name = None
         if any([select_cols, query, all(date_query),bvd_query]) or flag: 
             
-            df = _load_table(file = local_file, 
-                                select_cols = select_cols, 
-                                date_query = date_query, 
-                                bvd_query = bvd_query, 
-                                query = query, 
-                                query_args = query_args
-                                )
+            file_extension = file.lower().split('.')[-1]
+
+            if file_extension in ['csv']:
+                df = _load_csv_table(file = local_file, 
+                                    select_cols = select_cols, 
+                                    date_query = date_query, 
+                                    bvd_query = bvd_query, 
+                                    query = query, 
+                                    query_args = query_args,
+                                    num_workers = num_workers
+                                    )
+            else:
+                df = _load_table(file = local_file, 
+                                    select_cols = select_cols, 
+                                    date_query = date_query, 
+                                    bvd_query = bvd_query, 
+                                    query = query, 
+                                    query_args = query_args
+                                    )
 
             if (df is not None and self.concat_files is False and self.output_format is not None) and not flag:
                 file_name, _ = os.path.splitext(destination + "/" + file)
@@ -1652,7 +1694,7 @@ class Sftp:
 
         return df, file_name
          
-    def _process_sequential(self, files:list, destination:str=None, select_cols:list = None, date_query:list=[None,None,None,"remove"], bvd_query:str = None, query = None, query_args:list = None):
+    def _process_sequential(self, files:list, destination:str=None, select_cols:list = None, date_query:list=[None,None,None,"remove"], bvd_query:str = None, query = None, query_args:list = None,num_workers:int = -1):
         dfs = []
         file_names = []
         flags   = []
@@ -1670,7 +1712,8 @@ class Sftp:
                                                     date_query = date_query,
                                                     bvd_query = bvd_query,
                                                     query = query,
-                                                    query_args = query_args
+                                                    query_args = query_args,
+                                                    num_workers = num_workers
                                                     )
                 flags.append(flag)
                 
@@ -1971,7 +2014,93 @@ class _SelectMultiple:
 
         return self.selected_list
 
-def _select_list(class_type,values, col_name: str,fnc, n_args): 
+class _Multi_dropdown:
+    def __init__(self, values, col_names, title):
+        # Check if values is a list of lists or a single list
+        if isinstance(values[0], list):
+            self.is_list_of_lists = True
+            self.values = values
+        else:
+            self.is_list_of_lists = False
+            self.values = [values]
+        
+        # Check if col_names is a list and its length matches values
+        if not isinstance(col_names, list):
+            raise ValueError("col_names must be a list of strings.")
+        if len(col_names) != len(self.values):
+            raise ValueError("Length of col_names must match the number of dropdowns.")
+
+        # Check title
+        if not isinstance(title, str):
+            raise ValueError("Title must be a string.")
+        self.title = title
+
+        # Initialize dropdown widgets
+        self.dropdown_widgets = []
+        self.selected_values = []
+
+        # Create dropdowns based on values and col_names
+        for i, sublist in enumerate(self.values):
+            description = widgets.Label(value=f"{col_names[i]} :")
+            dropdown = widgets.Dropdown(
+                options=sublist,
+                value=sublist[0],  # Set default value to the first item in the list
+                disabled=False,
+            )
+            # Arrange description and dropdown horizontally
+            hbox = widgets.HBox([description, dropdown])
+            self.dropdown_widgets.append((hbox, dropdown))  # Store hbox and dropdown separately
+            self.selected_values.append(dropdown.value)
+            dropdown.observe(self._observe_list_change, names='value')
+        
+        # Create OK and Cancel buttons
+        self.ok_button = widgets.Button(
+            description='OK',
+            disabled=False,
+        )
+        self.cancel_button = widgets.Button(
+            description='Cancel',
+            disabled=False,
+        )
+        
+        # Observe button clicks
+        self.ok_button.on_click(self._ok_button_click)
+        self.cancel_button.on_click(self._cancel_button_click)
+        
+        # Display the widgets
+        self._display_widgets()
+
+    def _display_widgets(self):
+        # Create the title label
+        title_label = widgets.Label(value=self.title)
+        
+        # Display title, dropdowns, and buttons
+        display(title_label)
+        display(widgets.VBox([hbox for hbox, dropdown in self.dropdown_widgets]))
+        display(self.ok_button, self.cancel_button)
+    
+    def _observe_list_change(self, change):
+        # Find the index of the changed dropdown
+        for i, (hbox, dropdown) in enumerate(self.dropdown_widgets):
+            if dropdown is change.owner:
+                self.selected_values[i] = change.new
+                break
+    
+    def _ok_button_click(self, b):
+        self.ok_button.disabled = True
+        self.cancel_button.disabled = True
+        for hbox, dropdown in self.dropdown_widgets:
+            dropdown.disabled = True
+ 
+    def _cancel_button_click(self, b):
+        self.selected_values = None
+        self.ok_button.disabled = True
+        self.cancel_button.disabled = True
+
+        for hbox, dropdown in self.dropdown_widgets:
+            dropdown.disabled = True
+
+def _select_list(class_type,values, col_name: str,fnc=None, n_args = None): 
     
     async def f(class_type,values,col_name, fnc, n_args):
         if class_type == 'dropdown':
@@ -1980,7 +2109,9 @@ def _select_list(class_type,values, col_name: str,fnc, n_args):
             Select_obj = _SelectMultiple(values, col_name)
 
         selected_value = await Select_obj.display_widgets()
-        fnc(selected_value, *n_args) 
+
+        if fnc and n_args:
+            fnc(selected_value, *n_args) 
 
     asyncio.ensure_future(f(class_type,values,col_name,fnc,n_args))
 
@@ -2265,6 +2396,73 @@ def _load_table(file:str,select_cols = None, date_query:list=[None,None,None,"re
             print(f"{os.path.basename(file)} empty after query filtering")
     return df
 
+# Function to read a specific chunk of the CSV file
+def _read_csv_chunk(params):
+    file, chunk_idx, chunk_size, select_cols, date_query, bvd_query, query, query_args = params
+
+    try:
+        if select_cols is None:
+            df =  pd.read_csv(file, skiprows=chunk_idx * chunk_size + 1,nrows=chunk_size, header=None if chunk_idx != 0 else 'infer')
+        else:
+            df =  pd.read_csv(file, usecols = select_cols ,skiprows=chunk_idx * chunk_size + 1,nrows=chunk_size, header=None if chunk_idx != 0 else 'infer')
+    except Exception as e:
+            raise ValueError(f"Error while reading chunk: {e}") 
+
+    if all(date_query):
+        try:
+            df = _date_fnc(df, date_col= date_query[2],  start_year = date_query[0], end_year = date_query[1],nan_action=date_query[3])
+        except Exception as e:
+            raise ValueError(f"Error while date selection: {e}") 
+        if df.empty:
+            print(f"{os.path.basename(file)} empty after date selection")
+            return df
+    if bvd_query is not None:
+        try:
+            df = df.query(bvd_query)
+        except Exception as e:
+            raise ValueError(f"Error while bvd filtration: {e}")    
+        if df.empty:
+            print(f"{os.path.basename(file)} empty after bvd selection")
+            return df
+    
+    # Apply function or query to filter df
+    if query is not None:
+        if isinstance(query, type(lambda: None)):
+            try:
+                df = query(df, *query_args) if query_args else query(df)
+            except Exception as e:
+                raise ValueError(f"Error curating file with custom function: {e}")
+        elif isinstance(query,str):
+            try:
+                df = df.query(query)
+            except Exception as e:
+                raise ValueError(f"Error curating file with pd.query(): {e}")
+        if df.empty:
+            print(f"{os.path.basename(file)} empty after query filtering")
+    return df   
+  
+def _load_csv_table(file:str,select_cols = None, date_query:list=[None,None,None,"remove"], bvd_query:str=None, query = None, query_args:list = None,num_workers:int = -1):
+
+    if num_workers < 1:
+        num_workers =int(psutil.virtual_memory().total/ (1024 ** 3)/12)
+
+    # Step 1: Determine the total number of rows using subprocess
+    num_lines = int(subprocess.check_output(f"wc -l {file}", shell=True).split()[0]) - 1
+
+    # Step 2: Calculate the chunk size to create 64 chunks
+    chunk_size = num_lines // num_workers
+
+    # Step 3: Prepare the params_list
+    params_list = [(file, i, chunk_size, select_cols, date_query, bvd_query, query, query_args) for i in range(num_workers)]
+
+    # Step 4: Use _run_parallel to read the DataFrame in parallel
+    chunks = _run_parallel(_read_csv_chunk, params_list, n_total=num_workers, num_workers=num_workers, pool_method='process', msg='Reading chunks')
+
+    # Step 5: Concatenate all chunks into a single DataFrame
+    df = pd.concat(chunks, ignore_index=True)
+
+    return df
+
 def _save_to(df,filename,format):
 
     if df is None:
@@ -2393,24 +2591,41 @@ def _table_names(file_name:str=None):
     df = df.drop_duplicates()
     return df
 
-def _table_match(tables,file_name:str=None):
+def _table_match(tables, file_name: str = None):
+    # Step 1: Determine if any table name ends with .csv
+    contains_csv = any(table.endswith('.csv') for table in tables)
+    
+    # Step 2: If .csv is found, remove the .csv suffix from each table name for matching purposes
+    if contains_csv:
+        tables = [table[:-4] if table.endswith('.csv') else table for table in tables]
+
+    # Step 3: Read the data products Excel file
     if file_name is None:
         df = _read_excel('data_products.xlsx')
     else:
         if not os.path.exists(file_name):
-            raise ValueError("moody's datahub data product file was not detected")
+            raise ValueError("Moody's datahub data product file was not detected")
         df = pd.read_excel(file_name)
-            
+    
+    # Step 4: Perform the matching
     result = df.groupby('Data Product')['Table'].apply(lambda x: all(table in tables for table in x.values))
 
-    # Get the "Data Product" values where all tables are found within the list of strings
+    # Step 5: Get the "Data Product" values where all tables are found within the list of strings
     matched_groups = result[result].index.tolist()
 
-    if len(matched_groups) >0:
-        data_product = matched_groups[0]
+    if len(matched_groups) > 0:
+        
+        #data_product = matched_groups[0]
+        data_product = f"Mutliple_Options: {matched_groups}"
+        print("It was not possible to determine the 'data product' for all exports. Run 'self.specify_data_product()' to correct")
+
+        # Add "[.csv]" only if the original tables list contained .csv suffixes
+        #if contains_csv:
+        #    data_product = f"[.csv] {data_product}"
     else:
-        data_product ="Unknown"
-    return data_product
+        data_product = "Unknown"
+
+    return data_product, tables
 
 def _table_dictionary(file_name:str=None):
     if file_name is None:
