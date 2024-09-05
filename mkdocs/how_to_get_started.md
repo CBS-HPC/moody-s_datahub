@@ -1,27 +1,11 @@
-title: How to get Started
-# How to get Started
-
 ## Download 
+
+The pip wheel can be manually downloaded using the link below: 
 
 https://github.com/CBS-HPC/moody-s_datahub/blob/main/dist/moodys_datahub-0.0.1-py3-none-any.whl
 
-### On Windows
 
-
-```python
-import subprocess
-
-url = "https://github.com/CBS-HPC/moody-s_datahub/blob/main/dist/moodys_datahub-0.0.1-py3-none-any.whl"
-output_file = "moodys_datahub-0.0.1-py3-none-any.whl"
-
-subprocess.run([
-    "powershell", 
-    "-Command", 
-    f"Invoke-WebRequest -Uri {url} -OutFile {output_file}"
-])
-```
-
-### On Linux
+Or directly to the working folder by running the line below:
 
 
 ```python
@@ -45,12 +29,11 @@ pip install moodys_datahub-0.0.1-py3-none-any.whl
 from moodys_datahub.tools import *
 ```
 
-### Connect to SFTP server using SSH key.
+### Connect to SFTP server using the provided SSH key file (.pem)
 
 
 ```python
 # Connects to default CBS SFTP server
-
 SFTP = Sftp(privatekey="user_provided-ssh-key.pem")
 
 # Connects to custom SFTP server
@@ -59,93 +42,48 @@ SFTP = Sftp(hostname = "example.com", username = "username", port = 22,privateke
 
 ### Select Data Product and Table
 
+Run the function below to select "Data Product" and "Table" that are available on the SFTP.
+
 
 ```python
 SFTP.select_data()
 ```
 
-    Retrieving Data Product overview from SFTP..wait a moment
-    
-
 
     ---------------------------------------------------------------------------
 
-    SSHException                              Traceback (most recent call last)
+    NameError                                 Traceback (most recent call last)
 
-    Cell In[3], line 1
+    Cell In[2], line 1
     ----> 1 SFTP.select_data()
     
 
-    File c:\Users\kgp.lib\Anaconda3\envs\orbis\Lib\site-packages\orbis\tools.py:567, in Sftp.select_data(self)
-        564     print(f"{self.set_table} was set as Table")
-        566 if self._tables_available is None and self._tables_backup is None:
-    --> 567         self.tables_available(save_to=False)
-        569 asyncio.ensure_future(f(self))
-    
+    NameError: name 'SFTP' is not defined
 
-    File c:\Users\kgp.lib\Anaconda3\envs\orbis\Lib\site-packages\orbis\tools.py:819, in Sftp.tables_available(self, save_to, reset)
-        806 """
-        807 Retrieve available SFTP data products and tables and save them to a file.
-        808 
-       (...)
-        815 - Pandas DataFrame with the available SFTP data products and tables.
-        816 """
-        818 if self._tables_available is None and self._tables_backup is None:
-    --> 819    self._tables_available = self._table_overview()
-        820    self._tables_backup = self._tables_available 
-        821 elif reset:
-    
 
-    File c:\Users\kgp.lib\Anaconda3\envs\orbis\Lib\site-packages\orbis\tools.py:1011, in Sftp._table_overview(self, product_overview)
-       1008 if product_overview is None:
-       1009     product_overview =_table_names()
-    -> 1011 with self.connect() as sftp:
-       1012     exports = sftp.listdir()
-       1013     newest_exports = []
-    
+### Overview of Remote Files
 
-    File c:\Users\kgp.lib\Anaconda3\envs\orbis\Lib\site-packages\orbis\tools.py:553, in Sftp.connect(self)
-        543 def connect(self):
-        544     """
-        545     Establish an SFTP connection.
-        546 
-       (...)
-        551     - SFTP connection object.
-        552     """
-    --> 553     sftp = pysftp.Connection(host=self.hostname , username=self.username ,port = self.port ,private_key=self.privatekey, cnopts=self._cnopts)
-        554     return sftp
-    
+The "Data Product" and "Table" has been selected the associated files on the SFTP server are listed as shown below:
 
-    File c:\Users\kgp.lib\Anaconda3\envs\orbis\Lib\site-packages\pysftp\__init__.py:140, in Connection.__init__(self, host, username, private_key, password, port, private_key_pass, ciphers, log, cnopts, default_path)
-        138 # Begin the SSH transport.
-        139 self._transport = None
-    --> 140 self._start_transport(host, port)
-        141 self._transport.use_compression(self._cnopts.compression)
-        142 self._set_authentication(password, private_key, private_key_pass)
-    
 
-    File c:\Users\kgp.lib\Anaconda3\envs\orbis\Lib\site-packages\pysftp\__init__.py:176, in Connection._start_transport(self, host, port)
-        174 '''start the transport and set the ciphers if specified.'''
-        175 try:
-    --> 176     self._transport = paramiko.Transport((host, port))
-        177     # Set security ciphers if set
-        178     if self._cnopts.ciphers is not None:
-    
+```python
+SFTP.remote_files
+```
 
-    File c:\Users\kgp.lib\Anaconda3\envs\orbis\Lib\site-packages\paramiko\transport.py:448, in Transport.__init__(self, sock, default_window_size, default_max_packet_size, gss_kex, gss_deleg_creds, disabled_algorithms, server_sig_algs)
-        446                 break
-        447     else:
-    --> 448         raise SSHException(
-        449             "Unable to connect to {}: {}".format(hostname, reason)
-        450         )
-        451 # okay, normal socket-ish flow here...
-        452 threading.Thread.__init__(self)
-    
+### Column Selection
 
-    SSHException: Unable to connect to example.com: [WinError 10060] Et forsøg på at oprette forbindelse mislykkedes, fordi den part, der havde oprettet forbindelse, ikke svarede korrekt efter en periode, eller en oprettet forbindelse blev afbrudt, fordi værten ikke svarede
+Select which columns (variables) to keep 
 
+
+```python
+SFTP.select_columns()
+```
 
 ### BVD Filter
+
+Set a "bvd_id" filter. This can be provided in different ways as seen below as a python list of in .txt [Link] or .xlsx[Link] format. When setting the .bvd_list the user will be prompted to select one or more "bvd" related columns.
+
+It can perform an extract search based on full bvd_id numbers or based on the country code that is the two starting letter of the bvd_id numbers.
 
 
 ```python
@@ -164,39 +102,153 @@ SFTP.bvd_list = ['DK28505116','SE5567031702','SE5565475489','NO934382404','SE556
 
 ### Time Period Filter
 
+A time periode filter can be set as seen below. Subsequently the user will be prompted to select a "date" column. 
+
+Not all table have suitable "date" columns for which time periode filtration is not possible. 
+
 
 ```python
 SFTP.time_period = [1998,2005]
 ```
 
-### Column Filter
+### Create Filters using the SFTP.query() method
+
+With the SFTP.query() method the user can create more custom filters.The method utilises pandas.query() method. A few examples are shown below:
 
 
 ```python
-SFTP.select_columns()
+# Example 1: 
+SFTP.query ="total_assets > 1000000000"
+
+# Example 2
+query_args = ['CN9360885371','CN9360885372','CN9360885373']
+SFTP.query=f"bvd_id_number in {query_args}"
+
+# Example 3
+query_args = 'DK'
+SFTP.query = f"bvd_id_number.str.startswith('{query_args}', na=False)"
+
+# Example 4
+bvd_numbers = ['CN9360885371','CN9360885372','CN9360885373']
+country_code = 'CN'
+SFTP.query =f"bvd_id_number in {bvd_numbers} | (total_assets > 1000000000 & bvd_id_number.str.startswith('{country_code}', na=False))"
+```
+
+### Create Filters using custom functions
+
+It is also possible to defined SFTP.queryprovide a custom functionWith the pandas.query() method the user can create more custom filters. Below are show four examples of how to setup a query string. 
+
+
+```python
+bvd_id_numbers = ['CN9360885371','CN9360885372','CN9360885373']
+column_filter = ['bvd_id_number','fixed_assets','original_currency','total_assets']  # Example column filter
+
+def bvd_filter(df,bvd_id_numbers,column_filter,specific_value,specific_col):
+
+     # Check if specific_col is a column in the DataFrame
+    if specific_col is not None and specific_col not in df.columns:
+        raise ValueError(f"{specific_col} is not a column in the DataFrame.")
+
+    if specific_value is not None:
+                df = df[df[specific_col] > specific_value]
+
+    if bvd_id_numbers:
+        if isinstance(bvd_id_numbers, list):
+            row_filter = df['bvd_id_number'].isin(bvd_id_numbers)
+        elif isinstance(bvd_id_numbers, str):
+            row_filter  = df['bvd_id_number'].str.startswith(bvd_id_numbers)
+        else:
+            raise ValueError("bvd_id_numbers must be a list or a string")
+                
+        if row_filter.any():
+            df = df.loc[row_filter]
+        else: 
+           df = None 
+
+    if df is not None and column_filter:
+        df = df[column_filter]
+
+    return df
+
+SFTP.query = bvd_filter
+SFTP.query_args = [bvd_id_numbers,column_filter,1000000000,'total_assets']
+
 ```
 
 ### Test the selected Filters
 
+Before running the selected filters on all files (SFTP.remote_files) is can be a good idea to test it on a single sub-file using the function below. 
+
+**It should be noted that the sub-file that is used below will not contain rows that a relevant for the defined filters.**
+
 
 ```python
-test_sample = SFTP.process_one(save_to='csv')
+df_sample = SFTP.process_one()
+
+df_sample = SFTP.process_one(save_to = 'csv',files = SFTP.remote_files[0], n_rows = 2000)
+```
+
+### Download all files before "Batch Processing"
+
+If working on a slower connection it may be benificial to start downloading all remote files before processing them.
+
+When the downloading process has been started "SFTP._download_finished" will change from a "None" to "False and then "True" upon download completion.
+
+The function is executed asyncionsly and the user can proceed working in the jupyter notebook while it is running.
+
+
+
+```python
+SFTP.download_all()
+
+# Define the number of workers/processors that should be utilsed. 
+
+SFTP.download_all(num_workers = 12)
 ```
 
 ### Batch Process for on all files 
 
+All files can be processed using the function below. 
+
+- If "SFTP._download_finished" is "None" the function also download the files. 
+
+- If "SFTP._download_finished" is "False" it will wait upon the download process has been completed and "SFTP._download_finished" is set to "True". 
+
 
 ```python
+
+# If no input arguments are provided it will utilise the filters that has beeen defined in the selection above.
 results = SFTP.process_all()
+
+# Input arguments can also be set manually as shown below:  
+results = SFTP.process_all(files = SFTP.remote_files, 
+                            destination = "file_name",  
+                            num_workers = 12, 
+                            select_cols = ['bvd_id_number','fixed_assets','original_currency','total_assets'],
+                            date_query = None,
+                            bvd_query = None,
+                            query = bvd_filter, 
+                            query_args = [bvd_id_numbers,column_filter,1000000000,'total_assets']
+                            )
+
 ```
 
 ### Search in Data Dictionary for variables/columns
 
+It is possible to search in the "Data Dictionary" for variables, keywords or topic. The "Data Dictionary" will be filtrated according to "Data Product" and "Table" selection.
+
 
 ```python
-search_dict = SFTP.search_dictionary(save_to='xlsx', search_word='total_asset')
+df_search = SFTP.search_dictionary(save_to = 'xlsx', search_word = 'total_asset')
 
-search_dict = SFTP.search_dictionary(search_word='subsidiaries',letters_only=True,search_cols= { 'Data Product': False,'Table': False,'Column': True,'Definition': False })
+df_search = SFTP.search_dictionary(save_to = 'xlsx',
+                                    search_word = 'subsidiaries',
+                                    search_cols= { 'Data Product': False,'Table': False,'Column': True,'Definition': False },
+                                    letters_only = True,
+                                    extact_match = False,
+                                    data_product = None,
+                                    table = None,  
+                                    )
 ```
 
 
@@ -242,7 +294,26 @@ search_dict = SFTP.search_dictionary(search_word='subsidiaries',letters_only=Tru
 
 
 
+### Search for country codes
+
+The function below can be used to find the "bvd_id" country codes for specific nations.
+
+
+```python
+# Search for country codes by country name
+SFTP.search_country_codes(search_word='congo')
+
+# Define columns to search in:
+
+SFTP.search_country_codes(search_word='DK', search_cols = { 'Country': False,'Code': True })
+```
+
 ### Create a new SFTP Object
+
+The "SFTP.copy_obj()" function can be used to create a new SFTP object in order to process another "Data Product"/"Table.
+
+- SFTP.select_data() will be prompted automatically 
+- Other filters will be reset.
 
 
 ```python
@@ -264,71 +335,6 @@ SFTP_2 = SFTP.copy_obj()
 
     Button(description='Cancel', style=ButtonStyle())
 
-
-### Create Filters using the pandas.query() method
-
-
-```python
-
-# Example 1
-SFTP.query ="total_assets > 1000000000"
-query_1 = SFTP.process_all() 
-
-# Example 2
-query_args = ['CN9360885371','CN9360885372','CN9360885373']
-SFTP.query=f"bvd_id_number in {query_args}"
-query_2 = SFTP.process_all() 
-
-# Example 3
-query_args = 'DK'
-SFTP.query = f"bvd_id_number.str.startswith('{query_args}', na=False)"
-query_3 = SFTP.process_all() 
-
-# Example 4
-bvd_numbers = ['CN9360885371','CN9360885372','CN9360885373']
-country_code = 'CN'
-SFTP.query =f"bvd_id_number in {bvd_numbers} | (total_assets > 1000000000 & bvd_id_number.str.startswith('{country_code}', na=False))"
-query_4 = SFTP.process_all() 
-```
-
-### Create Filters using custom functions
-
-
-```python
-bvd_id_numbers = ['CN9360885371','CN9360885372','CN9360885373']
-column_filter = ['bvd_id_number','fixed_assets','original_currency','total_assets']  # Example column filter
-
-def bvd_filter(df,bvd_id_numbers=None,column_filter=None,specific_value=None,specific_col=None):
-
-     # Check if specific_col is a column in the DataFrame
-    if specific_col is not None and specific_col not in df.columns:
-        raise ValueError(f"{specific_col} is not a column in the DataFrame.")
-
-    if specific_value is not None:
-                df = df[df[specific_col] > specific_value]
-
-    if bvd_id_numbers:
-        if isinstance(bvd_id_numbers, list):
-            row_filter = df['bvd_id_number'].isin(bvd_id_numbers)
-        elif isinstance(bvd_id_numbers, str):
-            row_filter  = df['bvd_id_number'].str.startswith(bvd_id_numbers)
-        else:
-            raise ValueError("bvd_id_numbers must be a list or a string")
-                
-        if row_filter.any():
-            df = df.loc[row_filter]
-        else: 
-           df = None 
-
-    if df is not None and column_filter:
-        df = df[column_filter]
-
-    return df
-
-SFTP.query = bvd_filter
-SFTP.query_args = [bvd_id_numbers,column_filter,1000000000,'total_assets']
-query_5 = SFTP.process_all() 
-```
 
 ### Other Options
 
