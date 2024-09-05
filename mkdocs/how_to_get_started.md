@@ -29,7 +29,11 @@ pip install moodys_datahub-0.0.1-py3-none-any.whl
 from moodys_datahub.tools import *
 ```
 
-### Connect to SFTP server using the provided SSH key file (.pem)
+### Connect to SFTP server
+
+For CBS associates want to connect to the "CBS server" the user needs only to provide the "privatkey" (.pem) provided by CBS Staff.
+
+To connec to other servers the user needs to provide "hostname", "username","port" and "privatkey".
 
 
 ```python
@@ -49,18 +53,6 @@ Run the function below to select "Data Product" and "Table" that are available o
 SFTP.select_data()
 ```
 
-
-    ---------------------------------------------------------------------------
-
-    NameError                                 Traceback (most recent call last)
-
-    Cell In[2], line 1
-    ----> 1 SFTP.select_data()
-    
-
-    NameError: name 'SFTP' is not defined
-
-
 ### Overview of Remote Files
 
 The "Data Product" and "Table" has been selected the associated files on the SFTP server are listed as shown below:
@@ -68,6 +60,28 @@ The "Data Product" and "Table" has been selected the associated files on the SFT
 
 ```python
 SFTP.remote_files
+```
+
+### Define Options
+
+The function below allows the user to set the following options:
+
+
+**SFTP.delete_files** : Delete Files After Processing (To Prevent Large Storage Consumption - 'False' is recommeded)
+
+
+**SFTP.concat_files** : Concatenate Sub-Files into a Single Output File ('True' is Recommeded):
+
+
+**SFTP.output_format** : Select Output File Formats (More than one can be selected - '.xlsx' is not recommeded)
+
+
+**SFTP.file_size_mb** : File Size Cutoff (MB) Before Splitting into Multiple Output files (Only an approxiate)
+
+
+
+```python
+SFTP.define_options()
 ```
 
 ### Column Selection
@@ -251,49 +265,6 @@ df_search = SFTP.search_dictionary(save_to = 'xlsx',
                                     )
 ```
 
-
-
-
-<div>
-<style scoped>
-    .dataframe tbody tr th:only-of-type {
-        vertical-align: middle;
-    }
-
-    .dataframe tbody tr th {
-        vertical-align: top;
-    }
-
-    .dataframe thead th {
-        text-align: right;
-    }
-</style>
-<table border="1" class="dataframe">
-  <thead>
-    <tr style="text-align: right;">
-      <th></th>
-      <th>Unnamed: 0</th>
-      <th>Data Product</th>
-      <th>Table</th>
-      <th>Column</th>
-      <th>Definition</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <th>1546</th>
-      <td>1547</td>
-      <td>Key Ownership (Monthly)</td>
-      <td>basic_shareholder_info</td>
-      <td>no_of_recorded_subsidiaries</td>
-      <td>This field indicates the number of subsidiarie...</td>
-    </tr>
-  </tbody>
-</table>
-</div>
-
-
-
 ### Search for country codes
 
 The function below can be used to find the "bvd_id" country codes for specific nations.
@@ -319,126 +290,3 @@ The "SFTP.copy_obj()" function can be used to create a new SFTP object in order 
 ```python
 SFTP_2 = SFTP.copy_obj()
 ```
-
-
-    Dropdown(description='Data Product:', options=('Listed Financials (Monthly)', 'Interim Financials (Monthly)', …
-
-
-
-    Dropdown(description='Table:', disabled=True, options=(), value=None)
-
-
-
-    Button(description='OK', disabled=True, style=ButtonStyle())
-
-
-
-    Button(description='Cancel', style=ButtonStyle())
-
-
-### Other Options
-
-
-```python
-SFTP.delete_files = False # True/False: To delete the downloaded files post curation (to prevent very large amounts of data being stored locally)
-SFTP.concat_files = True # True/False: To concatenate the curated data product sub files into a single output file.
-SFTP.output_format =  [".xlsx",".csv",".parquet"] # [".csv","xlsx",".parquet",".pickle",".dta"] # Defining output formats.
-SFTP.file_size_mb = 100 # Cut-off size for when to split output files into multiple files.
-```
-
-### Other functions
-
-
-```python
-search_dict = SFTP.search_dictionary(save_to='xlsx', search_word='total_asset')
-
-# Create a new SFTP Object
-SFTP_2 = SFTP.copy_obj()
-
-# Search for country codes
-SFTP.search_country_codes(search_word='congo')
-```
-
-    The folloiwng query was executed:`Column`.str.contains('total_asset', case=False, na=False,regex=False) | `Definition`.str.contains('total_asset', case=False, na=False,regex=False)
-    Results have been saved to 'orbis_dict_search_20240704_092243.xlsx'
-    
-
-
-
-# Matching bvd_numbers from Identifiers dataset
-
-
-```python
-SFTP.delete_files = False # True/False: To delete the downloaded files post curation (to prevent very large amounts of data being stored locally)
-SFTP.concat_files = True # True/False: To concatenate the curated data product sub files into a single output file.
-SFTP.output_format =  [".csv"] # Defining output formats.
-SFTP.file_size_mb = 300 # Cut-off size for when to split output files into multiple files.
-```
-
-## company name -> bvd_numbers (using fuzzy match algoritm)
-
-
-```python
-SFTP.remote_path = "IvdS14LwRxucymVszEBE3Q/unscheduled/giin"
-SFTP.local_path = "company_names" 
-df_names = SFTP.process_all(SFTP.remote_files,destination='company_name',select_cols= ['bvd_id_number','name_as_in_the_fatca_register_']) # Only loading the columns defined in filter_col
-```
-
-    Remote path is valid:'IvdS14LwRxucymVszEBE3Q/unscheduled/giin'
-    Folder 'company_names' created.
-    
-
-
-```python
-# Example usage:
-input_strings = ["Bank of America", "AXA2", "JPMorgan Chase"]
-extended_list = input_strings * 100
-match_col = 'name_as_in_the_fatca_register_'
-return_col = 'bvd_id_number'
-
-str_remove = ["GMBH"," - Branch","CO.","LTD","Ltd","Limited", "GMBH","A/S"]
-
-result_df = fuzzy_match(input_strings=extended_list,df=df_names,num_workers=-1, match_column=match_col, return_column=return_col,cut_off=50,remove_str=str_remove)
-
-result_df.head()
-```
-
-## national id numbers -> bvd_numbers 
-
-
-```python
-SFTP.local_path = "Identifiers"
-SFTP.remote_path = "IvdS14LwRxucymVszEBE3Q/unscheduled/identifiers"
-
-# Below is just to collect 1000 random 'national_id_numbers'
-SFTP.output_format =  None # Defining output formats.
-df_id_number = SFTP.process_all(files =SFTP.remote_files[0:4],num_workers=-1,destination='identifiers',select_cols= ['bvd_id_number','national_id_number'])
-national_id_number = random_sample = df_id_number['national_id_number'].sample(n=1000, random_state=42)
-
-```
-
-    Folder 'Identifiers' already exists.
-    Remote path is valid:'IvdS14LwRxucymVszEBE3Q/unscheduled/identifiers'
-    
-
-
-```python
-SFTP.output_format =  [".csv"] # Defining output formats.
-
-# Define query statement
-query_args = list(national_id_number.dropna())
-query_str =f"national_id_number in {query_args}"
-
-# Execute
-query_id_numbers = SFTP.process_all(SFTP.remote_files[0:4],num_workers = -1,destination ="query_2",select_cols = ['bvd_id_number','national_id_number'],query = query_str,query_args=query_args) 
-
-# Sanity check 
-query_id_numbers['national_id_number'].isin(query_args).all()
-```
-
-
-
-
-    True
-
-

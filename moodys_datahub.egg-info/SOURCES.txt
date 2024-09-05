@@ -3,10 +3,13 @@ README.md
 pyproject.toml
 dist/moodys_datahub-0.0.1-py3-none-any.whl
 dist/moodys_datahub-0.0.1.tar.gz
+mkdocs/git documentation.md
 mkdocs/how_to_get_started.ipynb
 mkdocs/how_to_get_started.md
 mkdocs/moody-s datahub.md
+mkdocs/moodys_datahub-0.0.1-py3-none-any.whl
 mkdocs/reference.md
+mkdocs/.ipynb_checkpoints/how_to_get_started-checkpoint.ipynb
 moodys_datahub/__init__.py
 moodys_datahub/tools.py
 moodys_datahub/utils.py

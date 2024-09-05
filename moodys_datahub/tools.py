@@ -614,6 +614,32 @@ class Sftp:
 
         asyncio.ensure_future(f(self))
 
+    def define_options(self):
+        async def f(self):
+            
+            config = {
+            'delete_files': self.delete_files,
+            'concat_files': self.concat_files,
+            'output_format': self.output_format,
+            'file_size_mb': self.file_size_mb}
+
+            Options_obj = _SelectOptions(config)
+
+            config = await Options_obj.display_widgets()
+
+            if config:
+                self.delete_files = config['delete_files']
+                self.concat_files = config['concat_files']
+                self.output_format = config['output_format']
+                self.file_size_mb = config['file_size_mb']
+
+                print("The following options were selected:")
+                print(f"Delete Files: {self.delete_files}")
+                print(f"Concatenate Files: {self.output_format}")
+                print(f"Output File Size: {self.file_size_mb } MB")
+        
+        asyncio.ensure_future(f(self))
+
     def select_columns(self):
         """
         Asynchronously select and set columns for a specified data product and table using interactive widgets.
@@ -681,12 +707,15 @@ class Sftp:
         Returns:
         - Deep copy of the current Sftp instance with optional updates.
         """
-        new_obj = copy.deepcopy(self)
+
+        new_obj= Sftp(hostname = self.hostname, username = self.username, port = 22, privatekey= self.privatekey) 
+
+        #new_obj = copy.deepcopy(self)
 
         new_obj.select_data()
-        new_obj.bvd_list = None
-        new_obj.time_period = None
-        new_obj.select_cols = None
+        #new_obj.bvd_list = None
+        #new_obj.time_period = None
+        #new_obj.select_cols = None
         
         return new_obj
 
@@ -1249,6 +1278,7 @@ class Sftp:
         _, _ = self._check_args(self._remote_files)
 
         self._download_finished = None 
+        self.delete_files = False
 
         print("Downloading all files")
         process = Process(target=self.process_all, kwargs={'num_workers': num_workers, 'pool_method': pool_method})
@@ -2179,6 +2209,127 @@ class _Multi_dropdown:
             await asyncio.sleep(0.1)
 
         return self.selected_values
+
+class _SelectOptions:
+    def __init__(self,config = None):
+        # Initialize default configuration
+
+        if config:
+            self.config  = config
+        else:    
+            self.config = {
+                'delete_files': False,
+                'concat_files': True,
+                'output_format': [".csv"],
+                'file_size_mb': 500,
+            }
+
+        # Title for delete_files
+        self.delete_files_title = widgets.HTML(value="<h3>Delete Files After Processing (To Prevent Large Storage Consumption - 'False' is recommeded):</h3>")
+        # Dropdown for delete_files
+        self.delete_files_dropdown = widgets.Dropdown(
+            options=[True, False],
+            value=self.config['delete_files'],  # Use default value
+            description='Delete Files:',
+            disabled=False,
+        )
+
+        # Title for concat_files
+        self.concat_files_title = widgets.HTML(value="<h3>Concatenate Sub-Files into a Single Output File ('True' is Recommeded):</h3>")
+        # Dropdown for concat_files
+        self.concat_files_dropdown = widgets.Dropdown(
+            options=[True, False],
+            value=self.config['concat_files'],  # Use default value
+            description='Concat Files:',
+            disabled=False,
+        )
+
+        # Title for output_format
+        self.output_format_title = widgets.HTML(value="<h3>Select Output File Formats (More than one can be selected - '.xlsx' is not recommeded):</h3>")
+        # Multi-select dropdown for output_format
+        self.output_format_multiselect = widgets.SelectMultiple(
+            options=[".csv", ".xlsx", ".parquet", ".pickle", ".dta"],
+            value=self.config['output_format'],  # Use default value
+            description='Formats:',
+            disabled=False,
+        )
+
+        # Title for file_size_mb
+        self.file_size_title = widgets.HTML(value="<h3>File Size Cutoff (MB) Before Splitting into Multiple Output files (Only an approxiate):</h3>")
+        # Input field for file_size_mb
+        self.file_size_input = widgets.FloatText(
+            value=self.config['file_size_mb'],  # Use default value
+            description='File Size (MB):',
+            disabled=False,
+        )
+
+        # Create the OK button
+        self.ok_button = widgets.Button(
+            description='OK',
+            disabled=False,
+        )
+
+        # Create the Cancel button
+        self.cancel_button = widgets.Button(
+            description='Cancel',
+            disabled=False,
+        )
+
+        # Observe changes in dropdown selections and button clicks
+        self.ok_button.on_click(self._ok_button_click)
+        self.cancel_button.on_click(self._cancel_button_click)
+
+    def _ok_button_click(self, b):
+        self.ok_button.disabled = True  # Disable the OK button after it's clicked
+        self.cancel_button.disabled = True
+        self.delete_files_dropdown.disabled = True
+        self.concat_files_dropdown.disabled = True
+        self.output_format_multiselect.disabled = True
+        self.file_size_input.disabled = True
+
+        # Store the current configuration based on user input
+        self.config = {
+            'delete_files': self.delete_files_dropdown.value,
+            'concat_files': self.concat_files_dropdown.value,
+            'output_format': list(self.output_format_multiselect.value),
+            'file_size_mb': self.file_size_input.value,
+        }
+
+    def _cancel_button_click(self, b):
+        # On cancel, keep the default config (already initialized in __init__)
+        self.ok_button.disabled = True  # Disable the OK button
+        self.cancel_button.disabled = True  # Disable the Cancel button
+        self.delete_files_dropdown.disabled = True
+        self.concat_files_dropdown.disabled = True
+        self.output_format_multiselect.disabled = True
+        self.file_size_input.disabled = True
+
+    async def display_widgets(self):
+
+        spacer = widgets.Box(
+            children=[widgets.Label(value="")],  # Add a label with empty text for spacing
+            layout=widgets.Layout(height='20px')  # Adjust height for desired spacing
+            )
+    
+
+        # Display the titles, widgets, and buttons
+        display(widgets.VBox([
+            self.delete_files_title,
+            self.delete_files_dropdown,
+            self.concat_files_title,
+            self.concat_files_dropdown,
+            self.output_format_title,
+            self.output_format_multiselect,
+            self.file_size_title,
+            self.file_size_input,
+            spacer,  # Add spacing between input fields and buttons
+            widgets.HBox([self.ok_button, self.cancel_button]),
+        ]))
+
+        while not self.cancel_button.disabled:
+            await asyncio.sleep(0.1)
+
+        return self.config
 
 def _select_list(class_type,values, col_name: str,title:str,fnc=None, n_args = None): 
     
