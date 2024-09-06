@@ -1,6 +1,11 @@
 ## Download 
 
-The pip wheel can be manually downloaded using the link below: 
+**This jupyter notebook can be downloaded from this link below:**
+
+https://github.com/CBS-HPC/moody-s_datahub/blob/main/mkdocs/how_to_get_started.ipynb
+
+
+**The pip wheel can be manually downloaded using the link below:**
 
 https://github.com/CBS-HPC/moody-s_datahub/blob/main/dist/moodys_datahub-0.0.1-py3-none-any.whl
 
