@@ -31,8 +31,10 @@ For CBS Associates, it is highly recommended to use [UCloud](https://cbs-hpc.git
 
 ## Getting Started
 
-Below you will find a link to a "How to Get Started" tutorial, which can also be downloaded as a Jupyter notebook, as well as a link to the "API Reference" page.
+Below you will find links to a "How to Get Started" tutorial (which can also be downloaded as a Jupyter notebook), the moodys_datahub Git repository, and the "API Reference" page.
 
 - [How to get started](/moody-s_datahub/mkdocs/how_to_get_started/)
+
+- [Git Repo "moody-s_datahub"](https://github.com/CBS-HPC/moody-s_datahub)
 
 - [API Reference](/moody-s_datahub/mkdocs/reference/)
