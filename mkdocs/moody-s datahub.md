@@ -35,6 +35,6 @@ Below you will find links to a "How to Get Started" tutorial (which can also be 
 
 - [How to get started](/moody-s_datahub/mkdocs/how_to_get_started/)
 
-- [Git Repo "moody-s_datahub"](https://github.com/CBS-HPC/moody-s_datahub)
+- [Git Repository: moody-s_datahub](https://github.com/CBS-HPC/moody-s_datahub)
 
 - [API Reference](/moody-s_datahub/mkdocs/reference/)
