@@ -9,12 +9,11 @@ The package offers a suite of functions for selecting, downloading, and curating
 
 ## SFTP server Access
 
-To CBS associates should contact [CBS staff]() to provide a personal "privatkey" (.pem) that is used to estabilish connection to the available "CBS server".
+To CBS associates should contact [CBS staff](mailto:rdm@cbs.dk) to provide a personal "privatkey" (.pem) that is used to estabilish connection to the available "CBS server".
 
 To access other SFTP servers the user also needs additional information regarding "hostname" and "username". 
 
 When connecting to an SFTP server, the package detects all export folders and attempts to match them to specific "Data Products" based on their "Table" titles. However, some "Data Products" have identical table names, making automatic differentiation impossible. In such cases, the user will be prompted to manually match the export folder with the correct "Data Product."
-
 
 ## Format recommandation
 
