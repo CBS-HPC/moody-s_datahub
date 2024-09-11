@@ -41,26 +41,37 @@ import asyncio
 
 # Defining Sftp Class
 class Sftp:
-    def __init__(self, hostname:str = "s-f2112b8b980e44f9a.server.transfer.eu-west-1.amazonaws.com", username:str = "D2vdz8elTWKyuOcC2kMSnw", port:int = 22, privatekey:str = None):
-        """Constructor Method
-
-         ### Sftp Class Object Variables        
-        - `connection`: None or pysftp.Connection object. Represents the current SFTP connection.
-        
-        - `hostname`: str. Hostname of the SFTP server (Default connects to CBS SFTP server).
-        - `username`: str. Username for authentication (Default connects to CBS SFTP server).
-        - `privatekey`: str or None. Path to the private key file for authentication (Valid private key is needed to access SFTP server)
-        - `port`: int. Port number for the SFTP connection (default is 22).
-
-        - `output_format`: list of str. List of supported output file formats (e.g., ['.csv', '.parquet']).
-        - `file_size_mb`: int. Maximum file size in MB for before splitting output files..
-        - `delete_files`: bool. Flag indicating whether to delete processed files.
-        - `concat_files`: bool. Flag indicating whether to concatenate processed files.
-        - `select_cols`: list or None. List of columns to select during file operations.
-        - `query`: str, fnc or None. Query string or function for filtering data.
-        - `query_args`: list or None. list of arguments for the query string or function.
-        - `dfs`: None or DataFrame. Stores concatenated DataFrames if concatenation is enabled.
     
+    """
+    A class to manage SFTP connections and file operations for data transfer.
+    """
+
+    def __init__(self, hostname:str = "s-f2112b8b980e44f9a.server.transfer.eu-west-1.amazonaws.com", username:str = "D2vdz8elTWKyuOcC2kMSnw", port:int = 22, privatekey:str = None, data_product_template:str = None ):
+        
+        """Constructor Method
+        
+        ### Constructor Parameters:
+        - `hostname` (str, optional): Hostname of the SFTP server (default is CBS SFTP server).
+        - `username` (str, optional): Username for authentication (default is CBS SFTP server).
+        - `port` (int, optional): Port number for the SFTP connection (default is 22).
+        - `privatekey` (str, optional): Path to the private key file for authentication (required for SFTP access).
+        - `data_product_template` (str, optional): Template for managing data products during SFTP operations.
+
+        ### Object Attributes:
+        - `connection` (pysftp.Connection or None): Represents the current SFTP connection, initially set to `None`.
+        - `hostname` (str): Hostname for the SFTP server.
+        - `username` (str): Username for SFTP authentication.
+        - `privatekey` (str or None): Path to the private key file for SFTP authentication.
+        - `port` (int): Port number for SFTP connection (default is 22).
+        
+        ### File Handling Attributes:
+        - `output_format` (list of str): Supported output formats for files (default is ['.csv']).
+        - `file_size_mb` (int): Maximum file size in MB before splitting files (default is 500 MB).
+        - `delete_files` (bool): Flag indicating whether to delete processed files (default is `False`).
+        - `concat_files` (bool): Flag indicating whether to concatenate processed files (default is `True`).
+        - `query` (str, function, or None): Query string or function for filtering data (default is `None`).
+        - `query_args` (list or None): List of arguments for the query string or function (default is `None`).
+        - `dfs` (DataFrame or None): Stores concatenated DataFrames if concatenation is enabled.
         """
 
         # Set connection object to None (initial value)
@@ -112,7 +123,7 @@ class Sftp:
         elif sys.platform == 'win32':
             self._max_path_length = 256
         
-        self.tables_available(save_to=False)
+        self.tables_available(product_overview = data_product_template)
 
     # pool method
     @property
@@ -572,22 +583,43 @@ class Sftp:
         sftp = pysftp.Connection(host=self.hostname , username=self.username ,port = self.port ,private_key=self.privatekey, cnopts=self._cnopts)
         return sftp
 
-    def select_data(self):
+    def select_data(self):  
         """
         Asynchronously select and set the data product and table using interactive widgets.
 
-        This method initializes an instance of `_SelectData` with `_tables_backup`, displays interactive widgets
-        to allow the user to select a data product and table, and sets these selections to `self.set_data_product`
-        and `self.set_table`, respectively. It also prints the selected data product and table.
+        This method facilitates user interaction for selecting a data product and table from a backup of available tables.
+        It leverages asynchronous widgets, allowing the user to make selections and automatically updating instance attributes
+        for the selected data product and table. The selections are applied to `self.set_data_product` and `self.set_table`, 
+        which can be used in subsequent file operations.
 
-        The method ensures that `_tables_available` or `_tables_backup` is populated by calling `tables_available()`
-        if they are not already set.
+        ### Workflow:
+        - An instance of the `_SelectData` class is created, using `_tables_backup` to populate the widget options.
+        - Users select a data product and table through the interactive widget.
+        - The method validates the selected options and updates the instance's `set_data_product` and `set_table` attributes.
+        - If multiple data products match the selection, a list of options is displayed to the user for further refinement.
+        - The selected data product and table are printed to confirm the operation.
 
-        Notes:
-        - This method uses `asyncio.ensure_future` to run the asynchronous function `f` which handles the widget interaction.
+        ### Internal Async Function (`f`):
+        - The method contains an internal asynchronous function `f` that handles the widget display and data selection.
+        - It uses the `await` keyword to ensure non-blocking behavior while the user interacts with the widget.
+        - The selected values are processed and validated before being assigned to the instance variables.
+        
+        ### Notes:
+        - This method uses `asyncio.ensure_future` to ensure that the asynchronous function `f` runs concurrently without blocking other operations.
+        - If multiple matches for the selected data product are found, the user is prompted to further specify the data product.
+        - The method uses a copy of `_tables_backup` to preserve the original data structure during the filtering process.
 
-        Example:
+        ### Example:
+            ```python
+            # Trigger the data selection process
             self.select_data()
+            ```
+        ### Raises:
+        - `ValueError`: If no valid data product or table is selected after interaction.
+        
+        ### Expected Outputs:
+        - Updates `self.set_data_product` and `self.set_table` based on user selections.
+        - Prints confirmation of the selected data product and table.
         """
            
         async def f(self):
@@ -615,6 +647,62 @@ class Sftp:
         asyncio.ensure_future(f(self))
 
     def define_options(self):
+        """
+        Asynchronously define and set file operation options using interactive widgets.
+
+        This method allows the user to configure file operation settings such as whether to delete files after processing, 
+        concatenate files, specify output format, and define the maximum file size. These options are displayed as interactive 
+        widgets, and the user can select their preferred values. Once the options are selected, the instance variables 
+        are updated with the new configurations.
+
+        ### Workflow:
+        - A dictionary `config` is initialized with the current values of key file operation settings (`delete_files`, 
+        `concat_files`, `output_format`, `file_size_mb`).
+        - An instance of `_SelectOptions` is created with this configuration, displaying the interactive widgets.
+        - The user's selections are awaited asynchronously using the `await` keyword, ensuring non-blocking behavior.
+        - Once the user makes selections, the corresponding instance variables (`delete_files`, `concat_files`, `output_format`, 
+        `file_size_mb`) are updated with the new values.
+        - A summary of the selected options is printed for confirmation.
+
+        ### Internal Async Function (`f`):
+        - The internal function `f` manages the asynchronous behavior, ensuring that the user can interact with the widget 
+        without blocking the main thread.
+        - After the user selects the options, the configuration is validated and applied to the class attributes.
+        
+        ### Notes:
+        - This method uses `asyncio.ensure_future` to execute the async function `f` concurrently, without blocking other tasks.
+        - The `config` dictionary is updated with the new options chosen by the user.
+        - If no changes are made by the user, the original configuration remains.
+
+        ### Example:
+            ```python
+            # Launch the options configuration process
+            self.define_options()
+            ```
+
+        ### Expected Outputs:
+        - Updates the instance variables based on user input:
+            - `self.delete_files`: Whether to delete files after processing.
+            - `self.concat_files`: Whether to concatenate files.
+            - `self.output_format`: The output format of processed files (e.g., `.csv`, `.parquet`).
+            - `self.file_size_mb`: Maximum file size (in MB) before splitting output files.
+        
+        - Prints the selected options:
+            - Delete Files: True/False
+            - Concatenate Files: True/False
+            - Output Format: List of formats (e.g., `['.csv']`)
+            - Output File Size: File size in MB (e.g., `500 MB`)
+
+        ### Raises:
+        - `ValueError`: If the selected options are invalid or conflict with other settings.
+
+        ### Example Output:
+            The following options were selected:
+            Delete Files: True
+            Concatenate Files: False
+            Output Format: ['.csv']
+            Output File Size: 500 MB
+        """
         async def f(self):
             
             config = {
@@ -698,25 +786,25 @@ class Sftp:
         asyncio.ensure_future(f(self, column, definition)) 
 
     def copy_obj(self):
+  
         """
-        Create a deep copy of the current Sftp instance with optional updates.
+        Create a new `Sftp` instance with updated data selection.
 
-        Input Variables:
-        - `self`: Implicit reference to the instance.
-    
+        This method returns a new `Sftp` instance, copying key attributes (`hostname`, `username`, `privatekey`), 
+        while using the default port (22). The `select_data()` method is called on the new instance to set its data 
+        product and table interactively.
+
         Returns:
-        - Deep copy of the current Sftp instance with optional updates.
-        """
+        - `new_obj` (Sftp): A new copy of the current instance with updated data product and table.
 
+        Example:
+        ```python
+        new_sftp_instance = original_sftp_instance.copy_obj()
+        """
         new_obj= Sftp(hostname = self.hostname, username = self.username, port = 22, privatekey= self.privatekey) 
 
-        #new_obj = copy.deepcopy(self)
-
         new_obj.select_data()
-        #new_obj.bvd_list = None
-        #new_obj.time_period = None
-        #new_obj.select_cols = None
-        
+   
         return new_obj
 
     def table_dates(self,save_to:str=False, data_product = None,table = None):
@@ -975,6 +1063,30 @@ class Sftp:
 
     def orbis_to_moodys(self,file):
 
+        """
+        Match headings from an Orbis output file to headings in Moody's DataHub.
+
+        This method reads headings from an Orbis output file and matches them to  headings 
+        in Moody's DataHub. The function returns a DataFrame with matched headings and a list of headings 
+        not found in Moody's DataHub.
+
+        Input Variables:
+        - `file` (str): Path to the Orbis output file.
+
+        Returns:
+        - tuple: A tuple where:
+        - The first element is a DataFrame containing matched headings.
+        - The second element is a list of headings that were not found.
+
+        Notes:
+        - Headings from the Orbis file are processed to remove any extra lines and to ensure uniqueness.
+        - The DataFrame is sorted based on the number of unique headings for each 'Data Product'.
+        - If no headings are found, an empty DataFrame is returned.
+
+        Example:
+            matched_df, not_found_list = self.orbis_to_moodys('orbis_output.xlsx')
+        """
+
         def _load_orbis_file(file):
             df = pd.read_excel(file, sheet_name='Results')
 
@@ -1034,24 +1146,36 @@ class Sftp:
 
         return found, not_found
 
-    def tables_available(self,save_to:str=False,reset:bool=False):
+    def tables_available(self,product_overview = None,save_to:str=False,reset:bool=False):
         """
-        Retrieve available SFTP data products and tables and save them to a file.
+        Retrieve and optionally save available SFTP data products and tables.
+
+        This method fetches the available data products and tables from the SFTP server. It can optionally 
+        save the results to a file in the specified format and reset the data if needed.
 
         Input Variables:
-        - `self`: Implicit reference to the instance.
-        - `save_to` (str, optional): Format to save results (default is CSV).
-        - `reset` (bool, optional): Reset flag to force refreshing data products and tables.
+        - `product_overview` (str, optional): Overview of the data products to filter. Defaults to None.
+        - `save_to` (str, optional): Format to save the results (e.g., 'csv', 'xlsx'). Defaults to 'csv'.
+        - `reset` (bool, optional): Flag to force refresh and reset the data products and tables. Defaults to False.
 
         Returns:
-        - Pandas DataFrame with the available SFTP data products and tables.
+        - Pandas DataFrame: DataFrame containing the available SFTP data products and tables.
+
+        Notes:
+        - If `reset` is `True`, the method will reset `_tables_available` to `_tables_backup`.
+        - Old exports may be deleted from the SFTP server based on conditions (e.g., large CPU count).
+        - The results are saved using the `_save_to` function.
+
+        Example:
+            df = self.tables_available(product_overview='overview.xlsx', save_to='csv', reset=True)
         """
 
         if self._tables_available is None and self._tables_backup is None:
-            self._tables_available,to_delete = self._table_overview()
+            self._tables_available,to_delete = self._table_overview(product_overview = product_overview)
             self._tables_backup = self._tables_available.copy()
 
-            if self.hostname == "s-f2112b8b980e44f9a.server.transfer.eu-west-1.amazonaws.com" and len(to_delete) > 0:
+            if self.hostname == "s-f2112b8b980e44f9a.server.transfer.eu-west-1.amazonaws.com" and len(to_delete) > 0 and int(cpu_count()) >= 32: # So that users on small machines will not sit and wait for the Deleting process. 
+
                 print("------------------  DELETING OLD EXPORTS FROM SFTP")
                 self._remove_exports(to_delete)
 
@@ -1099,16 +1223,27 @@ class Sftp:
 
     def process_one(self,save_to=False,files = None,n_rows:int=1000):
         """
-        Retrieve a sample of data from a table and save it to a file.
+        Retrieve a sample of data from a table and optionally save it to a file.
+
+        This method retrieves a sample of data from a specified table or file. If `files` is not provided, it uses
+        the default file from `self.remote_files`. It processes the files, retrieves the specified number of rows, 
+        and saves the result to the specified format if `save_to` is provided.
 
         Input Variables:
-        - `self`: Implicit reference to the instance.
-        - `files` (list, optional): List of files to process. Defaults to `self.remote_files`.
-        - `save_to` (str, optional): Format to save sample data (default is CSV).
-        - `n_rows` (int, optional): Number of rows to retrieve (default is 1000).
+        - `save_to` (str, optional): Format to save the sample data (default is 'CSV'). Other formats may be supported based on implementation.
+        - `files` (list, optional): List of files to process. Defaults to `self.remote_files`. If an integer is provided, it is treated as a file identifier.
+        - `n_rows` (int, optional): Number of rows to retrieve from the data (default is 1000).
 
         Returns:
-        - Pandas Dateframe with output
+        - Pandas DataFrame: DataFrame containing the sample of the processed data.
+
+        Notes:
+        - If `files` is None, the method will use the first file in `self.remote_files` and may trigger `select_data` if data product or table is not set.
+        - The method processes all specified files or retrieves data from them if needed.
+        - Results are saved to the file format specified by `save_to` if provided.
+
+        Example:
+            df = self.process_one(save_to='parquet', n_rows=500)
         """
 
         if files is None:
@@ -1137,34 +1272,40 @@ class Sftp:
     
     def process_all(self, files:list = None,destination:str = None, num_workers:int = -1, select_cols: list = None , date_query = None, bvd_query = None, query = None, query_args:list = None,pool_method = None):
         """
-        Read and process files into a DataFrame with optional filtering and parallel processing.
+        Read and process multiple files into DataFrames with optional filtering and parallel processing.
 
-        This method reads multiple files into Pandas DataFrames, optionally selecting specific columns and
-        applying filters, either sequentially or in parallel.
+        This method reads multiple files into Pandas DataFrames, with options for selecting specific columns, 
+        applying filters, and performing parallel processing. It can handle file processing sequentially or 
+        in parallel, depending on the number of workers specified.
 
         Input Variables:
-        - `self`: Implicit reference to the instance.
         - `files` (list, optional): List of files to process. Defaults to `self.remote_files`.
-        - `destination` (str, optional): Destination path for processed files.
+        - `destination` (str, optional): Path to save processed files.
         - `num_workers` (int, optional): Number of workers for parallel processing. Default is -1 (auto-determined).
-        - `select_cols` (list, optional): Columns to select from files. Default is `self._select_cols`.
-        - `date_query`: (optional): Date query for filtering data. Default is `self.time_period`.
-        - `bvd_query`: (optional): BVD query for filtering data. Default is `self._bvd_list[2]`.
-        - `query` (str, optional): Query for additional filtering of data.
+        - `select_cols` (list, optional): Columns to select from files. Defaults to `self._select_cols`.
+        - `date_query`: (optional): Date query for filtering data. Defaults to `self.time_period`.
+        - `bvd_query`: (optional): BVD query for filtering data. Defaults to `self._bvd_list[2]`.
+        - `query` (str, optional): Additional query for filtering data.
         - `query_args` (list, optional): Arguments for the query.
+        - `pool_method` (optional): Method for parallel processing (e.g., 'fork', 'threading').
 
         Returns:
         - `dfs`: List of Pandas DataFrames with selected columns and filtered data.
         - `file_names`: List of file names processed.
 
         Notes:
-        - If `select_cols` is provided, it is validated against expected formats.
-        - Uses parallel processing if `num_workers` is greater than 1.
+        - If `files` is `None`, the method will use `self.remote_files`.
+        - If `num_workers` is less than 1, it will be set automatically based on available system memory.
+        - Uses parallel processing if `num_workers` is greater than 1; otherwise, processes files sequentially.
         - Handles file concatenation and deletion based on instance attributes (`concat_files`, `delete_files`).
-        - Prints current working directory if `self.delete_files` is `True`.
+        - If `self.delete_files` is `True`, the method will print the current working directory.
 
         Raises:
-        - `ValueError`: If validation of arguments (`files`, `destination`, `flag`) fails.
+        - `ValueError`: If validation of arguments (`files`, `destination`, etc.) fails.
+
+        Example:
+            dfs, file_names = self.process_all(files=['file1.csv', 'file2.csv'], destination='/processed', num_workers=4,
+                                            select_cols=['col1', 'col2'], date_query='2023-01-01', query='col1 > 0')
         """
 
         files = files or self.remote_files
@@ -1259,6 +1400,26 @@ class Sftp:
         return self.dfs, file_names
   
     def download_all(self,num_workers = None):
+        """
+        Initiates downloading of all remote files using parallel processing.
+
+        This method starts a new process to download files based on the selected data product and table. 
+        It uses parallel processing if `num_workers` is specified, defaulting to `cpu_count() - 2` if not. 
+        The process is managed using the `fork` method, which is supported only on Unix systems.
+
+        Input Variables:
+        - `num_workers` (int, optional): Number of workers for parallel processing. Defaults to `cpu_count() - 2`.
+
+        Notes:
+        - This method requires the `fork` method for parallel processing, which is supported only on Unix systems.
+        - If `self._set_data_product` or `self._set_table` is `None`, the method will call `select_data()` to initialize them.
+        - Sets `self.delete_files` to `False` before starting the download process.
+        - Starts a new process using `multiprocessing.Process` to run the `process_all` method for downloading.
+        - Sets `self._download_finished` to `False` when starting the process, indicating that the download is in progress.
+
+        Example:
+            self.download_all(num_workers=4)
+        """
         
         if hasattr(os, 'fork'):
             pool_method = 'fork'
@@ -1338,8 +1499,7 @@ class Sftp:
         
         print('Retrieving Data Product overview from SFTP..wait a moment')
         
-        if product_overview is None:
-            product_overview =_table_names()
+        product_overview =_table_names(file_name = product_overview)
 
         with self.connect() as sftp:
             product_paths = sftp.listdir()
@@ -1485,7 +1645,7 @@ class Sftp:
         if num_workers is None:
             num_workers= int(cpu_count() - 2)
 
-        if isinstance(num_workers, (int, float, complex))and num_workers != 1:
+        if isinstance(num_workers, (int, float, complex)) and num_workers != 1:
             num_workers = int(num_workers)
         
         # Batch files to delete
@@ -1896,9 +2056,17 @@ class Sftp:
 
                         # Update df2['2'] based on the mapping
                         df['Data Product'] = df['Top-level Directory'].map(mapping).combine_first(df['Data Product'])
-                    
+
                         self._tables_available = df 
                         self._tables_backup = df 
+
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        filename = f"{timestamp}_data_products.csv"
+                        df = df[['Data Product','Table','Top-level Directory']]
+                        df.to_csv(filename)
+                        print(f"Data Product template has been saved to: {filename}")
+
+                
             
         df = self._tables_available.copy()
 
@@ -2400,7 +2568,10 @@ def _create_workers(num_workers:int = -1,n_total:int=None,pool_method = None  ,q
 
     if num_workers < 1:
             num_workers =int(psutil.virtual_memory().total/ (1024 ** 3)/12)
-    
+
+    if num_workers > int(cpu_count()):
+        num_workers = int(cpu_count())
+
     if num_workers > n_total:
         num_workers = int(n_total)
      
@@ -2849,15 +3020,27 @@ def _read_excel(file_name):
     with pkg_resources.open_binary('moodys_datahub.data', file_name) as f:
         return pd.read_excel(f)
 
-def _table_names(file_name:str=None):
+def _table_names(file_name = None):
     
     if file_name is None:
         df = _read_excel('data_products.xlsx')
-    else:
-        if not os.path.exists(file_name):
-            raise ValueError("moody's datahub data product file was not detected")
-        df = pd.read_excel(file_name)
+    elif os.path.isfile(file_name):
+        read_functions = {
+                    'csv': pd.read_csv,
+                    'xlsx': pd.read_excel
+                    }
+        file_extension = file_name.lower().split('.')[-1]
 
+        if file_extension not in read_functions:
+            raise ValueError(f"Unsupported file format: {file_extension}")
+
+        read_function = read_functions[file_extension]
+
+        df = read_function(file_name)
+         
+    else:
+        raise ValueError("moody's datahub data product file was not detected")
+    
     df = df[['Data Product', 'Top-level Directory']]
     df = df.drop_duplicates()
     return df
