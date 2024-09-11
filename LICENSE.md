@@ -1,5 +1,6 @@
 # License
 
+## Documentation 
 All documentation in this repository are made available under the [Creative Commons Attribution license](https://creativecommons.org/licenses/by/4.0/). The following is a human-readable summary of (and not a substitute for) the [full legal text of the CC BY 4.0 license](https://creativecommons.org/licenses/by/4.0/legalcode).
 
 You are free:
@@ -21,6 +22,7 @@ With the understanding that:
     You do not have to comply with the license for elements of the material in the public domain or where your use is permitted by an applicable exception or limitation.
     No warranties are given. The license may not give you all of the permissions necessary for your intended use. For example, other rights such as publicity, privacy, or moral rights may limit how you use the material.
 
+## Code/Software
 All code are made available under the [OSI](https://opensource.org/)-approved [MIT license](https://opensource.org/license/mit).
   
 
