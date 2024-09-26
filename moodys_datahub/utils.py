@@ -141,6 +141,7 @@ def fuzzy_match(input_strings:list, df: pd.DataFrame, num_workers:int = 1, match
             matches.append((input_string, match, score, match_value, return_value))
 
     result_df = pd.DataFrame(matches, columns=['Search_string', 'BestMatch', 'Score', match_column, return_column])
+    
     return result_df
 
 

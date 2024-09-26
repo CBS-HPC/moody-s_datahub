@@ -377,21 +377,24 @@ class Sftp:
             else:
                 raise ValueError(f"Unsupported file extension: {file_extension}")
             
-                    # Process each column
+            if len(df.columns) == 1:
+                bvd_list, search_type, non_matching_items = check_bvd_format([df.columns[0]], df_bvd)
+                # FIX ME !!
+            # Process each column
             for column in df.columns:
-                    # Convert the column to a list of strings
-                    bvd_list = df[column].dropna().astype(str).tolist()
-                    bvd_list = [item for item in bvd_list if item.strip()]
+                # Convert the column to a list of strings
+                bvd_list = df[column].dropna().astype(str).tolist()
+                bvd_list = [item for item in bvd_list if item.strip()]
 
-                    # Pass through the first function
-                    bvd_list = _check_list_format(bvd_list)
+                # Pass through the first function
+                bvd_list = _check_list_format(bvd_list)
                     
-                    # Pass through the second function
-                    bvd_list, search_type, non_matching_items = check_bvd_format(bvd_list, df_bvd)
+                # Pass through the second function
+                bvd_list, search_type, non_matching_items = check_bvd_format(bvd_list, df_bvd)
                     
-                    # If successful, return the result
-                    if search_type is not None:
-                        return bvd_list, search_type, non_matching_items
+                # If successful, return the result
+                if search_type is not None:
+                    return bvd_list, search_type, non_matching_items
 
             return  bvd_list, search_type, non_matching_items  
             
@@ -2131,24 +2134,30 @@ class _SelectData:
         # Create the title widget
         self.title = widgets.HTML(value=f"<h2>{title}</h2>")
 
+        # Set an initial value for product dropdown (first product by default)
+        initial_product = self.df['Data Product'].unique()[0]
+         # Create the second dropdown menu, prepopulate based on initial product
+        filtered_tables = self.df[self.df['Data Product'] == initial_product]['Table'].unique()
+
         # Create the first dropdown menu
         self.product_dropdown = widgets.Dropdown(
             options=self.df['Data Product'].unique(),
+            value=initial_product,  # Set the initial value
             description='Data Product:',
             disabled=False,
         )
 
         # Create the second dropdown menu placeholder
         self.table_dropdown = widgets.Dropdown(
-            options=[],
+            options=filtered_tables.tolist(),  # Populate based on initial product
             description='Table:',
-            disabled=True,
+            disabled=False,
         )
 
         # Create the OK button and set its initial state to disabled
         self.ok_button = widgets.Button(
             description='OK',
-            disabled=True,
+            disabled=False,
         )
 
         # Create the Cancel button
@@ -2164,12 +2173,11 @@ class _SelectData:
         self.cancel_button.on_click(self._cancel_button_click)
 
     async def _product_change(self, change):
-        if change['type'] == 'change' and change['name'] == 'value':
-            self.selected_product = change.new
-            filtered_tables = self.df[self.df['Data Product'] == self.selected_product]['Table'].unique()
-            self.table_dropdown.options = filtered_tables.tolist()  # Ensure options are converted to list
-            self.table_dropdown.disabled = False  # Enable the table dropdown
-            self.ok_button.disabled = True  # Disable the button until a table is selected
+        self.selected_product = self.product_dropdown.value
+        filtered_tables = self.df[self.df['Data Product'] == self.selected_product]['Table'].unique()
+        self.table_dropdown.options = filtered_tables.tolist()  # Ensure options are converted to list
+        self.table_dropdown.disabled = False  # Enable the table dropdown
+        self.ok_button.disabled = True  # Disable the button until a table is selected
 
     async def _table_change(self, change):
         if change['type'] == 'change' and change['name'] == 'value':
@@ -2926,7 +2934,6 @@ def _load_csv_table(file:str,select_cols = None, date_query:list=[None,None,None
         return select_cols,col_index
 
 
-    
     if num_workers < 1:
         num_workers =int(psutil.virtual_memory().total/ (1024 ** 3)/12)
 
@@ -2934,9 +2941,27 @@ def _load_csv_table(file:str,select_cols = None, date_query:list=[None,None,None
     select_cols,col_index = check_cols(file,select_cols)
 
     # Step 1: Determine the total number of rows using subprocess
-    safe_file_path = shlex.quote(file)
-    num_lines = int(subprocess.check_output(f"wc -l {safe_file_path}", shell=True).split()[0]) - 1
 
+
+    if sys.platform.startswith('linux') or sys.platform == 'darwin':
+            safe_file_path = shlex.quote(file)
+            num_lines = int(subprocess.check_output(f"wc -l {safe_file_path}", shell=True).split()[0]) - 1
+    elif sys.platform == 'win32':
+            def count_lines_chunk(file_path):
+                # Open the file in binary mode for faster reading
+                with open(file_path, 'rb') as f:
+                    # Use os.read to read large chunks of the file at once (64KB in this case)
+                    buffer_size = 1024 * 64  # 64 KB
+                    read_chunk = f.read(buffer_size)
+                    count = 0
+                    while read_chunk:
+                        # Count the number of newlines in each chunk
+                        count += read_chunk.count(b'\n')
+                        read_chunk = f.read(buffer_size)
+                return count
+            
+            num_lines = count_lines_chunk(file) - 1 
+        
     # Step 2: Calculate the chunk size to create 64 chunks
     chunk_size = num_lines // num_workers
 
