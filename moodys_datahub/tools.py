@@ -360,7 +360,7 @@ class Sftp:
     @property
     def bvd_list(self):
         return self._bvd_list
-       
+    # FIX ME!!!  
     @bvd_list.setter
     def bvd_list(self, bvd_list = None):
         def load_bvd_list(file_path, df_bvd ,delimiter='\t'):
@@ -865,114 +865,6 @@ class Sftp:
 
         return df    
     
-    # Under development
-    def _search_dictionary_list(self, save_to:str=False, search_word=None, search_cols={'Data Product':True, 'Table':True, 'Column':True, 'Definition':True}, letters_only:bool=False, exact_match:bool=False, data_product = None, table = None):
-        """
-        Search for a term in a column/variable dictionary and save results to a file.
-
-        Args:
-        - `self`: Implicit reference to the instance.
-        - `save_to` (str, optional): Format to save results. If False, results are not saved (default is False).
-        - `search_word` (str or list of str, optional): Search term(s). If None, no term is searched.
-        - `search_cols` (dict, optional): Dictionary indicating which columns to search. Columns are 'Data Product', 'Table', 'Column', and 'Definition' with default value as True for each.
-        - `letters_only` (bool, optional): If True, search only for alphabetic characters in the search term (default is False).
-        - `exact_match` (bool, optional): If True, search for an exact match of the search term. Otherwise, search for partial matches (default is False).
-        - `data_product` (str, optional): Specific data product to filter results by. If None, no filtering by data product (default is None).
-        - `table` (str, optional): Specific table to filter results by. If None, no filtering by table (default is None).
-
-        Returns:
-        - pandas.DataFrame: A DataFrame containing the search results. If no results are found, an empty DataFrame is returned.
-
-        Notes:
-        - If `data_product` is provided and does not match any records, a message is printed and an empty DataFrame is returned.
-        - If `table` is provided and does not match any records, it attempts to perform a case-insensitive partial match search.
-        - If `search_word` is provided and no matches are found, a message is printed indicating no results were found.
-        - If `letters_only` is True, the search term is processed to include only alphabetic characters before searching.
-        - If `save_to` is specified, the query results are saved in the format specified.
-        """
-    
-        if data_product is None and self.set_data_product is not None:
-            data_product = self.set_data_product
-
-        if table is None and self.set_table is not None:
-            table = self.set_table
-
-        if self._table_dictionary is None:
-            self._table_dictionary = _table_dictionary()        
-        
-        df = self._table_dictionary
-        df = df[df['Data Product'].isin(self._tables_backup['Data Product'].drop_duplicates())]
-
-        if data_product is not None:
-            df_product = df.query(f"`Data Product` == '{data_product}'")
-            if df_product.empty:
-                print("No such Data Product was found. Please set right data product")
-                return df_product
-            else:
-                df = df_product
-            search_cols['Data Product'] = False
-        
-        if table is not None:
-            df_table = df.query(f"`Table` == '{table}'")
-            if df_table.empty:   
-                df_table = df.query(f"`Table`.str.contains('{table}', case=False, na=False, regex=False)")
-                if df_table.empty:
-                    print("No such Table was found. Please set right table")
-                    return df_table
-            search_cols['Table'] = False
-            df = df_table 
-                            
-        if search_word is not None:
-            
-            if letters_only:
-                df_backup = df.copy()
-                df = df.map(_letters_only_regex)
-
-
-            if not isinstance(search_word, list):
-                search_word = [search_word]
-
-            results = []
-
-            for word in search_word:
-                if letters_only:
-                    word = _letters_only_regex(word)
-
-                if exact_match:
-                    base_string = "`{col}` == '{{word}}'"
-                else:
-                    base_string = "`{col}`.str.contains('{{word}}', case=False, na=False, regex=False)"
-                    
-                search_conditions = " | ".join(base_string.format(col=col) for col, include in search_cols.items() if include)
-                final_string = search_conditions.format(word=word)
-
-                result_df = df.query(final_string)
-
-                if result_df.empty:
-                    base_string = "'{col}'"
-                    search_conditions = " , ".join(base_string.format(col=col) for col, include in search_cols.items() if include)
-                    print(f"No such '{word}' was detected across columns: " + search_conditions)
-                else:
-                    if letters_only:
-                      result_df = df_backup.loc[result_df.index]  
-                    result_df['search_word'] = word
-                    results.append(result_df)
-
-            if results:
-                df = pd.concat(results, ignore_index=True)
-            else:
-                df = pd.DataFrame()
-
-            #if letters_only:
-            #    df = df_backup.loc[df.index]
-
-            if save_to:
-                print(f"The following query was executed for each word in search_word: {search_word} : ")
-
-        _save_to(df, 'dict_search', save_to)
-
-        return df
-
     def search_dictionary(self,save_to:str=False, search_word = None,search_cols={'Data Product':True,'Table':True,'Column':True,'Definition':True}, letters_only:bool=False,extact_match:bool=False, data_product = None, table = None):
     
         """
@@ -1261,10 +1153,13 @@ class Sftp:
                 df  = _load_table(file)
                 dfs.append(df)
             df = pd.concat(dfs, ignore_index=True)
-            df = df.head(n_rows)
+            if n_rows > 0:
+                df = df.head(n_rows)
+
             _save_to(df,'process_one',save_to) 
         elif not df.empty and files is not None:
-            df = df.head(n_rows)
+            if n_rows > 0:
+                df = df.head(n_rows)
             print(f"Results have been saved to '{files}'")
         elif df.empty:  
             print("No rows were retained")  
@@ -2075,6 +1970,157 @@ class Sftp:
 
         if not df_multiple.empty:
             asyncio.ensure_future(f(self,df,df_multiple))
+
+    # Under development
+    def _search_dictionary_list(self, save_to:str=False, search_word=None, search_cols={'Data Product':True, 'Table':True, 'Column':True, 'Definition':True}, letters_only:bool=False, exact_match:bool=False, data_product = None, table = None):
+        """
+        Search for a term in a column/variable dictionary and save results to a file.
+
+        Args:
+        - `self`: Implicit reference to the instance.
+        - `save_to` (str, optional): Format to save results. If False, results are not saved (default is False).
+        - `search_word` (str or list of str, optional): Search term(s). If None, no term is searched.
+        - `search_cols` (dict, optional): Dictionary indicating which columns to search. Columns are 'Data Product', 'Table', 'Column', and 'Definition' with default value as True for each.
+        - `letters_only` (bool, optional): If True, search only for alphabetic characters in the search term (default is False).
+        - `exact_match` (bool, optional): If True, search for an exact match of the search term. Otherwise, search for partial matches (default is False).
+        - `data_product` (str, optional): Specific data product to filter results by. If None, no filtering by data product (default is None).
+        - `table` (str, optional): Specific table to filter results by. If None, no filtering by table (default is None).
+
+        Returns:
+        - pandas.DataFrame: A DataFrame containing the search results. If no results are found, an empty DataFrame is returned.
+
+        Notes:
+        - If `data_product` is provided and does not match any records, a message is printed and an empty DataFrame is returned.
+        - If `table` is provided and does not match any records, it attempts to perform a case-insensitive partial match search.
+        - If `search_word` is provided and no matches are found, a message is printed indicating no results were found.
+        - If `letters_only` is True, the search term is processed to include only alphabetic characters before searching.
+        - If `save_to` is specified, the query results are saved in the format specified.
+        """
+    
+        if data_product is None and self.set_data_product is not None:
+            data_product = self.set_data_product
+
+        if table is None and self.set_table is not None:
+            table = self.set_table
+
+        if self._table_dictionary is None:
+            self._table_dictionary = _table_dictionary()        
+        
+        df = self._table_dictionary
+        df = df[df['Data Product'].isin(self._tables_backup['Data Product'].drop_duplicates())]
+
+        if data_product is not None:
+            df_product = df.query(f"`Data Product` == '{data_product}'")
+            if df_product.empty:
+                print("No such Data Product was found. Please set right data product")
+                return df_product
+            else:
+                df = df_product
+            search_cols['Data Product'] = False
+        
+        if table is not None:
+            df_table = df.query(f"`Table` == '{table}'")
+            if df_table.empty:   
+                df_table = df.query(f"`Table`.str.contains('{table}', case=False, na=False, regex=False)")
+                if df_table.empty:
+                    print("No such Table was found. Please set right table")
+                    return df_table
+            search_cols['Table'] = False
+            df = df_table 
+                            
+        if search_word is not None:
+            
+            if letters_only:
+                df_backup = df.copy()
+                df = df.map(_letters_only_regex)
+
+
+            if not isinstance(search_word, list):
+                search_word = [search_word]
+
+            results = []
+
+            for word in search_word:
+                if letters_only:
+                    word = _letters_only_regex(word)
+
+                if exact_match:
+                    base_string = "`{col}` == '{{word}}'"
+                else:
+                    base_string = "`{col}`.str.contains('{{word}}', case=False, na=False, regex=False)"
+                    
+                search_conditions = " | ".join(base_string.format(col=col) for col, include in search_cols.items() if include)
+                final_string = search_conditions.format(word=word)
+
+                result_df = df.query(final_string)
+
+                if result_df.empty:
+                    base_string = "'{col}'"
+                    search_conditions = " , ".join(base_string.format(col=col) for col, include in search_cols.items() if include)
+                    print(f"No such '{word}' was detected across columns: " + search_conditions)
+                else:
+                    if letters_only:
+                      result_df = df_backup.loc[result_df.index]  
+                    result_df['search_word'] = word
+                    results.append(result_df)
+
+            if results:
+                df = pd.concat(results, ignore_index=True)
+            else:
+                df = pd.DataFrame()
+
+            #if letters_only:
+            #    df = df_backup.loc[df.index]
+
+            if save_to:
+                print(f"The following query was executed for each word in search_word: {search_word} : ")
+
+        _save_to(df, 'dict_search', save_to)
+
+        return df
+
+    def _bvd_changes(initial_ids, df):
+        new_ids = set(initial_ids)
+        # Initialize newest_ids to track the most recent IDs
+        newest_ids = {id: id for id in new_ids}
+        found_new = True
+        
+        while found_new:
+            found_new = False
+            current_ids = new_ids.copy()
+            
+            # Check for new IDs in old_id and new_id columns
+            for id in current_ids:
+                if id in df['old_id'].values:
+                    new_id_candidates = df[df['old_id'] == id]['new_id'].values
+                    for new_id in new_id_candidates:
+                        if new_id not in new_ids:
+                            new_ids.add(new_id)
+                            found_new = True  # Mark that a new ID was found
+                            # Update the newest_id for the current id
+                            newest_ids[id] = new_id
+                            # Also add new_id to newest_ids
+                            newest_ids[new_id] = new_id
+                
+                if id in df['new_id'].values:
+                    old_id_candidates = df[df['new_id'] == id]['old_id'].values
+                    for old_id in old_id_candidates:
+                        if old_id not in new_ids:
+                            new_ids.add(old_id)
+                            found_new = True  # Mark that a new ID was found
+                            # Update the newest_id for the old_id found
+                            newest_ids[old_id] = newest_ids[id]  # Set newest_id to the value of newest_ids[id]
+
+        # Filter the DataFrame based on new_ids
+        filtered_df = df[df['old_id'].isin(new_ids) | df['new_id'].isin(new_ids)]
+
+        # Map newest IDs to the filtered DataFrame
+        filtered_df['newest_id'] = filtered_df.apply(
+            lambda row: newest_ids.get(row['old_id'], newest_ids.get(row['new_id'])), axis=1
+        )
+
+        return new_ids, newest_ids,filtered_df
+
 
 class _SelectData:
     def __init__(self, df, title="Select Data"):
