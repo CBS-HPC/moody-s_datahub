@@ -377,9 +377,6 @@ class Sftp:
             else:
                 raise ValueError(f"Unsupported file extension: {file_extension}")
             
-            if len(df.columns) == 1:
-                bvd_list, search_type, non_matching_items = check_bvd_format([df.columns[0]], df_bvd)
-                # FIX ME !!
             # Process each column
             for column in df.columns:
                 # Convert the column to a list of strings
@@ -388,12 +385,17 @@ class Sftp:
 
                 # Pass through the first function
                 bvd_list = _check_list_format(bvd_list)
-                    
+
                 # Pass through the second function
                 bvd_list, search_type, non_matching_items = check_bvd_format(bvd_list, df_bvd)
-                    
+
                 # If successful, return the result
                 if search_type is not None:
+                     #Checking if column name is a bvd or not
+                    column, _, _ = check_bvd_format([column], df_bvd)
+                    if column:
+                        bvd_list.extend(column)
+                        bvd_list = list(set(bvd_list))
                     return bvd_list, search_type, non_matching_items
 
             return  bvd_list, search_type, non_matching_items  
@@ -2590,7 +2592,7 @@ def _select_bvd(selected_value, bvd_list,select_cols, search_type):
         bvd_list[2] = _construct_query(bvd_list[1],bvd_list[0],search_type)
         if select_cols is not None:
                 select_cols = _check_list_format(select_cols,bvd_list[1])
-
+        print(f"{len(bvd_list[0])} unique bvd_id numbers were detected")
         print(f"The following bvd query has been created: {bvd_list[2]}")
 
 def _select_date(selected_value, time_period,select_cols):
