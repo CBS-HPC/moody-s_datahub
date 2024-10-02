@@ -83,9 +83,9 @@ def national_identifer(obj,national_ids:list=None,num_workers:int=-1):
     return df
 
 def _fuzzy_worker(args):
-    input_string, choices, cut_off, df, match_column, return_column= args
+    name, choices, cut_off, df, match_column, return_column= args
         
-    match_obj = process.extractOne(input_string, choices, score_cutoff=cut_off)
+    match_obj = process.extractOne(name, choices, score_cutoff=cut_off)
 
     if match_obj is not None:
         match = match_obj[0]
@@ -93,11 +93,11 @@ def _fuzzy_worker(args):
         index = [match == choice for choice in choices]
         match_value = df[index][match_column].iloc[0]
         return_value = df[index][return_column].iloc[0]
-        return (input_string, match, score, match_value, return_value)
+        return (name, match, score, match_value, return_value)
     else:
-        return (input_string, None, None, None, None)
+        return (name, None, None, None, None)
 
-def fuzzy_match(input_strings:list, df: pd.DataFrame, num_workers:int = 1, match_column:str =None , return_column:str = None, cut_off:int = 50 , remove_str:list = None):
+def fuzzy_match(df:pd.DataFrame, names:list, match_column:str =None , return_column:str = None, cut_off:int = 50 , remove_str:list = None,num_workers:int = 1):
     """
     Perform fuzzy string matching with a list of input strings against a specific column in a DataFrame.
 
@@ -120,7 +120,7 @@ def fuzzy_match(input_strings:list, df: pd.DataFrame, num_workers:int = 1, match
     matches = []
 
     choices = [choice.lower() for choice in df[match_column].tolist()]
-    input_strings = [input.lower() for input in input_strings]
+    names = [input.lower() for input in names]
 
     if remove_str is not None:
         choices = remove_substrings(choices, remove_str)
@@ -129,14 +129,14 @@ def fuzzy_match(input_strings:list, df: pd.DataFrame, num_workers:int = 1, match
         num_workers = int(num_workers) 
         if num_workers < 0:
             num_workers = int(cpu_count() - 2)
-        args_list = [(input_string, choices, cut_off, df, match_column, return_column) for input_string in input_strings]
+        args_list = [(name, choices, cut_off, df, match_column, return_column) for name in names]
         pool = Pool(processes=num_workers)
         matches = pool.map(_fuzzy_worker, args_list)
         pool.close()
         pool.join()
     else:    
-        for input_string in input_strings:
-            args_list = (input_string, choices, cut_off, df, match_column, return_column)
+        for name in names:
+            args_list = (name, choices, cut_off, df, match_column, return_column)
             input_string, match, score, match_value, return_value = _fuzzy_worker(args_list)
             matches.append((input_string, match, score, match_value, return_value))
 

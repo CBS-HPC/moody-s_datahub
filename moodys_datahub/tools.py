@@ -40,12 +40,10 @@ import asyncio
 
 
 # Defining Sftp Class
-class Sftp:
-    
+class Sftp: 
     """
     A class to manage SFTP connections and file operations for data transfer.
     """
-
     def __init__(self, hostname:str = "s-f2112b8b980e44f9a.server.transfer.eu-west-1.amazonaws.com", username:str = "D2vdz8elTWKyuOcC2kMSnw", port:int = 22, privatekey:str = None, data_product_template:str = None ):
         
         """Constructor Method
@@ -360,7 +358,7 @@ class Sftp:
     @property
     def bvd_list(self):
         return self._bvd_list
-    # FIX ME!!!  
+    
     @bvd_list.setter
     def bvd_list(self, bvd_list = None):
         def load_bvd_list(file_path, df_bvd ,delimiter='\t'):
@@ -474,8 +472,10 @@ class Sftp:
         else:
             self._bvd_list = [None,None,None]
         
-        if self._select_cols  is not None:
+        if self._select_cols is not None:
             self._select_cols = _check_list_format(self._select_cols,self._bvd_list[1],self._time_period[2])
+        #elif self._bvd_list[1] is not None:  # FIX ME 
+        #    self._selet_cols = self._bvd_list[1] 
 
     @property
     def time_period(self):
@@ -544,6 +544,8 @@ class Sftp:
             self._time_period =[None,None,None,"remove"]
         if self._select_cols  is not None:
             self._select_cols = _check_list_format(self._select_cols,self._bvd_list[1],self._time_period[2])
+        #elif self._time_period[2] is not None:  # FIX ME 
+        #    self._selet_cols = self._time_period[2] 
 
     @property
     def select_cols(self):
@@ -1214,6 +1216,7 @@ class Sftp:
         query = query or self.query
         query_args = query_args or self.query_args
         select_cols = select_cols or self._select_cols
+        
 
         # To handle executing when download_all() have not finished!
         if self._download_finished is False and all(file in self._remote_files for file in files): 
@@ -2860,6 +2863,7 @@ def _load_table(file:str,select_cols = None, date_query:list=[None,None,None,"re
         if isinstance(query, type(lambda: None)):
             try:
                 df = query(df, *query_args) if query_args else query(df)
+                print('Hello')
             except Exception as e:
                 raise ValueError(f"Error curating file with custom function: {e}")
         elif isinstance(query,str):
@@ -2920,18 +2924,20 @@ def _load_csv_table(file:str,select_cols = None, date_query:list=[None,None,None
     def check_cols(file, select_cols):
 
         col_index = None
-        if select_cols is not None:
-            # Read a small chunk to get column names if needed
-            header_chunk = pd.read_csv(file, nrows=0)  # Read only header
-            available_cols = header_chunk.columns.tolist()
-            
-            if not set(select_cols).issubset(available_cols):
-                missing_cols = set(select_cols) - set(available_cols)
-                raise ValueError(f"Columns not found in file: {missing_cols}")
-            
-            # Find indices of select_cols
-            col_index = [available_cols.index(col) for col in select_cols]
-            select_cols = [available_cols[i] for i in col_index]
+        # Read a small chunk to get column names if needed
+        header_chunk = pd.read_csv(file, nrows=0)  # Read only header
+        available_cols = header_chunk.columns.tolist()
+        
+        if select_cols is None:
+            select_cols = available_cols
+
+        if not set(select_cols).issubset(available_cols):
+            missing_cols = set(select_cols) - set(available_cols)
+            raise ValueError(f"Columns not found in file: {missing_cols}")
+        
+        # Find indices of select_cols
+        col_index = [available_cols.index(col) for col in select_cols]
+        select_cols = [available_cols[i] for i in col_index]
 
         return select_cols,col_index
 
