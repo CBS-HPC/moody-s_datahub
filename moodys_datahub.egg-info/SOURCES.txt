@@ -22,7 +22,6 @@ moodys_datahub.egg-info/top_level.txt
 moodys_datahub/data/__init__.py
 moodys_datahub/data/country_codes.xlsx
 moodys_datahub/data/data_dict.xlsx
-moodys_datahub/data/data_products - Kopi.xlsx
 moodys_datahub/data/data_products.xlsx
 moodys_datahub/data/date_cols.xlsx
 orbis.egg-info/PKG-INFO

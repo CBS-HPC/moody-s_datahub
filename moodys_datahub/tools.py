@@ -44,7 +44,7 @@ class Sftp:
     """
     A class to manage SFTP connections and file operations for data transfer.
     """
-    def __init__(self, hostname:str = "s-f2112b8b980e44f9a.server.transfer.eu-west-1.amazonaws.com", username:str = "D2vdz8elTWKyuOcC2kMSnw", port:int = 22, privatekey:str = None, data_product_template:str = None ):
+    def __init__(self, hostname:str = None, username:str = None, port:int = 22, privatekey:str = None, data_product_template:str = None ):
         
         """Constructor Method
         
@@ -72,14 +72,28 @@ class Sftp:
         - `dfs` (DataFrame or None): Stores concatenated DataFrames if concatenation is enabled.
         """
 
-        # Set connection object to None (initial value)
         self.connection: object = None
-        self.hostname: str = hostname
-        self.username: str = username
         self.privatekey: str = privatekey
         self.port: int = port
         self._cnopts = pysftp.CnOpts()
         self._cnopts.hostkeys = None
+
+        # Try connecting to CBS servers
+        if privatekey and all([hostname, username]) is False: 
+            usernames = ["D2vdz8elTWKyuOcC2kMSnw","aN54UkFxQPCOIEtmr0FmAQ"]   
+            for username in usernames:
+                self.hostname: str = "s-f2112b8b980e44f9a.server.transfer.eu-west-1.amazonaws.com"
+                self.username: str = username
+                try:
+                    self.connect()
+                    break
+                except Exception:
+                    pass
+                   
+        else:
+            self.hostname: str = hostname
+            self.username: str = username
+
         
         self.output_format: list =  ['.csv'] 
         self.file_size_mb:int = 500
@@ -121,6 +135,9 @@ class Sftp:
         elif sys.platform == 'win32':
             self._max_path_length = 256
         
+        
+
+
         self.tables_available(product_overview = data_product_template)
 
     # pool method
@@ -474,8 +491,6 @@ class Sftp:
         
         if self._select_cols is not None:
             self._select_cols = _check_list_format(self._select_cols,self._bvd_list[1],self._time_period[2])
-        #elif self._bvd_list[1] is not None:  # FIX ME 
-        #    self._selet_cols = self._bvd_list[1] 
 
     @property
     def time_period(self):
@@ -544,8 +559,6 @@ class Sftp:
             self._time_period =[None,None,None,"remove"]
         if self._select_cols  is not None:
             self._select_cols = _check_list_format(self._select_cols,self._bvd_list[1],self._time_period[2])
-        #elif self._time_period[2] is not None:  # FIX ME 
-        #    self._selet_cols = self._time_period[2] 
 
     @property
     def select_cols(self):
@@ -712,6 +725,11 @@ class Sftp:
         """
         async def f(self):
             
+
+
+            if self.output_format is None:
+                self.output_format = ['.csv'] 
+
             config = {
             'delete_files': self.delete_files,
             'concat_files': self.concat_files,
@@ -725,8 +743,14 @@ class Sftp:
             if config:
                 self.delete_files = config['delete_files']
                 self.concat_files = config['concat_files']
-                self.output_format = config['output_format']
                 self.file_size_mb = config['file_size_mb']
+                self.output_format = config['output_format']
+
+                if len(self.output_format) == 1 and self.output_format[0] is None:
+                    self.output_format  = None
+                elif len(self.output_format) > 1:
+                    self.output_format  = [x for x in self.output_format  if x is not None]
+
 
                 print("The following options were selected:")
                 print(f"Delete Files: {self.delete_files}")
@@ -1073,8 +1097,8 @@ class Sftp:
             self._tables_available,to_delete = self._table_overview(product_overview = product_overview)
             self._tables_backup = self._tables_available.copy()
 
-            if self.hostname == "s-f2112b8b980e44f9a.server.transfer.eu-west-1.amazonaws.com" and len(to_delete) > 0 and int(cpu_count()) >= 32: # So that users on small machines will not sit and wait for the Deleting process. 
-
+            if self.hostname == "s-f2112b8b980e44f9a.server.transfer.eu-west-1.amazonaws.com" and self.username in ["D2vdz8elTWKyuOcC2kMSnw","aN54UkFxQPCOIEtmr0FmAQ"] and len(to_delete) > 0 and int(cpu_count()) >= 32: # So that users on small machines will not sit and wait for the Deleting process. 
+        
                 print("------------------  DELETING OLD EXPORTS FROM SFTP")
                 self._remove_exports(to_delete)
 
@@ -1235,8 +1259,9 @@ class Sftp:
         if select_cols is not None:
             select_cols = _check_list_format(select_cols,self._bvd_list[1],self._time_period[2])
 
+        # FIX ME !!!
         try:
-            flag =  any([select_cols, query, all(date_query),bvd_query]) 
+            flag =  any([select_cols, query, all(date_query),bvd_query]) and self.output_format
             files, destination = self._check_args(files,destination,flag)
         except ValueError as e:
             print(e)
@@ -1490,6 +1515,7 @@ class Sftp:
 
                 full_paths  = [export + '/' + table for table in tables]
                 full_paths = [os.path.dirname(full_path) if full_path.endswith('.csv') else full_path for full_path in full_paths]
+                tables = [table[:-4] if table.endswith(".csv") else table for table in tables ]
                               
                 if pd.isna(data_product):
                     data_product, tables = _table_match(tables)
@@ -1668,6 +1694,28 @@ class Sftp:
         return file_attributes
 
     def _check_path(self,path,mode=None):
+        
+        def check_prefix(file_names):
+            # If the prefix is found, proceed to check the sequence
+            if file_names and file_names[0].startswith('part-'):
+                # Extract part numbers from file names
+                part_numbers = []
+                for file_name in file_names:
+                    match = re.search(r'part-(\d{5})', file_name)  # Regex to find part numbers
+                    if match:
+                        part_numbers.append(int(match.group(1)))
+
+                # Get the smallest and largest part numbers
+                min_part = min(part_numbers)
+                max_part = max(part_numbers)
+
+                # Check if all parts from min_part to max_part are present
+                all_parts_present = all(i in part_numbers for i in range(min_part, max_part + 1))
+
+                if not all_parts_present:
+                    print("WARNING: Some file parts are missing between part-{:05d} and part-{:05d}. Inspect further by running '.remote_files'".format(min_part, max_part))
+                    print("Please contact your local support")
+            
         files = []
         if path is not None:
             if mode == "local" or mode is None:
@@ -1695,6 +1743,8 @@ class Sftp:
                     print(f"Remote path is invalid:'{path}'")
                     path = None
 
+            check_prefix(files)
+            
             if len(files) > 1 and any(file.endswith('.csv') for file in files):
                 if self._set_table is not None:
                     # Find the file that matches the match_string without the .csv suffix
@@ -2133,21 +2183,20 @@ class Sftp:
 class _SelectData:
     def __init__(self, df, title="Select Data"):
         self.df = df
-        self.selected_product = None
-        self.selected_table = None
 
         # Create the title widget
         self.title = widgets.HTML(value=f"<h2>{title}</h2>")
 
         # Set an initial value for product dropdown (first product by default)
-        initial_product = self.df['Data Product'].unique()[0]
+        self.selected_product = self.df['Data Product'].unique()[0]
          # Create the second dropdown menu, prepopulate based on initial product
-        filtered_tables = self.df[self.df['Data Product'] == initial_product]['Table'].unique()
+        filtered_tables = self.df[self.df['Data Product'] == self.selected_product]['Table'].unique()
+        self.selected_table = filtered_tables[0]
 
         # Create the first dropdown menu
         self.product_dropdown = widgets.Dropdown(
             options=self.df['Data Product'].unique(),
-            value=initial_product,  # Set the initial value
+            value=self.selected_product,  # Set the initial value
             description='Data Product:',
             disabled=False,
         )
@@ -2155,6 +2204,7 @@ class _SelectData:
         # Create the second dropdown menu placeholder
         self.table_dropdown = widgets.Dropdown(
             options=filtered_tables.tolist(),  # Populate based on initial product
+            value = self.selected_table,
             description='Table:',
             disabled=False,
         )
@@ -2475,7 +2525,8 @@ class _SelectOptions:
         self.output_format_title = widgets.HTML(value="<h3>Select Output File Formats (More than one can be selected - '.xlsx' is not recommeded):</h3>")
         # Multi-select dropdown for output_format
         self.output_format_multiselect = widgets.SelectMultiple(
-            options=[".csv", ".xlsx", ".parquet", ".pickle", ".dta"],
+            options=[".csv", ".xlsx", ".parquet", ".pickle", None],
+            #options=[".csv", ".xlsx", ".parquet", ".pickle", ".dta"],
             value=self.config['output_format'],  # Use default value
             description='Formats:',
             disabled=False,
@@ -2949,8 +3000,6 @@ def _load_csv_table(file:str,select_cols = None, date_query:list=[None,None,None
     select_cols,col_index = check_cols(file,select_cols)
 
     # Step 1: Determine the total number of rows using subprocess
-
-
     if sys.platform.startswith('linux') or sys.platform == 'darwin':
             safe_file_path = shlex.quote(file)
             num_lines = int(subprocess.check_output(f"wc -l {safe_file_path}", shell=True).split()[0]) - 1
