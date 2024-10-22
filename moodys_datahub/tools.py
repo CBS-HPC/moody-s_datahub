@@ -17,7 +17,8 @@ import ast
 
 
 # Check and install required libraries
-required_libraries = ['pandas', 'pysftp','pyarrow','fastparquet','fastavro','openpyxl','tqdm','asyncio'] 
+
+required_libraries = ['modin[ray]','ray','pandas', 'pysftp','pyarrow','fastparquet','fastavro','openpyxl','tqdm','asyncio','rapidfuzz'] 
 for lib in required_libraries:
     try:
         importlib.import_module(lib)
@@ -26,7 +27,7 @@ for lib in required_libraries:
         subprocess.check_call([sys.executable, '-m', 'pip', 'install', lib])
 subprocess.run(['pip', 'install', '-U', 'ipywidgets'])
 
-
+import ray
 import pandas as pd
 import pyarrow
 import pyarrow.parquet as pq 
@@ -37,6 +38,10 @@ import numpy as np
 import ipywidgets as widgets
 from IPython.display import display
 import asyncio
+from rapidfuzz import process
+
+
+from math import ceil
 
 
 # Defining Sftp Class
@@ -93,34 +98,7 @@ class Sftp:
         else:
             self.hostname: str = hostname
             self.username: str = username
-
-        
-        self.output_format: list =  ['.csv'] 
-        self.file_size_mb:int = 500
-        self.delete_files: bool = False
-        self.concat_files: bool = True
-        self._select_cols: list = None 
-        self.query = None
-        self.query_args: list = None
-        self._bvd_list: list = [None,None,None]
-        self._time_period: list = [None,None,None,"remove"]
-        self.dfs = None
-
-        self._local_path: str = None
-        self._local_files: list = []
-
-        self._remote_path: str = None
-        self._remote_files: list = []
-
-        self._tables_available = None
-        self._tables_backup = None
-        self._set_data_product:str = None
-        self._time_stamp:str = None
-        self._set_table:str = None
-        self._table_dictionary = None
-        self._table_dates = None
-        self._download_finished = None
-        
+     
         if hasattr(os, 'fork'):
             self._pool_method = 'fork'
             self._max_path_length = 256
@@ -135,8 +113,10 @@ class Sftp:
         elif sys.platform == 'win32':
             self._max_path_length = 256
         
-        
+        self._tables_available = None
+        self._tables_backup = None
 
+        self._object_defaults()
 
         self.tables_available(product_overview = data_product_template)
 
@@ -724,9 +704,6 @@ class Sftp:
             Output File Size: 500 MB
         """
         async def f(self):
-            
-
-
             if self.output_format is None:
                 self.output_format = ['.csv'] 
 
@@ -817,26 +794,33 @@ class Sftp:
         asyncio.ensure_future(f(self, column, definition)) 
 
     def copy_obj(self):
-  
         """
-        Create a new `Sftp` instance with updated data selection.
+        Create a deep copy of the current instance and initialize its defaults.
 
-        This method returns a new `Sftp` instance, copying key attributes (`hostname`, `username`, `privatekey`), 
-        while using the default port (22). The `select_data()` method is called on the new instance to set its data 
-        product and table interactively.
+        This method creates a deep copy of the instance, calls the 
+        `_object_defaults()` method to set default values, and then 
+        invokes the `select_data()` method to prepare the copied object 
+        for use.
 
         Returns:
-        - `new_obj` (Sftp): A new copy of the current instance with updated data product and table.
+        -------
+        object
+            A deep copy of the current instance with default values 
+            initialized and data selected.
 
-        Example:
-        ```python
-        new_sftp_instance = original_sftp_instance.copy_obj()
+        Examples:
+        --------
+        >>> copied_instance = obj.copy_obj()
+        >>> isinstance(copied_instance, type(obj))
+        True
+        >>> copied_instance == obj
+        False  # The copied instance is a different object.
         """
-        new_obj= Sftp(hostname = self.hostname, username = self.username, port = 22, privatekey= self.privatekey) 
-
-        new_obj.select_data()
+        SFTP = copy.deepcopy(self)
+        SFTP._object_defaults()
+        SFTP.select_data()
    
-        return new_obj
+        return SFTP
 
     def table_dates(self,save_to:str=False, data_product = None,table = None):
         """
@@ -1259,7 +1243,6 @@ class Sftp:
         if select_cols is not None:
             select_cols = _check_list_format(select_cols,self._bvd_list[1],self._time_period[2])
 
-        # FIX ME !!!
         try:
             flag =  any([select_cols, query, all(date_query),bvd_query]) and self.output_format
             files, destination = self._check_args(files,destination,flag)
@@ -1423,6 +1406,178 @@ class Sftp:
 
         return column_names
      
+    def search_company_names(self,names:list, num_workers:int = -1,cut_off: int = 90.1, company_suffixes: list = None):
+
+        """
+        Search for company names and find the best matches based on a fuzzy query.
+
+        This method performs a search for company names using fuzzy matching 
+        techniques, leveraging concurrent processing to improve performance. 
+        It processes the provided names against a dataset of firmographic data 
+        and returns the best matches based on the specified cut-off score.
+
+        Parameters:
+        ----------
+        names : list
+            A list of company names to search for.
+            
+        num_workers : int, optional
+            The number of worker processes to use for concurrent operations.
+            If set to -1 (default), it will use the maximum available workers
+            minus two to avoid overloading the system.
+
+        cut_off : float, optional
+            The cut-off score for considering a match as valid. Default is 90.1.
+
+        company_suffixes : list, optional
+            A list of valid company suffixes to consider when searching for names. 
+
+
+        Returns:
+        -------
+        pandas.DataFrame
+            A DataFrame containing the best matches for the searched company names,
+            including associated scores and other relevant information.
+
+        Examples:
+        --------
+        results = obj.search_company_names(['Example Inc', 'Sample Ltd'], num_workers=4)
+         """
+    
+        # Determine the number of workers if not specified
+        if not num_workers or num_workers < 0:
+            num_workers = max(1, cpu_count() - 2)
+
+        SFTP = copy.deepcopy(self)
+        SFTP._object_defaults()
+
+        SFTP.set_data_product = "Firmographics (Monthly)"
+        SFTP.set_table = "bvd_id_and_name"
+        SFTP._select_cols = ['bvd_id_number', 'name']
+        SFTP.output_format = None
+        SFTP.query = fuzzy_query
+        SFTP.query_args = [names,'name','bvd_id_number',cut_off,company_suffixes,1]
+        df,_ = SFTP.process_all(num_workers=num_workers)
+
+        # Finder de bedste matches på tværs af "file parts"
+        max_scores = df.groupby('Search_string', as_index=False)['Score'].max()
+        best_matches = pd.merge(df, max_scores, on=['Search_string', 'Score'])
+
+        # Keep only unique rows
+        best_matches = best_matches.drop_duplicates()
+        best_matches.reset_index(drop=True)
+
+        # save to csv
+        current_time = datetime.now()
+        timestamp_str = current_time.strftime("%y%m%d%H%M")
+        best_matches.to_csv(f"{timestamp_str}_company_name_search.csv")
+
+        return best_matches
+        
+    def company_suffix(self):
+             
+            company_suffixes = [
+                # Without punctuation
+                "inc",
+                "incorporated",
+                "ltd",
+                "limited",
+                "llc",
+                "plc",
+                "corp",
+                "corporation",
+                "co",
+                "company",
+                "llp",
+                "gmbh",
+                "ag",
+                "sa",
+                "sas",
+                "pty ltd",
+                "bv",
+                "oy",
+                "as",
+                "nv",
+                "kk",
+                "srl",
+                "sp z oo",
+                "sc",
+                "ou",
+                
+                # With punctuation
+                "inc.",
+                "ltd.",
+                "llc.",
+                "plc.",
+                "corp.",
+                "co.",
+                "llp.",
+                "gmbh.",
+                "ag.",
+                "s.a.",
+                "s.a.s.",
+                "pty ltd.",
+                "b.v.",
+                "oy.",
+                "a/s",
+                "n.v.",
+                "k.k.",
+                "s.r.l.",
+                "sp. z o.o.",
+                "s.c.",
+                "oü"
+            ]
+            return company_suffixes 
+
+    def search_bvd_changes(self,bvd_list:list, num_workers:int = -1):
+        """
+        Search for changes in BvD IDs based on the provided list.
+
+        This method retrieves changes in BvD IDs by processing the provided 
+        list of BvD IDs. It utilizes concurrent processing for efficiency 
+        and returns the new IDs, the newest IDs, and a filtered DataFrame 
+        containing relevant change information.
+
+        Parameters:
+        ----------
+        bvd_list : list
+            A list of BvD IDs to check for changes.
+
+        num_workers : int, optional
+            The number of worker processes to use for concurrent operations. 
+            If set to -1 (default), it will use the maximum available workers 
+            minus two to avoid overloading the system.
+
+        Returns:
+        -------
+        tuple
+            A tuple containing:
+                - new_ids: A list of newly identified BvD IDs.
+                - newest_ids: A list of the most recent BvD IDs.
+                - filtered_df: A DataFrame with relevant change information.
+
+        Examples:
+        --------
+        new_ids, newest_ids, changes_df = obj.search_bvd_changes(['BVD123', 'BVD456'])
+        """
+
+             # Determine the number of workers if not specified
+        if not num_workers or num_workers < 0:
+            num_workers = max(1, cpu_count() - 2)
+        
+        SFTP = copy.deepcopy(self)
+        SFTP._object_defaults()
+
+        SFTP.set_data_product = "BvD ID Changes"
+        SFTP.set_table = "bvd_id_changes_full"
+        SFTP._select_cols = ['old_id', 'new_id', 'change_date']
+        SFTP.output_format = None
+        df,_ = SFTP.process_all(num_workers=num_workers)
+
+        new_ids, newest_ids,filtered_df = _bvd_changes_ray(bvd_list, df,num_workers)
+ 
+        return  new_ids, newest_ids,filtered_df
+    
     def _table_overview(self,product_overview = None):
         
         print('Retrieving Data Product overview from SFTP..wait a moment')
@@ -1743,7 +1898,7 @@ class Sftp:
                     print(f"Remote path is invalid:'{path}'")
                     path = None
 
-            check_prefix(files)
+            #check_prefix(files)
             
             if len(files) > 1 and any(file.endswith('.csv') for file in files):
                 if self._set_table is not None:
@@ -2029,6 +2184,29 @@ class Sftp:
         if not df_multiple.empty:
             asyncio.ensure_future(f(self,df,df_multiple))
 
+    def _object_defaults(self):
+
+        self.output_format: list =  ['.csv'] 
+        self.file_size_mb:int = 500
+        self.delete_files: bool = False
+        self.concat_files: bool = True
+        self._select_cols: list = None 
+        self.query = None
+        self.query_args: list = None
+        self._bvd_list: list = [None,None,None]
+        self._time_period: list = [None,None,None,"remove"]
+        self.dfs = None
+        self._local_path: str = None
+        self._local_files: list = []
+        self._remote_path: str = None
+        self._remote_files: list = []
+        self._set_data_product:str = None
+        self._time_stamp:str = None
+        self._set_table:str = None
+        self._table_dictionary = None
+        self._table_dates = None
+        self._download_finished = None
+
     # Under development
     def _search_dictionary_list(self, save_to:str=False, search_word=None, search_cols={'Data Product':True, 'Table':True, 'Column':True, 'Definition':True}, letters_only:bool=False, exact_match:bool=False, data_product = None, table = None):
         """
@@ -2136,49 +2314,6 @@ class Sftp:
         _save_to(df, 'dict_search', save_to)
 
         return df
-
-    def _bvd_changes(initial_ids, df):
-        new_ids = set(initial_ids)
-        # Initialize newest_ids to track the most recent IDs
-        newest_ids = {id: id for id in new_ids}
-        found_new = True
-        
-        while found_new:
-            found_new = False
-            current_ids = new_ids.copy()
-            
-            # Check for new IDs in old_id and new_id columns
-            for id in current_ids:
-                if id in df['old_id'].values:
-                    new_id_candidates = df[df['old_id'] == id]['new_id'].values
-                    for new_id in new_id_candidates:
-                        if new_id not in new_ids:
-                            new_ids.add(new_id)
-                            found_new = True  # Mark that a new ID was found
-                            # Update the newest_id for the current id
-                            newest_ids[id] = new_id
-                            # Also add new_id to newest_ids
-                            newest_ids[new_id] = new_id
-                
-                if id in df['new_id'].values:
-                    old_id_candidates = df[df['new_id'] == id]['old_id'].values
-                    for old_id in old_id_candidates:
-                        if old_id not in new_ids:
-                            new_ids.add(old_id)
-                            found_new = True  # Mark that a new ID was found
-                            # Update the newest_id for the old_id found
-                            newest_ids[old_id] = newest_ids[id]  # Set newest_id to the value of newest_ids[id]
-
-        # Filter the DataFrame based on new_ids
-        filtered_df = df[df['old_id'].isin(new_ids) | df['new_id'].isin(new_ids)]
-
-        # Map newest IDs to the filtered DataFrame
-        filtered_df['newest_id'] = filtered_df.apply(
-            lambda row: newest_ids.get(row['old_id'], newest_ids.get(row['new_id'])), axis=1
-        )
-
-        return new_ids, newest_ids,filtered_df
-
 
 class _SelectData:
     def __init__(self, df, title="Select Data"):
@@ -2609,6 +2744,38 @@ class _SelectOptions:
 
         return self.config
 
+class _YesNoQuestion:
+    def __init__(self, question):
+        self.question = question
+        self.result_future = asyncio.get_event_loop().create_future()
+        self.yes_button = widgets.Button(description='Yes')
+        self.no_button = widgets.Button(description='No')
+
+        # Assign button click handlers
+        self.yes_button.on_click(self.on_yes_clicked)
+        self.no_button.on_click(self.on_no_clicked)
+
+    def display_widgets(self):
+        # Display the question and buttons
+        display(widgets.Label(value=self.question))
+        display(self.yes_button, self.no_button)
+        return self.result_future  # Return the future for awaiting the result
+
+    def on_yes_clicked(self, b):
+        # Disable buttons and set result to True
+        self._disable_buttons()
+        self.result_future.set_result(True)
+
+    def on_no_clicked(self, b):
+        # Disable buttons and set result to False
+        self._disable_buttons()
+        self.result_future.set_result(False)
+
+    def _disable_buttons(self):
+        # Disable both buttons after user makes a selection
+        self.yes_button.disabled = True
+        self.no_button.disabled = True
+
 def _select_list(class_type,values, col_name: str,title:str,fnc=None, n_args = None): 
     
     async def f(class_type,values,col_name,title, fnc, n_args):
@@ -2812,10 +2979,13 @@ def _process_chunk(params):
     return file_name
 
 def _save_chunks(dfs:list, file_name:str, output_format:list = ['.csv'] , file_size:int = 100,num_workers:int = 1):
+    num_workers = int(num_workers) 
     file_names = None
     if dfs:
+        print('------ Concatenating fileparts')
+        #dfs = pd_modin.concat(dfs, ignore_index=True)
         dfs = pd.concat(dfs, ignore_index=True)
-
+      
         if output_format is None or file_name is None:
             return dfs, file_names
         
@@ -2829,7 +2999,7 @@ def _save_chunks(dfs:list, file_name:str, output_format:list = ['.csv'] , file_s
         
         # Read multithreaded
         if isinstance(num_workers, (int, float, complex))and num_workers != 1:
-            num_workers = int(num_workers) 
+            #num_workers = int(num_workers) 
             print(f"Saving {n_chunks} files")
 
             params_list =   [(i,dfs[start:min(start + chunk_size, total_rows)].copy(), n_chunks, file_name, output_format) for i, start in enumerate(range(0, total_rows, chunk_size),start=1)]
@@ -2914,7 +3084,6 @@ def _load_table(file:str,select_cols = None, date_query:list=[None,None,None,"re
         if isinstance(query, type(lambda: None)):
             try:
                 df = query(df, *query_args) if query_args else query(df)
-                print('Hello')
             except Exception as e:
                 raise ValueError(f"Error curating file with custom function: {e}")
         elif isinstance(query,str):
@@ -3242,3 +3411,144 @@ def _letters_only_regex(text):
         return re.sub(r'[^a-zA-Z0-9]', '', text.lower())
     else:
         return text
+    
+def _fuzzy_match(args):
+    """
+    Worker function to perform fuzzy matching for each batch of names.
+    """
+    name_batch, choices, cut_off, df, match_column, return_column, choice_to_index = args
+    results = []
+    
+    for name in name_batch:
+        # First, check if an exact match exists in the choices
+        if name in choice_to_index:
+            match_index = choice_to_index[name]
+            match_value = df.iloc[match_index][match_column]
+            return_value = df.iloc[match_index][return_column]
+            results.append((name, name, 100, match_value, return_value))  # Exact match with score 100
+        else:
+            # Perform fuzzy matching if no exact match is found
+            match_obj = process.extractOne(name, choices, score_cutoff=cut_off)
+            if match_obj:
+                match, score, match_index = match_obj
+                match_value = df.iloc[match_index][match_column]
+                return_value = df.iloc[match_index][return_column]
+                results.append((name, match, score, match_value, return_value))
+            else:
+                results.append((name, None, 0, None, None))
+    
+    return results
+
+def fuzzy_query(df: pd.DataFrame, names: list, match_column: str = None, return_column: str = None, cut_off: int = 50, remove_str: list = None, num_workers: int = None):
+    """
+    Perform fuzzy string matching with a list of input strings against a specific column in a DataFrame.
+    """
+
+    def remove_suffixes(choices, suffixes):
+        for i, choice in enumerate(choices):
+            choice_lower = choice.lower()  # convert to lowercase for case-insensitive comparison
+            for suffix in suffixes:
+                if choice_lower.endswith(suffix.lower()):
+                    # Remove the suffix from the end of the string
+                    choices[i] = choice_lower[:-len(suffix)].strip()
+        return choices
+
+    def remove_substrings(choices, substrings):
+        for substring in substrings:
+            choices = [choice.replace(substring.lower(), '') for choice in choices]
+        return choices
+
+    choices = [choice.lower() for choice in df[match_column].tolist()]
+    names = [name.lower() for name in names]
+
+    if remove_str:
+        names = remove_suffixes(names, remove_str)
+        choices = remove_suffixes(choices, remove_str)
+
+    # Create a mapping of choice to index for fast exact match lookup
+    choice_to_index = {choice: i for i, choice in enumerate(choices)}
+
+    # Determine the number of workers if not specified
+    if not num_workers or num_workers < 0:
+        num_workers = max(1, cpu_count() - 2)
+
+    # Ensure number of workers is not greater than the number of names
+    if len(names) < num_workers:
+        num_workers = len(names)
+
+    # Parallel processing
+    matches = []
+    if num_workers > 1:
+        # Split names into batches according to the number of workers
+        batch_size = ceil(len(names) / num_workers)
+        name_batches = [names[i:i + batch_size] for i in range(0, len(names), batch_size)]
+
+        args_list = [(batch, choices, cut_off, df, match_column, return_column, choice_to_index) for batch in name_batches]
+
+        with Pool(processes=num_workers) as pool:
+            results = pool.map(_fuzzy_match, args_list)
+            for result_batch in results:
+                matches.extend(result_batch)
+    else:
+        # If single worker, process in a simple loop
+        matches.extend(_fuzzy_match((names, choices, cut_off, df, match_column, return_column, choice_to_index)))
+
+    # Create the result DataFrame
+    result_df = pd.DataFrame(matches, columns=['Search_string', 'BestMatch', 'Score', match_column, return_column])
+
+    return result_df
+
+def _bvd_changes_ray(initial_ids, df,num_workers:int=-1):
+    #import ray
+    import modin.pandas as pd
+
+    if not num_workers or num_workers < 0:
+            num_workers = max(1, cpu_count() - 2)
+    ray.init(num_cpus=num_workers) 
+    
+    new_ids = set(initial_ids)
+    newest_ids = {id: id for id in new_ids}
+    current_ids = set()  # Keep track of processed IDs
+    found_new = True
+    
+    while found_new:
+        found_new = False
+
+        if not current_ids:
+            current_ids = new_ids.copy()
+        else:
+            current_ids = new_ids - current_ids
+
+        # Use pandas isin to check for matching old_id and new_id in a vectorized way
+        old_id_matches = df[df['old_id'].isin(current_ids)]
+        new_id_matches = df[df['new_id'].isin(current_ids)]
+
+        # Process old_id matches to find corresponding new_ids
+        for _, row in old_id_matches.iterrows():
+            new_id = row['new_id']
+            old_id = row['old_id']
+            if new_id not in new_ids:
+                new_ids.add(new_id)
+                found_new = True
+                newest_ids[old_id] = new_id
+                newest_ids[new_id] = new_id
+
+        # Process new_id matches to find corresponding old_ids
+        for _, row in new_id_matches.iterrows():
+            old_id = row['old_id']
+            new_id = row['new_id']
+            if old_id not in new_ids:
+                new_ids.add(old_id)
+                found_new = True
+                newest_ids[old_id] = newest_ids[new_id]
+
+    # Filter the DataFrame based on new_ids
+    df = df[df['old_id'].isin(new_ids) | df['new_id'].isin(new_ids)]
+
+    # Map newest IDs to the filtered DataFrame
+    df.loc[:, 'newest_id'] = df.apply(
+        lambda row: newest_ids.get(row['old_id'], newest_ids.get(row['new_id'])), axis=1
+    )
+    ray.shutdown()
+    import pandas as pd
+    return new_ids, newest_ids, df

@@ -46,7 +46,7 @@ To connec to other servers the user needs to provide "hostname", "username","por
 SFTP = Sftp(privatekey="user_provided-ssh-key.pem")
 
 # Connects to custom SFTP server
-SFTP = Sftp(hostname = "example.com", username = "username", port = 22,privatekey="user_provided-ssh-key.pem") 
+SFTP = Sftp(hostname = "example.com", username = "username", port = 22,privatekey="user_provided-ssh-key.pem",data_product_template= "20240909_104135_data_products.csv") 
 ```
 
 ### Select Data Product and Table
@@ -57,6 +57,34 @@ Run the function below to select "Data Product" and "Table" that are available o
 ```python
 SFTP.select_data()
 ```
+
+
+    HTML(value='<h2>Select Data Product and Table</h2>')
+
+
+
+    HBox(children=(Dropdown(description='Data Product:', options=('Financials History (Semi-Annual)', 'Listed Fina…
+
+
+
+    HBox(children=(Dropdown(description='Table:', disabled=True, options=(), value=None),))
+
+
+
+    HBox(children=(Button(description='OK', disabled=True, style=ButtonStyle()), Button(description='Cancel', styl…
+
+
+
+    HTML(value="<h2>Multiple data products match 'Financials History (Semi-Annual)'. Please set right data product…
+
+
+
+    HBox(children=(Dropdown(description="'Financials History (Semi-Annual)': :", options=('2DSxe98WRkCnQKLwUwIsqQ'…
+
+
+
+    HBox(children=(Button(description='OK', style=ButtonStyle()), Button(description='Cancel', style=ButtonStyle()…
+
 
 ### Overview of Remote Files
 
@@ -282,6 +310,55 @@ SFTP.search_country_codes(search_word='congo')
 # Define columns to search in:
 
 SFTP.search_country_codes(search_word='DK', search_cols = { 'Country': False,'Code': True })
+```
+
+### Find bvd_id from company names using fuzzy matching
+
+
+```python
+companies = [
+    "Apple Inc.",
+    "Microsoft Corporation",
+    "Amazon.com, Inc.",
+    "Alphabet Inc.",
+    "Facebook, Inc.",
+    "Alibaba Group",
+    "Samsung Electronics",
+    "Berkshire Hathaway Inc.",
+    "Tencent Holdings Limited",
+    "Visa Inc.",
+    "Johnson & Johnson",
+    "Walmart Inc.",
+    "ExxonMobil Corporation",
+    "Nestlé S.A.",
+    "Procter & Gamble Co.",
+    "Coca-Cola Company",
+    "Siemens AG",
+    "Toyota Motor Corporation",
+    "IBM Corporation",
+    "Pfizer Inc."
+]
+
+# Search for company names by adding names as list:
+best_matches = SFTP.search_company_names(names=companies)
+
+# Generate default company suffixes:
+company_suffixes = SFTP.company_suffix()
+
+# Define cut-off level and company name suffixes to remove:
+best_matches = SFTP.search_company_names(names=companies, num_workers=32,cut_off= 90.1, company_suffixes= company_suffixes)
+
+# Define own list of suffixes:
+best_matches = SFTP.search_company_names(names=companies, num_workers=32,cut_off= 90.1, company_suffixes= ["inc", "incorporated","ltd","limited","llc","plc","corp","corporation","co","company","llp","gmbh"])
+```
+
+### Find changes in bvd_id over time
+
+
+```python
+
+bvd_numbers = ['CN9360885371','CN9360885372','CN9360885373']
+new_ids, newest_ids,filtered_df = SFTP.search_bvd_changes(bvd_list = bvd_numbers , num_workers= -1)
 ```
 
 ### Create a new SFTP Object

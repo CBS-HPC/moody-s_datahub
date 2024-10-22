@@ -5,7 +5,7 @@ import re
 from multiprocessing import Pool, cpu_count
 
 # Check and install required libraries
-required_libraries = ['pandas','rapidfuzz'] 
+required_libraries = ['pandas','rapidfuzz','numpy'] 
 for lib in required_libraries:
     try:
         importlib.import_module(lib)
@@ -16,7 +16,8 @@ subprocess.run(['pip', 'install', '-U', 'ipywidgets'])
 
 from rapidfuzz import process
 import pandas as pd
-
+import numpy as np
+from math import ceil
 from IPython.display import display
 
 
@@ -83,33 +84,137 @@ def national_identifer(obj,national_ids:list=None,num_workers:int=-1):
     return df
 
 def _fuzzy_worker(args):
-    name, choices, cut_off, df, match_column, return_column= args
-        
-    match_obj = process.extractOne(name, choices, score_cutoff=cut_off)
+    """
+    Worker function to perform fuzzy matching for the list of names using the chunk of df.
+    """
+    names, cut_off, df_chunk, match_column, return_column, remove_str = args
+    results = []
+    
+    # Create the choices list from the df_chunk based on match_column
+    choices_chunk = [choice.lower() for choice in df_chunk[match_column].tolist()]
 
-    if match_obj is not None:
-        match = match_obj[0]
-        score = match_obj[1]
-        index = [match == choice for choice in choices]
-        match_value = df[index][match_column].iloc[0]
-        return_value = df[index][return_column].iloc[0]
-        return (name, match, score, match_value, return_value)
-    else:
-        return (name, None, None, None, None)
+    # Function to remove substrings from choices if specified
+    def remove_substrings(choices, substrings):
+        for substring in substrings:
+            choices = [choice.replace(substring.lower(), '') for choice in choices]
+        return choices
+    
+    if remove_str:
+        choices_chunk = remove_substrings(choices_chunk, remove_str)
 
-def fuzzy_match(df:pd.DataFrame, names:list, match_column:str =None , return_column:str = None, cut_off:int = 50 , remove_str:list = None,num_workers:int = 1):
+    # Create a mapping of choice to index for fast exact match lookup
+    choice_to_index = {choice: i for i, choice in enumerate(choices_chunk)}
+    
+    for name in names:
+        # First, check if an exact match exists in the choices chunk
+        if name in choice_to_index:
+            match_index = choice_to_index[name]
+            match_value = df_chunk.iloc[match_index][match_column]
+            return_value = df_chunk.iloc[match_index][return_column]
+            results.append((name, name, 100, match_value, return_value))  # Exact match with score 100
+        else:
+            # Perform fuzzy matching if no exact match is found
+            match_obj = process.extractOne(name, choices_chunk, score_cutoff=cut_off)
+            if match_obj:
+                match, score, match_index = match_obj
+                match_value = df_chunk.iloc[match_index][match_column]
+                return_value = df_chunk.iloc[match_index][return_column]
+                results.append((name, match, score, match_value, return_value))
+            else:
+                results.append((name, None, 0, None, None))
+    
+
+    return results
+
+def fuzzy_match(df: pd.DataFrame, names: list, match_column: str = None, return_column: str = None, cut_off: int = 50, remove_str: list = None, num_workers: int = None):
     """
     Perform fuzzy string matching with a list of input strings against a specific column in a DataFrame.
 
     Parameters:
-    - input_strings (list): A list of strings for fuzzy matching.
     - df (pandas.DataFrame): The DataFrame containing the target columns.
+    - names (list): A list of strings for fuzzy matching.
     - match_column (str): The name of the column to match against.
     - return_column (str): The name of the column from which to return the matching value.
+    - cut_off (int): The cutoff score for fuzzy matching.
     - remove_str (list): A list of substrings to remove from the choices.
+    - num_workers (int): Number of workers for multiprocessing.
 
     Returns:
     - pandas.DataFrame: A DataFrame containing the original data along with the best match, its score, and the matching value from another column.
+    """
+
+    names = [name.lower() for name in names]
+
+    # Determine the number of workers if not specified
+    if not num_workers or num_workers < 0:
+        num_workers = max(1, cpu_count() - 2)
+
+    # Ensure number of workers is not greater than the DataFrame size
+    if len(df) < num_workers:
+        num_workers = len(df)
+
+
+    # Parallel processing
+    matches = []
+    if num_workers > 1:
+        # Split the DataFrame according to the number of workers
+        df_chunks = np.array_split(df, num_workers)
+
+        # Prepare argument list for each worker (each gets the full names list and its own df_chunk)
+        args_list = [
+            (names, cut_off, df_chunk, match_column, return_column, remove_str)
+            for df_chunk in df_chunks
+        ]
+
+        with Pool(processes=num_workers) as pool:
+            results = pool.map(_fuzzy_worker, args_list)
+            for result_batch in results:
+                matches.extend(result_batch)
+    else:
+        matches.extend(_fuzzy_worker((names, cut_off, df, match_column, return_column, remove_str)))
+
+    # Create the result DataFrame
+    result_df = pd.DataFrame(matches, columns=['Search_string', 'BestMatch', 'Score', match_column, return_column])
+    
+    # Group by 'Search_string' and get the highest score matches
+    max_scores = result_df.groupby('Search_string', as_index=False)['Score'].max()
+    best_matches = pd.merge(result_df, max_scores, on=['Search_string', 'Score'])
+
+    # Keep only unique rows
+    unique_best_matches = best_matches.drop_duplicates()
+
+    return unique_best_matches.reset_index(drop=True)
+
+def _fuzzy_worker(args):
+    """
+    Worker function to perform fuzzy matching for each batch of names.
+    """
+    name_batch, choices, cut_off, df, match_column, return_column, choice_to_index = args
+    results = []
+    
+    for name in name_batch:
+        # First, check if an exact match exists in the choices
+        if name in choice_to_index:
+            match_index = choice_to_index[name]
+            match_value = df.iloc[match_index][match_column]
+            return_value = df.iloc[match_index][return_column]
+            results.append((name, name, 100, match_value, return_value))  # Exact match with score 100
+        else:
+            # Perform fuzzy matching if no exact match is found
+            match_obj = process.extractOne(name, choices, score_cutoff=cut_off)
+            if match_obj:
+                match, score, match_index = match_obj
+                match_value = df.iloc[match_index][match_column]
+                return_value = df.iloc[match_index][return_column]
+                results.append((name, match, score, match_value, return_value))
+            else:
+                results.append((name, None, 0, None, None))
+    
+    return results
+
+def fuzzy_match(df: pd.DataFrame, names: list, match_column: str = None, return_column: str = None, cut_off: int = 50, remove_str: list = None, num_workers: int = None):
+    """
+    Perform fuzzy string matching with a list of input strings against a specific column in a DataFrame.
     """
 
     def remove_substrings(choices, substrings):
@@ -117,78 +222,41 @@ def fuzzy_match(df:pd.DataFrame, names:list, match_column:str =None , return_col
             choices = [choice.replace(substring.lower(), '') for choice in choices]
         return choices
 
-    matches = []
-
     choices = [choice.lower() for choice in df[match_column].tolist()]
-    names = [input.lower() for input in names]
+    names = [name.lower() for name in names]
 
-    if remove_str is not None:
+    if remove_str:
         choices = remove_substrings(choices, remove_str)
 
-    if isinstance(num_workers, (int, float, complex))and num_workers != 1:
-        num_workers = int(num_workers) 
-        if num_workers < 0:
-            num_workers = int(cpu_count() - 2)
-        args_list = [(name, choices, cut_off, df, match_column, return_column) for name in names]
-        pool = Pool(processes=num_workers)
-        matches = pool.map(_fuzzy_worker, args_list)
-        pool.close()
-        pool.join()
-    else:    
-        for name in names:
-            args_list = (name, choices, cut_off, df, match_column, return_column)
-            input_string, match, score, match_value, return_value = _fuzzy_worker(args_list)
-            matches.append((input_string, match, score, match_value, return_value))
+    # Create a mapping of choice to index for fast exact match lookup
+    choice_to_index = {choice: i for i, choice in enumerate(choices)}
 
-    result_df = pd.DataFrame(matches, columns=['Search_string', 'BestMatch', 'Score', match_column, return_column])
-    
-    return result_df
+    # Determine the number of workers if not specified
+    if not num_workers  or num_workers < 0:
+        num_workers = max(1, cpu_count() - 2)
 
+    # Ensure number of workers is not greater than the number of names
+    if len(names) < num_workers:
+        num_workers = len(names)
 
-    def replace_columns_with_na(df, replacement_value:str ='N/A'):
-        for column_name in df.columns:
-            if df[column_name].isna().all():
-                df[column_name] = replacement_value
-        return df
-    
-    file_names = []
-    try:
-        for extension in output_format:
-            if extension == '.csv':
-                current_file = file_name + '.csv'
-                df.to_csv(current_file,index=False)
-            elif extension == '.xlsx':
-                current_file = file_name + '.xlsx'
-                df.to_excel(current_file,index=False)
-            elif extension == '.parquet':
-                current_file = file_name + '.parquet'
-                df.to_parquet(current_file)
-            elif extension == '.pickle':
-                current_file = file_name + '.pickle'
-                df.to_pickle(current_file) 
-            elif extension == '.dta':
-                current_file = file_name + '.dta'              
-                df = replace_columns_with_na(df, replacement_value='N/A') # .dta format does not like empty columns so these are removed
-                df.to_stata(current_file)
-            file_names.append(current_file)
+    # Split names into batches according to the number of workers
+    batch_size = ceil(len(names) / num_workers)
+    name_batches = [names[i:i + batch_size] for i in range(0, len(names), batch_size)]
 
-    except PermissionError as e:
-        print(f"PermissionError: {e}. Check if you have the necessary permissions to write to the specified location.")
-        
-        if not file_name.endswith('_copy'):
-            print(f'Saving "{file_name}" as "{file_name}_copy" instead')
-            current_file = _save_files(df,file_name + "_copy",output_format)
-            file_names.append(current_file)
-        else: 
-            print(f'"{file_name}" was not saved')
+    args_list = [(batch, choices, cut_off, df, match_column, return_column, choice_to_index) for batch in name_batches]
 
-    return file_names
-
-
-   
-
-    """Converts the title to lowercase and removes non-alphanumeric characters."""
-    if isinstance(text,str):
-        return re.sub(r'[^a-zA-Z0-9]', '', text.lower())
+    # Parallel processing
+    matches = []
+    if num_workers > 1:
+        with Pool(processes=num_workers) as pool:
+            results = pool.map(_fuzzy_worker, args_list)
+            for result_batch in results:
+                matches.extend(result_batch)
     else:
-        return text
+        # If single worker, process in a simple loop
+        for batch in name_batches:
+            matches.extend(_fuzzy_worker((batch, choices, cut_off, df, match_column, return_column, choice_to_index)))
+
+    # Create the result DataFrame
+    result_df = pd.DataFrame(matches, columns=['Search_string', 'BestMatch', 'Score', match_column, return_column])
+    return result_df
