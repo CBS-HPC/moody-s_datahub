@@ -118,8 +118,10 @@ class Sftp:
 
         self._object_defaults()
 
-        self.tables_available(product_overview = data_product_template)
+        _,to_delete = self.tables_available(product_overview = data_product_template)
 
+        self._server_clean_up(to_delete)
+    
     # pool method
     @property
     def pool_method(self):
@@ -1081,20 +1083,16 @@ class Sftp:
             self._tables_available,to_delete = self._table_overview(product_overview = product_overview)
             self._tables_backup = self._tables_available.copy()
 
-            if self.hostname == "s-f2112b8b980e44f9a.server.transfer.eu-west-1.amazonaws.com" and self.username in ["D2vdz8elTWKyuOcC2kMSnw","aN54UkFxQPCOIEtmr0FmAQ"] and len(to_delete) > 0 and int(cpu_count()) >= 32: # So that users on small machines will not sit and wait for the Deleting process. 
-        
-                print("------------------  DELETING OLD EXPORTS FROM SFTP")
-                self._remove_exports(to_delete)
-
         elif reset:
             self._tables_available = self._tables_backup.copy()
+            to_delete = []
         
         # Specify unknown data product exports
         self._specify_data_products()
 
         _save_to(self._tables_available,'tables_available',save_to)
    
-        return self._tables_available.copy()
+        return self._tables_available.copy(), to_delete
     
     def search_country_codes(self,search_word = None,search_cols={'Country':True,'Code':True}):        
         """
@@ -1692,14 +1690,24 @@ class Sftp:
             
             return  df, to_delete
 
-    def _remove_exports(self,to_delete = None,num_workers = None):
-            
+    def _server_clean_up(self,to_delete):
+
+        async def f(self,to_delete):
+                question = _YesNoQuestion("Please help maintain the server by deleting old exports? It may take a few minutes")
+                result = await question.display_widgets()
+                if result:
+                    print("------------------  DELETING OLD EXPORTS FROM SFTP")
+                    self._remove_exports(to_delete)
         if to_delete is None:
             _, to_delete = self._table_overview()
 
         if len(to_delete) == 0:
-            return
- 
+            return 
+        elif self.hostname == "s-f2112b8b980e44f9a.server.transfer.eu-west-1.amazonaws.com" and self.username in ["D2vdz8elTWKyuOcC2kMSnw","aN54UkFxQPCOIEtmr0FmAQ"] and int(cpu_count()) >= 32:
+            asyncio.ensure_future(f(self,to_delete))
+
+    def _remove_exports(self,to_delete = None,num_workers = None):
+
         def batch_list(input_list, num_batches):
             """Splits the input list into a specified number of batches."""
             # Calculate the batch size based on the total number of elements and the number of batches
@@ -1720,7 +1728,7 @@ class Sftp:
                 start = end
             
             return batches
-
+        
         # Detecting files to delete
         lists = _run_parallel(fnc=self._recursive_collect,params_list=to_delete,n_total=len(to_delete),msg = 'Collecting files to delete')
         file_paths = [item for sublist in lists for item in sublist]
