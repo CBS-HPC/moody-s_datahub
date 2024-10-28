@@ -6,6 +6,6 @@ title: Reference
     handler: python
     options:
         show_source: false
-        show_root_heading: false
-        heading_level: 1
+        show_root_heading: true
+        heading_level: 2
 
