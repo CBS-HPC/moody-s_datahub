@@ -53,21 +53,21 @@ class Sftp:
         
         """Constructor Method
         
-        ### Constructor Parameters:
+       Constructor Parameters:
         - `hostname` (str, optional): Hostname of the SFTP server (default is CBS SFTP server).
         - `username` (str, optional): Username for authentication (default is CBS SFTP server).
         - `port` (int, optional): Port number for the SFTP connection (default is 22).
         - `privatekey` (str, optional): Path to the private key file for authentication (required for SFTP access).
         - `data_product_template` (str, optional): Template for managing data products during SFTP operations.
 
-        ### Object Attributes:
+        Object Attributes:
         - `connection` (pysftp.Connection or None): Represents the current SFTP connection, initially set to `None`.
         - `hostname` (str): Hostname for the SFTP server.
         - `username` (str): Username for SFTP authentication.
         - `privatekey` (str or None): Path to the private key file for SFTP authentication.
         - `port` (int): Port number for SFTP connection (default is 22).
         
-        ### File Handling Attributes:
+        File Handling Attributes:
         - `output_format` (list of str): Supported output formats for files (default is ['.csv']).
         - `file_size_mb` (int): Maximum file size in MB before splitting files (default is 500 MB).
         - `delete_files` (bool): Flag indicating whether to delete processed files (default is `False`).
@@ -594,32 +594,32 @@ class Sftp:
         for the selected data product and table. The selections are applied to `self.set_data_product` and `self.set_table`, 
         which can be used in subsequent file operations.
 
-        ### Workflow:
+        Workflow:
         - An instance of the `_SelectData` class is created, using `_tables_backup` to populate the widget options.
         - Users select a data product and table through the interactive widget.
         - The method validates the selected options and updates the instance's `set_data_product` and `set_table` attributes.
         - If multiple data products match the selection, a list of options is displayed to the user for further refinement.
         - The selected data product and table are printed to confirm the operation.
 
-        ### Internal Async Function (`f`):
+        Internal Async Function (`f`):
         - The method contains an internal asynchronous function `f` that handles the widget display and data selection.
         - It uses the `await` keyword to ensure non-blocking behavior while the user interacts with the widget.
         - The selected values are processed and validated before being assigned to the instance variables.
         
-        ### Notes:
+        Notes:
         - This method uses `asyncio.ensure_future` to ensure that the asynchronous function `f` runs concurrently without blocking other operations.
         - If multiple matches for the selected data product are found, the user is prompted to further specify the data product.
         - The method uses a copy of `_tables_backup` to preserve the original data structure during the filtering process.
 
-        ### Example:
+        Example:
             ```python
             # Trigger the data selection process
             self.select_data()
             ```
-        ### Raises:
+        Raises:
         - `ValueError`: If no valid data product or table is selected after interaction.
         
-        ### Expected Outputs:
+        Expected Outputs:
         - Updates `self.set_data_product` and `self.set_table` based on user selections.
         - Prints confirmation of the selected data product and table.
         """
@@ -657,7 +657,7 @@ class Sftp:
         widgets, and the user can select their preferred values. Once the options are selected, the instance variables 
         are updated with the new configurations.
 
-        ### Workflow:
+        Workflow:
         - A dictionary `config` is initialized with the current values of key file operation settings (`delete_files`, 
         `concat_files`, `output_format`, `file_size_mb`).
         - An instance of `_SelectOptions` is created with this configuration, displaying the interactive widgets.
@@ -666,23 +666,23 @@ class Sftp:
         `file_size_mb`) are updated with the new values.
         - A summary of the selected options is printed for confirmation.
 
-        ### Internal Async Function (`f`):
+        Internal Async Function (`f`):
         - The internal function `f` manages the asynchronous behavior, ensuring that the user can interact with the widget 
         without blocking the main thread.
         - After the user selects the options, the configuration is validated and applied to the class attributes.
         
-        ### Notes:
+        Notes:
         - This method uses `asyncio.ensure_future` to execute the async function `f` concurrently, without blocking other tasks.
         - The `config` dictionary is updated with the new options chosen by the user.
         - If no changes are made by the user, the original configuration remains.
 
-        ### Example:
+        Example:
             ```python
             # Launch the options configuration process
             self.define_options()
             ```
 
-        ### Expected Outputs:
+        Expected Outputs:
         - Updates the instance variables based on user input:
             - `self.delete_files`: Whether to delete files after processing.
             - `self.concat_files`: Whether to concatenate files.
@@ -695,10 +695,10 @@ class Sftp:
             - Output Format: List of formats (e.g., `['.csv']`)
             - Output File Size: File size in MB (e.g., `500 MB`)
 
-        ### Raises:
+        Raises:
         - `ValueError`: If the selected options are invalid or conflict with other settings.
 
-        ### Example Output:
+        Example Output:
             The following options were selected:
             Delete Files: True
             Concatenate Files: False
@@ -803,20 +803,6 @@ class Sftp:
         `_object_defaults()` method to set default values, and then 
         invokes the `select_data()` method to prepare the copied object 
         for use.
-
-        Returns:
-        -------
-        object
-            A deep copy of the current instance with default values 
-            initialized and data selected.
-
-        Examples:
-        --------
-        >>> copied_instance = obj.copy_obj()
-        >>> isinstance(copied_instance, type(obj))
-        True
-        >>> copied_instance == obj
-        False  # The copied instance is a different object.
         """
         SFTP = copy.deepcopy(self)
         SFTP._object_defaults()
@@ -1415,7 +1401,6 @@ class Sftp:
         and returns the best matches based on the specified cut-off score.
 
         Parameters:
-        ----------
         names : list
             A list of company names to search for.
             
@@ -1432,13 +1417,11 @@ class Sftp:
 
 
         Returns:
-        -------
         pandas.DataFrame
             A DataFrame containing the best matches for the searched company names,
             including associated scores and other relevant information.
 
         Examples:
-        --------
         results = obj.search_company_names(['Example Inc', 'Sample Ltd'], num_workers=4)
          """
     
@@ -1537,7 +1520,6 @@ class Sftp:
         containing relevant change information.
 
         Parameters:
-        ----------
         bvd_list : list
             A list of BvD IDs to check for changes.
 
@@ -1547,7 +1529,6 @@ class Sftp:
             minus two to avoid overloading the system.
 
         Returns:
-        -------
         tuple
             A tuple containing:
                 - new_ids: A list of newly identified BvD IDs.
@@ -1555,7 +1536,6 @@ class Sftp:
                 - filtered_df: A DataFrame with relevant change information.
 
         Examples:
-        --------
         new_ids, newest_ids, changes_df = obj.search_bvd_changes(['BVD123', 'BVD456'])
         """
 
