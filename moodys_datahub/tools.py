@@ -1681,6 +1681,8 @@ class Sftp:
         if to_delete is None:
             _, to_delete = self._table_overview()
 
+        to_delete = _check_list_format(to_delete)
+
         if len(to_delete) == 0:
             return 
         elif self.hostname == "s-f2112b8b980e44f9a.server.transfer.eu-west-1.amazonaws.com" and self.username in ["D2vdz8elTWKyuOcC2kMSnw","aN54UkFxQPCOIEtmr0FmAQ"] and int(cpu_count()) >= 32:
