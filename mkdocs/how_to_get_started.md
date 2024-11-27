@@ -7,7 +7,7 @@ https://github.com/CBS-HPC/moody-s_datahub/blob/main/mkdocs/how_to_get_started.i
 
 **The pip wheel can be manually downloaded using the link below:**
 
-https://github.com/CBS-HPC/moody-s_datahub/blob/main/dist/moodys_datahub-0.0.1-py3-none-any.whl
+!curl -s -L -o moodys_datahub-0.0.1-py3-none-any.whl https://raw.githubusercontent.com/CBS-HPC/moody-s_datahub/main/dist/moodys_datahub-0.0.1-py3-none-any.whl
 
 
 Or directly to the working folder by running the line below:
