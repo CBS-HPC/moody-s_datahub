@@ -56,6 +56,7 @@ class Sftp:
         - `port` (int, optional): Port number for the SFTP connection (default is 22).
         - `privatekey` (str, optional): Path to the private key file for authentication (required for SFTP access).
         - `data_product_template` (str, optional): Template for managing data products during SFTP operations.
+        - `local_repo` (str, optional): Path to a folder containing previously downloaded data products.
 
         Object Attributes:
         - `connection` (pysftp.Connection or None): Represents the current SFTP connection, initially set to `None`.
