@@ -14,7 +14,7 @@ from multiprocessing import Pool, cpu_count, Process
 import importlib.resources as pkg_resources
 import copy
 import ast
-
+from pathlib import Path
 
 # Check and install required libraries
 
@@ -39,17 +39,14 @@ import ipywidgets as widgets
 from IPython.display import display
 import asyncio
 from rapidfuzz import process
-
-
 from math import ceil
-
 
 # Defining Sftp Class
 class Sftp: 
     """
     A class to manage SFTP connections and file operations for data transfer.
     """
-    def __init__(self, hostname:str = None, username:str = None, port:int = 22, privatekey:str = None, data_product_template:str = None ):
+    def __init__(self, hostname:str = None, username:str = None, port:int = 22, privatekey:str = None, data_product_template:str = None, local_repo:str = None):
         
         """Constructor Method
         
@@ -93,12 +90,21 @@ class Sftp:
                     self.connect()
                     break
                 except Exception:
-                    pass
-                   
+                    pass   
         else:
             self.hostname: str = hostname
             self.username: str = username
-     
+
+        if local_repo:
+            local_repo = os.path.abspath(local_repo)
+            if os.path.exists(local_repo):
+                self._local_repo = local_repo
+            else:
+                print(f"Provided local_repo does not exist: {local_repo}")
+                return
+        else:
+            self._local_repo: str = None
+
         if hasattr(os, 'fork'):
             self._pool_method = 'fork'
             self._max_path_length = 256
@@ -208,26 +214,27 @@ class Sftp:
         """
        
         if path is None:
-            #self._remote_files = []
-            #self._remote_path  = None
-            #self._local_files  = []
-            #self._local_path   = None
-            #self._set_data_product = None
-            #self._set_table = None
             self._object_defaults()
 
         elif path is not self.remote_path:
             self._local_files  = []
             self._local_path   = None
-            self._remote_files, self._remote_path = self._check_path(path,"remote")
 
+            if self._local_repo:
+                self._remote_files, self._remote_path = self._check_path(path)
+            else:
+                self._remote_files, self._remote_path = self._check_path(path,"remote")
+     
             if self._remote_path:
-                df = self._tables_available.query(f"`Base Directory` == '{self._remote_path}'")
-        
+                if len(self._tables_available) > 1:
+                    df = self._tables_available.query(f"`Base Directory` == '{self._remote_path}'") # FIX ME !! Investigating this !!!  get stuck on this if df len == 1
+                else:
+                    df = self._tables_available
+      
                 if df.empty:
                     df = self._tables_available.query(f"`Export` == '{self._remote_path}'")
                     self._set_table = None
-                else:        
+                else:     
                     if self._set_data_product not in df['Data Product'].values:    
                         self._set_data_product = df['Data Product'].iloc[0]
                         self._tables_available = df 
@@ -264,13 +271,6 @@ class Sftp:
             self._tables_available = self._tables_backup.copy()
 
         if product is None:
-            # self._set_data_product = None
-            # self._set_table = None
-            # self.remote_path = None
-            # self._time_stamp = None
-            # self._select_cols = None
-            # self.query = None
-            # self.query_args = None
             self._object_defaults()
 
         if product is not self._set_data_product:
@@ -297,12 +297,7 @@ class Sftp:
                 self._tables_available = df
                 self._set_data_product = product
                 self._time_stamp = df['Timestamp'].iloc[0]
-                #self._set_table = None
-                #self._select_cols = None
-                #self.query = None
-                #self.query_args = None
-
-
+     
     @property
     def set_table(self):
         return self._set_table
@@ -321,15 +316,8 @@ class Sftp:
         """
 
         if table is None:
-            # self._set_table = None
-            # self.remote_path = None
-            # self._select_cols = None
-            # self.query = None
-            # self.query_args = None
             self._object_defaults()
-
         elif table is not self._set_table:
-            
             if self._set_data_product is None:
                 df = self._tables_available.query(f"`Table` == '{table}'")
             else:
@@ -347,7 +335,6 @@ class Sftp:
                 if self._set_data_product is None: 
                     matches   = df[['Data Product','Table']].drop_duplicates()
                     print(f"Multiple tables match '{table}' : {matches['Table'].tolist()} from {matches['Data Product'].tolist()}. Please set Data Product using the '.set_data_product' property")
-          
                 elif len(df['Export'].unique()) > 1:
                     matches   = df[['Data Product','Table','Export']].drop_duplicates()
                     print(f"Multiple version of '{table}' are detected: {matches['Table'].tolist()} from {matches['Data Product'].tolist()} with export paths ('Base Directory') {matches['Base Directory'].tolist()} .Please Set the '.remote_path' property with the correct 'Base Directory' Path")
@@ -359,13 +346,13 @@ class Sftp:
                 self._time_stamp = df['Timestamp'].iloc[0]
                 self.remote_path = df['Base Directory'].iloc[0]
                 
-   
     @property
     def bvd_list(self):
         return self._bvd_list
     
     @bvd_list.setter
     def bvd_list(self, bvd_list = None):
+        
         def load_bvd_list(file_path, df_bvd ,delimiter='\t'):
             # Get the file extension
             file_extension = file_path.split('.')[-1].lower()
@@ -422,28 +409,7 @@ class Sftp:
                 non_matching_items = [item for item in bvd_list if not pattern.match(item)]
                 return regex_matches, False , non_matching_items
 
-        def user_prompt(question):
-            """
-            Prompt the user with a question and allow them to choose between keep, remove, or cancel.
-
-            Parameters:
-                question (str): The question to ask the user.
-
-            Returns:
-                str: The user's choice ('keep', 'remove', 'cancel').
-            """
-            valid_responses = ['keep', 'remove', 'cancel']
-            
-            while True:
-                print(f"\n{question}")
-                response = input("Enter 'keep', 'remove', or 'cancel': ").strip().lower()
-                
-                if response.lower() in valid_responses:
-                    return response.lower()
-                else:
-                    print("Invalid response. Please choose 'keep', 'remove', or 'cancel'.")
-        
-        if bvd_list is not None:
+        def set_bvd_list(bvd_list):
             df =self.search_country_codes()
 
             if (self._bvd_list[1] is not None and self._select_cols is not None) and self._bvd_list[1] in self._select_cols:
@@ -466,20 +432,10 @@ class Sftp:
             bvd_list = _check_list_format(bvd_list)
             bvd_list, search_type,non_matching_items = check_bvd_format(bvd_list,df)
 
-            if len(non_matching_items) > 0:
-                answer = user_prompt(f"The following elements does not seem to match bvd format:{non_matching_items}")
-                if answer == 'keep':
-                    bvd_list = bvd_list + non_matching_items
-                    print(f"The following bvd_id_numbers were kept:{non_matching_items}")
-                elif answer == 'cancel':
-                    print("Adding the bvd list has been canceled")
-                    return
-                else:
-                    print(f"The following bvd_id_numbers were removed:{non_matching_items}")
+            return bvd_list,search_word,search_type,non_matching_items 
 
-            if self._set_data_product is None or self._set_table is None:
-                self.select_data()
-            
+        def set_bvd_col(search_word):
+
             if search_word is None:
                 bvd_col = self.search_dictionary()
             else:
@@ -490,24 +446,69 @@ class Sftp:
 
             bvd_col = bvd_col['Column'].unique().tolist()
             
-            self._bvd_list[0]  = bvd_list
-            
             if len(bvd_col) > 1:
                 if isinstance(search_word, str) and search_word in bvd_col:
                     self._bvd_list[1] = search_word
                 else:
-                    _select_list('_SelectMultiple',bvd_col,'Columns:','Select "bvd" Columns to filtrate',_select_bvd,[self._bvd_list,self._select_cols, search_type])
-                    return
+                    return bvd_col
             else:    
                 self._bvd_list[1]  = bvd_col[0]
 
+            return False
+
+        async def f_bvd_prompt(bvd_list ,non_matching_items):
+    
+            question = _CustomQuestion(f"The following elements does not seem to match bvd format: {non_matching_items}",['keep', 'remove','cancel'])
+            answer = await question.display_widgets()
+            
+            if answer == 'keep':
+                print(f"The following bvd_id_numbers were kept:{non_matching_items}")
+                self._bvd_list[0] = bvd_list + non_matching_items
+
+            elif answer == 'cancel':
+                print("Adding the bvd list has been canceled")
+                return
+            else:
+                print(f"The following bvd_id_numbers were removed:{non_matching_items}")
+                self._bvd_list[0] = bvd_list
+
+            if self._set_data_product is None or self._set_table is None:
+                self.select_data()
+            
+            bvd_col = set_bvd_col(search_word)
+            if bvd_col:
+                _select_list('_SelectMultiple',bvd_col,'Columns:','Select "bvd" Columns to filtrate',_select_bvd,[self._bvd_list,self._select_cols, search_type])
+                return
+
             self._bvd_list[2] = _construct_query(self._bvd_list[1],self._bvd_list[0],search_type)
-        else:
-            self._bvd_list = [None,None,None]
+        
+            if self._select_cols is not None:
+                self._select_cols = _check_list_format(self._select_cols,self._bvd_list[1],self._time_period[2])
+    
+        self._bvd_list = [None,None,None]
+        
+        if bvd_list is not None:
+            bvd_list,search_word,search_type,non_matching_items  = set_bvd_list(bvd_list)
+
+            if len(non_matching_items) > 0:    
+                asyncio.ensure_future(f_bvd_prompt(bvd_list ,non_matching_items))
+                return
+
+            self._bvd_list[0]  = bvd_list
+
+            if self._set_data_product is None or self._set_table is None:
+                self.select_data()
+            
+            bvd_col = set_bvd_col(search_word)
+            if bvd_col:
+                _select_list('_SelectMultiple',bvd_col,'Columns:','Select "bvd" Columns to filtrate',_select_bvd,[self._bvd_list,self._select_cols, search_type])
+                return
+
+            self._bvd_list[2] = _construct_query(self._bvd_list[1],self._bvd_list[0],search_type)
         
         if self._select_cols is not None:
             self._select_cols = _check_list_format(self._select_cols,self._bvd_list[1],self._time_period[2])
-
+   
     @property
     def time_period(self):
         return self._time_period
@@ -661,10 +662,8 @@ class Sftp:
         async def f(self):
             Select_obj = _SelectData(self._tables_backup,'Select Data Product and Table')
             selected_product, selected_table = await Select_obj.display_widgets()
-
             df = self._tables_backup.copy()
             df = df[['Data Product','Table','Base Directory','Top-level Directory']].query(f"`Data Product` == '{selected_product}' & `Table` == '{selected_table}'").drop_duplicates()
-            
             if len(df) > 1:
                 options = df['Top-level Directory'].tolist()
                 product = df['Data Product'].drop_duplicates().tolist()
@@ -1098,14 +1097,14 @@ class Sftp:
         Example:
             df = self.tables_available(product_overview='overview.xlsx', save_to='csv', reset=True)
         """
-
+        to_delete = []
         if self._tables_available is None and self._tables_backup is None:
             self._tables_available,to_delete = self._table_overview(product_overview = product_overview)
             self._tables_backup = self._tables_available.copy()
 
         elif reset:
             self._tables_available = self._tables_backup.copy()
-            to_delete = []
+      
         
         # Specify unknown data product exports
         self._specify_data_products()
@@ -1243,7 +1242,6 @@ class Sftp:
         query_args = query_args or self.query_args
         select_cols = select_cols or self._select_cols
         
-
         # To handle executing when download_all() have not finished!
         if self._download_finished is False and all(file in self._remote_files for file in files): 
             start_time = time.time()
@@ -1257,10 +1255,9 @@ class Sftp:
                     return None, None
 
             self._download_finished =True 
-
+  
         if select_cols is not None:
             select_cols = _check_list_format(select_cols,self._bvd_list[1],self._time_period[2])
-
         try:
             flag =  any([select_cols, query, all(date_query),bvd_query]) and self.output_format
             files, destination = self._check_args(files,destination,flag)
@@ -1488,7 +1485,79 @@ class Sftp:
         best_matches.to_csv(f"{timestamp_str}_company_name_search.csv")
 
         return best_matches
+
+    def batch_bvd_search(self,products:str = "products.xlsx",bvd_numbers:str = "bvd_numbers.txt"):
+
+        def check_file_exists(base_name,extension = '.csv' ,max_attempts=100):
+            # Check for "filename.csv"
+            if os.path.exists(base_name + extension):
+                return base_name + extension 
+            
+            # Check for "filename_1.csv", "filename_2.csv", ..., up to max_attempts
+            for i in range(1, max_attempts + 1):
+                file_name = f"{base_name}_{i}{extension}"
+                if os.path.exists(file_name):
+                    return file_name
         
+        if not os.path.exists(products) or not os.path.exists(bvd_numbers):
+            files = []
+            if not os.path.exists(products):
+                with pkg_resources.open_binary('moodys_datahub.data', 'products.xlsx') as src, open('products.xlsx', 'wb') as target_file:
+                    shutil.copyfileobj(src, target_file)
+                    files.append(target_file)
+            if not os.path.exists(bvd_numbers):
+                with pkg_resources.open_binary('moodys_datahub.data', 'bvd_numbers.txt') as src, open('bvd_numbers.txt', 'wb') as target_file:
+                    shutil.copyfileobj(src, target_file)
+                    files.append(target_file)
+            print(f"The following input templates have been create: {files}. Please fill out and re-run the function")
+            return
+            
+        df = pd.read_excel(products)
+            # Convert columns A, B, and C to lists
+        data_products = df['Data Product'].tolist()
+        tables = df['Table'].tolist()
+        columns = df['Column'].tolist()
+        to_runs = df['Run'].tolist()
+
+        df = pd.read_csv(bvd_numbers, header=None)
+        bvd_numbers = df[0].tolist()
+
+        SFTP = copy.deepcopy(self)
+        SFTP._object_defaults()
+
+        in_complete = []
+        # Loop through both lists together
+        n = 0
+        for data_product, table,column,to_run in zip(data_products, tables, columns,to_runs):
+            if to_run:
+                n = n+1
+                file_name = f"{n}_{data_product}_{table}"
+                
+                existing_file = check_file_exists(file_name)
+                
+                if existing_file:
+                    continue 
+                
+                print(f"{n} : {data_product} : {table}")
+                SFTP.set_data_product = data_product
+                SFTP.set_table = table
+                
+                if SFTP._set_table is not None:
+                    available_cols = SFTP.get_column_names()
+                    if isinstance(column, str) and ',' in column:  # Check if it's a string and contains a comma  
+                        column = [word.strip() for word in column.split(',')]
+                        SFTP.query = ' | '.join(f"{col} in {bvd_numbers}" for col in column)
+                    else:
+                        SFTP.query=f"{column} in {bvd_numbers}"
+                        column = [column]
+
+                    if all(col in available_cols for col in column):
+                        SFTP.process_all(destination = file_name)
+                    else:
+                        in_complete.append([n,data_product,table,available_cols])
+                else:
+                    in_complete.append([n,data_product,table,'Not found'])
+
     def company_suffix(self):
              
             company_suffixes = [
@@ -1591,19 +1660,14 @@ class Sftp:
         return  new_ids, newest_ids,filtered_df
     
     def _table_overview(self,product_overview = None):
-        
-        print('Retrieving Data Product overview from SFTP..wait a moment')
-        
-        product_overview =_table_names(file_name = product_overview)
 
-        with self.connect() as sftp:
+        def check_sftp(product_overview,sftp):
             product_paths = sftp.listdir()
             newest_exports = []
             time_stamp = []
-            repeating = []
             data_products = []
             to_delete = []
-      
+    
             for product_path in product_paths:
                 sel_product = product_overview.loc[product_overview['Top-level Directory'] == product_path, 'Data Product']
                 if len(sel_product) == 0:
@@ -1611,14 +1675,16 @@ class Sftp:
                 else:    
                     data_products.append(sel_product.values[0])
                 
-                tnfs_folder = product_path + '/tnfs'
+                tnfs_folder = product_path + "/" + "tnfs"
+                #tnfs_folder = os.path.normpath(os.path.join(product_path ,"tnfs"))
+
                 export_paths =  sftp.listdir(product_path)
 
                 if not sftp.exists(tnfs_folder):
-                    path = product_path + '/' + export_paths[0]
+                    path = product_path + "/" + export_paths[0]
+                    #path = os.path.normpath(os.path.join(product_path ,export_paths[0]))
                     newest_exports.append(path)
                     time_stamp.append(None)
-                    repeating.append('One-off')
                     continue
 
                 # Get all .tnfs files in the 'tnfs' folder
@@ -1633,7 +1699,8 @@ class Sftp:
 
                 # Determine the newest .tnfs file
                 for tnfs_file in tnfs_files:
-                    tnfs_file_path  = tnfs_folder + '/' + tnfs_file
+                    tnfs_file_path  = tnfs_folder + "/" + tnfs_file
+                    #tnfs_file_path = os.path.normpath(os.path.join(tnfs_folder,tnfs_file))
                     file_attributes = sftp.stat(tnfs_file_path)
                     mtime = file_attributes.st_mtime
                     if mtime > newest_mtime:
@@ -1645,10 +1712,10 @@ class Sftp:
                         sftp.remove(tnfs_file_path)
 
                 if newest_tnfs_file:
-            
                     time_stamp.append(time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(newest_mtime)))
                     if self._local_path is not None:
-                        local_file = self._local_path + '/' +  "temp.tnf"
+                        local_file = self._local_path + "/" +  "temp.tnf"
+                        #local_file = os.path.normpath(os.path.join(self._local_path,"temp.tnf"))
                     else: 
                         local_file = "temp.tnf"
                     sftp.get(newest_tnfs_file,  local_file)
@@ -1656,20 +1723,58 @@ class Sftp:
                     # Read the contents of the newest .tnfs file
                     with open( local_file , 'r') as f:
                         tnfs_data = json.load(f)
-                        newest_export = product_path + '/' + tnfs_data.get('DataFolder')
+                        newest_export = product_path + "/" + tnfs_data.get('DataFolder')
+                        #newest_export = os.path.normpath(os.path.join(product_path,tnfs_data.get('DataFolder')))
                         newest_exports.append(newest_export)
-                        repeating.append('Repeating')
                 
                     os.remove(local_file)
 
                     for export_path in export_paths:
-                        export_path = product_path + '/' +  export_path 
+                        export_path = product_path + "/" +  export_path 
+                        #export_path = os.path.normpath(os.path.join(product_path,export_path))
                         if export_path != newest_export and export_path != tnfs_folder:
                             to_delete.append(export_path)
 
             # Create a DataFrame from the lists
-            df = pd.DataFrame({'Data Product': data_products,'Top-level Directory': product_paths,'Newest Export': newest_exports,'Timestamp': time_stamp,'Repeating': repeating})
+            df = pd.DataFrame({'Data Product': data_products,'Top-level Directory': product_paths,'Newest Export': newest_exports,'Timestamp': time_stamp})
 
+            return df, to_delete
+
+        def check_local(local_path: str = None):
+            product_paths = os.listdir(local_path)
+            newest_exports = []
+            time_stamps = []
+            data_products = []
+            for product_path in product_paths:
+
+                newest_exports.append(local_path + "/" + product_path) # FIX ME
+                #newest_exports.append(os.path.normpath(os.path.join(local_path ,product_path)))
+               
+                filename = os.path.basename(product_path)  # Extract the last part of the path
+                # Split by '_exported' and strip spaces
+                parts = filename.split("_exported", 1)
+                
+                # Extract data_product
+                data_products.append(parts[0].strip())
+                
+                # Extract timestamp and normalize it
+                timestamp = parts[1].strip() if len(parts) > 1 else ""
+
+                # Convert timestamp format
+                timestamp = re.sub(r"[_]", " ", timestamp)  # Replace "_" with " "
+                try:
+                    timestamp = datetime.strptime(timestamp, "%Y-%m-%d %H-%M-%S")
+                    timestamp = timestamp.strftime('%Y-%m-%d %H:%M:%S')
+                except ValueError:
+                    timestamp = None  # Handle cases where format doesn't match
+                time_stamps.append(timestamp)
+
+            # Create a DataFrame from the lists
+            df = pd.DataFrame({'Data Product': data_products,'Top-level Directory': product_paths,'Newest Export': newest_exports,'Timestamp': time_stamps})
+
+            return df, []
+        
+        def compile_table(df,sftp = None):
             data = []
 
             for _ , row  in df.iterrows():                
@@ -1677,13 +1782,19 @@ class Sftp:
                 timestamp = row['Timestamp']
                 main_directory = row['Top-level Directory']
                 export = row['Newest Export']
-                repeating = row['Repeating']
-                tables = sftp.listdir(export)
+                
+                if sftp:
+                    tables = sftp.listdir(export)
+                    full_paths  = [export + "/" + table for table in tables]
+                    #full_paths  = [os.path.normpath(os.path.join(export,table)) for table in tables]
 
-                full_paths  = [export + '/' + table for table in tables]
+                else:
+                    tables = os.listdir(export)
+                    full_paths  = [os.path.normpath(os.path.join(export ,table)) for table in tables]
+
                 full_paths = [os.path.dirname(full_path) if full_path.endswith('.csv') else full_path for full_path in full_paths]
                 tables = [table[:-4] if table.endswith(".csv") else table for table in tables ]
-                              
+                            
                 if pd.isna(data_product):
                     data_product, tables = _table_match(tables)
 
@@ -1691,27 +1802,41 @@ class Sftp:
                 for full_path, table in zip(full_paths,tables):
 
                     data.append({'Data Product':data_product,
-                                 #'Table': os.path.basename(full_path),
-                                 'Table': table,
-                                 'Base Directory': full_path,
-                                 'Timestamp': timestamp,
-                                 'Repeating':repeating,
-                                 'Export': export,
-                                 'Top-level Directory':main_directory})
-
+                                'Table': table,
+                                'Base Directory': full_path,
+                                'Timestamp': timestamp,
+                                'Export': export,
+                                'Top-level Directory':main_directory})
+            
             # Create a DataFrame from the list of dictionaries
             df = pd.DataFrame(data)
-            
-            return  df, to_delete
+
+            return df
+ 
+        if not self._local_repo:
+            print('Retrieving Data Product overview from SFTP..wait a moment')
+            product_overview =_table_names(file_name = product_overview) 
+            with self.connect() as sftp:
+                df, to_delete = check_sftp(product_overview,sftp) 
+                df = compile_table(df,sftp)              
+        else:
+            print(f'Retrieving Data Product overview from {self._local_repo}')
+            df, to_delete = check_local(self._local_repo)
+
+            df = compile_table(df) 
+  
+        return  df, to_delete
 
     def _server_clean_up(self,to_delete):
 
         async def f(self,to_delete):
-                question = _YesNoQuestion("Please help maintain the server by deleting old exports? It may take a few minutes")
+                question = _CustomQuestion("Please help maintain the server by deleting old exports? It may take a few minutes",['ok', 'no'])
                 result = await question.display_widgets()
-                if result:
+            
+                if result == 'ok':
                     print("------------------  DELETING OLD EXPORTS FROM SFTP")
                     self._remove_exports(to_delete)
+
         if to_delete is None:
             _, to_delete = self._table_overview()
 
@@ -1765,33 +1890,12 @@ class Sftp:
         # Deleting empty folders
         _run_parallel(fnc=self._delete_folders,params_list=to_delete,n_total=len(to_delete),msg='Deleting folders')
    
-    def _delete_folder(self,folder_path:str=None):
-        def recursive_delete(sftp, path,extensions: tuple = (".parquet", ".csv",".orc",".avro")):
-            for file_attr in sftp.listdir_attr(path):
-                full_path = path + '/' + file_attr.filename
-
-                # Check if the file ends with any of the specified extensions
-                if full_path.endswith(extensions):
-                    sftp.remove(full_path)
-                elif sftp.isdir(full_path):
-                    recursive_delete(sftp, full_path)
-                else:
-                    sftp.remove(full_path)
-
-        with self.connect() as sftp:
-            try:
-                recursive_delete(sftp, folder_path)
-                print(f"Folder {folder_path} deleted successfully")
-            except FileNotFoundError:
-                print(f"Folder {folder_path} not found")
-            except Exception as e:
-                print(f"Failed to delete folder {folder_path}: {e}")
-
     def _recursive_collect(self, path,extensions: tuple = (".parquet", ".csv",".orc",".avro")):
             file_paths = []
             with self.connect() as sftp:
                 for file_attr in sftp.listdir_attr(path):
-                    full_path = path + '/' + file_attr.filename
+                    full_path = path + "/" + file_attr.filename
+                    #full_path = os.path.normpath(os.path.join(path,file_attr.filename))
 
                     # Check if the file ends with any of the specified extensions
                     if full_path.endswith(extensions):
@@ -1813,8 +1917,22 @@ class Sftp:
         
         def recursive_delete(sftp, path):
             for file_attr in sftp.listdir_attr(path):
-                full_path = path + '/' + file_attr.filename
+                full_path = path + "/" + file_attr.filename
+                #full_path = os.path.normpath(os.path.join(path,file_attr.filename))
                 sftp.remove(full_path)   
+
+        def recursive_delete_not_used(sftp, path,extensions: tuple = (".parquet", ".csv",".orc",".avro")):
+            for file_attr in sftp.listdir_attr(path):
+                full_path = path + "/" + file_attr.filename
+                #full_path = os.path.normpath(os.path.join(path,file_attr.filename))
+
+                # Check if the file ends with any of the specified extensions
+                if full_path.endswith(extensions):
+                    sftp.remove(full_path)
+                elif sftp.isdir(full_path):
+                    recursive_delete(sftp, full_path)
+                else:
+                    sftp.remove(full_path)        
 
         with self.connect() as sftp:
             try:
@@ -1833,16 +1951,18 @@ class Sftp:
         if mode == "local":
             data['file'].append(file)
             data['size'].append(os.path.getsize(path + "/" + file))
+            #data['size'].append(os.path.getsize(os.path.normpath(os.path.join(path,file))))
         else:
             with self.connect() as sftp:
                 file_attributes = sftp.stat(path + "/" + file)
+                #file_attributes = sftp.stat(os.path.normpath(os.path.join(path,file)))
                 data['file'].append(file)
                 data['size'].append(file_attributes.st_size)
                 data['time_stamp'].append(time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(file_attributes.st_mtime)))
 
         return pd.DataFrame(data)
 
-    def _file_attr(self,mode:str=None,num_workers:int = -1):
+    def _file_attr_not_used(self,mode:str=None,num_workers:int = -1):
            
         file_attributes = pd.DataFrame()
         if mode == "local":
@@ -1873,28 +1993,6 @@ class Sftp:
         return file_attributes
 
     def _check_path(self,path,mode=None):
-        
-        def check_prefix(file_names):
-            # If the prefix is found, proceed to check the sequence
-            if file_names and file_names[0].startswith('part-'):
-                # Extract part numbers from file names
-                part_numbers = []
-                for file_name in file_names:
-                    match = re.search(r'part-(\d{5})', file_name)  # Regex to find part numbers
-                    if match:
-                        part_numbers.append(int(match.group(1)))
-
-                # Get the smallest and largest part numbers
-                min_part = min(part_numbers)
-                max_part = max(part_numbers)
-
-                # Check if all parts from min_part to max_part are present
-                all_parts_present = all(i in part_numbers for i in range(min_part, max_part + 1))
-
-                if not all_parts_present:
-                    print("WARNING: Some file parts are missing between part-{:05d} and part-{:05d}. Inspect further by running '.remote_files'".format(min_part, max_part))
-                    print("Please contact your local support")
-            
         files = []
         if path is not None:
             if mode == "local" or mode is None:
@@ -1922,12 +2020,15 @@ class Sftp:
                     print(f"Remote path is invalid:'{path}'")
                     path = None
 
-            #check_prefix(files)
-          
             if len(files) > 1 and any(file.endswith('.csv') for file in files):
                 if self._set_table:
                     # Find the file that matches the match_string without the .csv suffix
                     files = [next((file for file in files if os.path.splitext(file)[0] == self._set_table), None)]
+
+            if mode=="remote" and not self._time_stamp:
+                file_attributes = sftp.stat(path + "/" + files[0])
+                #file_attributes = sftp.stat(os.path.normpath(os.path.join(path,files[0])))
+                self._time_stamp = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(file_attributes.st_mtime))
         else:
             files = []
         return files,path
@@ -1955,9 +2056,11 @@ class Sftp:
                 flag = True
             else:
                 file = self._local_path + "/" + os.path.basename(file)
+                #file = os.path.normpath(os.path.join(self._local_path,os.path.basename(file)))
                 flag = False
                 if not file.startswith(base_path):
                     file = base_path + "/" + file
+                    #file  = os.path.normpath(os.path.join(base_path,file))
 
             if len(file) > self._max_path_length:
                 raise ValueError(f"file path is longer ({len(file)}) than the max path length of the OS {self._max_path_length}. Set '.local_path' closer to root. The file is : '{file}'")     
@@ -1970,6 +2073,7 @@ class Sftp:
             try:
                 with self.connect() as sftp: 
                     remote_file =  self.remote_path + "/" + os.path.basename(file)
+                    #remote_file = os.path.normpath(os.path.join(self.remote_path,os.path.basename(file)))
                     sftp.get(remote_file, local_file)
                     file_attributes = sftp.stat(remote_file)
                     time_stamp = file_attributes.st_mtime
@@ -2006,6 +2110,7 @@ class Sftp:
 
             if (df is not None and self.concat_files is False and self.output_format is not None) and not flag:
                 file_name, _ = os.path.splitext(destination + "/" + file)
+                #file_name, _ = os.path.splitext(os.path.normpath(os.path.join(destination,file)))
                 file_name = _save_files(df,file_name,self.output_format)
                 df = None
 
@@ -2073,27 +2178,30 @@ class Sftp:
             def format_timestamp(timestamp: str) -> str:
                 formatted_timestamp = timestamp.replace(' ', '_').replace(':', '-')
                 return formatted_timestamp
-
+            
             if isinstance(files,str):
                 files = [files]
             elif isinstance(files,list) and len(files) == 0:
                 raise ValueError("'files' is a empty list") 
             elif not isinstance(files,list):
                 raise ValueError("'files' should be str or list formats") 
-            
+           
             existing_files = [file for file in files if os.path.exists(file)]
             missing_files = [file for file in files if not os.path.exists(file)]
-
+        
             if not existing_files:
+    
                 if not self.local_files and not self.remote_files:
                     raise ValueError("No local or remote files detected") 
-
+    
                 if self._local_path is None and self._remote_path is not None:
 
                     if self._time_stamp:
-                        self.local_path = "Data Products/" + self.set_data_product +'_exported '+ format_timestamp(self._time_stamp) + '/' + self.set_table
+                        self.local_path = "Data Products" + "/" + self.set_data_product +'_exported '+ format_timestamp(self._time_stamp) + "/" + self.set_table
+                        #self.local_path = os.path.normpath(os.path.join("Data Products",(self.set_data_product +'_exported '+ format_timestamp(self._time_stamp)),self.set_table))
                     else:
-                        self.local_path = "Data Products/" + self.set_data_product +'_one-off'+ '/' + self.set_table
+                        self.local_path = "Data Products" + "/" + self.set_data_product + "/" + self.set_table
+                        #self.local_path = os.path.normpath(os.path.join("Data Products",self.set_data_product,self.set_table))
                     
                 missing_files = [file for file in files if file not in self._remote_files and file not in self.local_files]
                 existing_files = [file for file in files if file in self._remote_files or file in self.local_files] 
@@ -2125,6 +2233,8 @@ class Sftp:
             base_path = base_path.replace("\\", "/")
 
             destination = base_path + "/" + destination
+            #destination = os.path.normpath(os.path.join(base_path,destination))
+        
             
         if self.concat_files is False and destination is not None:
             if not os.path.exists(destination):
@@ -2209,11 +2319,6 @@ class Sftp:
             asyncio.ensure_future(f(self,df,df_multiple))
 
     def _object_defaults(self):
-
-        #self.output_format: list =  ['.csv'] 
-        #self.file_size_mb:int = 500
-        #self.delete_files: bool = False
-        #self.concat_files: bool = True
         self._select_cols: list = None 
         self.query = None
         self.query_args: list = None
@@ -2227,8 +2332,6 @@ class Sftp:
         self._set_data_product:str = None
         self._time_stamp:str = None
         self._set_table:str = None
-        #self._table_dictionary = None
-        #self._table_dates = None
         self._download_finished = None
 
     # Under development
@@ -2763,38 +2866,34 @@ class _SelectOptions:
             await asyncio.sleep(0.1)
 
         return self.config
-
-class _YesNoQuestion:
-    def __init__(self, question):
+class _CustomQuestion:
+    def __init__(self, question, buttons):
         self.question = question
         self.result_future = asyncio.get_event_loop().create_future()
-        self.yes_button = widgets.Button(description='Yes')
-        self.no_button = widgets.Button(description='No')
 
-        # Assign button click handlers
-        self.yes_button.on_click(self.on_yes_clicked)
-        self.no_button.on_click(self.on_no_clicked)
+        # Create a list of buttons based on the input
+        self.buttons = [widgets.Button(description=btn_name) for btn_name in buttons]
+
+        # Assign click handlers dynamically
+        for button in self.buttons:
+            button.on_click(self.on_button_clicked)
 
     def display_widgets(self):
         # Display the question and buttons
         display(widgets.Label(value=self.question))
-        display(self.yes_button, self.no_button)
+        for button in self.buttons:
+            display(button)
         return self.result_future  # Return the future for awaiting the result
 
-    def on_yes_clicked(self, b):
-        # Disable buttons and set result to True
+    def on_button_clicked(self, b):
+        # Disable all buttons and set the result to the clicked button's description
         self._disable_buttons()
-        self.result_future.set_result(True)
-
-    def on_no_clicked(self, b):
-        # Disable buttons and set result to False
-        self._disable_buttons()
-        self.result_future.set_result(False)
+        self.result_future.set_result(b.description)
 
     def _disable_buttons(self):
-        # Disable both buttons after user makes a selection
-        self.yes_button.disabled = True
-        self.no_button.disabled = True
+        # Disable all buttons after a selection
+        for button in self.buttons:
+            button.disabled = True
 
 def _select_list(class_type,values, col_name: str,title:str,fnc=None, n_args = None): 
     
@@ -2861,6 +2960,7 @@ def _select_product(selected_value,df,obj):
         obj._set_data_product = None
     
 # Dependency functions
+
 def _create_workers(num_workers:int = -1,n_total:int=None,pool_method = None  ,query = None):
 
     if num_workers < 1:
@@ -3035,7 +3135,7 @@ def _save_chunks(dfs:list, file_name:str, output_format:list = ['.csv'] , file_s
     return dfs, file_names
 
 def _load_table(file:str,select_cols = None, date_query:list=[None,None,None,"remove"], bvd_query:str=None, query = None, query_args:list = None):
-
+    # FIX ME !!! - Implementering af log-function!!
     def read_avro(file):
         df = []
         with open(file, 'rb') as avro_file:
@@ -3116,6 +3216,7 @@ def _load_table(file:str,select_cols = None, date_query:list=[None,None,None,"re
     return df
 
 def _read_csv_chunk(params):
+    # FIX ME !!! - Implementering af log-function!!
     file, chunk_idx, chunk_size, select_cols, col_index, date_query, bvd_query, query, query_args = params
     try:
         df = pd.read_csv(file, low_memory=False, skiprows=chunk_idx * chunk_size, nrows=chunk_size)
@@ -3311,12 +3412,12 @@ def _date_fnc(df, date_col = None,  start_year:int = None, end_year:int = None,n
                            
     try:
         df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
-        #df[date_col] = pd.to_datetime(df[date_col], format='%d-%m-%Y')
     except ValueError as e:
         print(f"{e}")
         return df 
     
     date_filter = (df[date_col].dt.year >= start_year) & (df[date_col].dt.year <= end_year)
+    # FIX ME [!!] make into pandas query! 
 
     if date_filter.any():  
         df = df.loc[date_filter]
@@ -3328,7 +3429,6 @@ def _date_fnc(df, date_col = None,  start_year:int = None, end_year:int = None,n
         if not nan_rows.empty:
             df = pd.concat([df, nan_rows], sort=False)
             df = df.sort_index()
-            #df = pd.concat([df, nan_rows]).sort_index()
    
     return df
     
