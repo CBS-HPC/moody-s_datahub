@@ -42,4 +42,4 @@ where = ["."]
 include = ["moodys_datahub"]
 
 [tool.setuptools.package-data]
-moodys_datahub = ["data/data_dict.xlsx", "data/data_products.xlsx","data/country_codes.xlsx","data/date_cols.xlsx"]
+moodys_datahub = ["data/data_dict.xlsx", "data/data_products.xlsx","data/country_codes.xlsx","data/date_cols.xlsx","data/products.xlsx","data/bvd_numbers.txt"]
