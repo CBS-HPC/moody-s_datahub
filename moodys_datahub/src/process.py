@@ -673,7 +673,7 @@ class _Process(_Selection):
             print("No rows were retained")  
         return df
     
-    def process_all(self, files:list = None,destination:str = None, num_workers:int = -1, select_cols: list = None , date_query = None, bvd_query = None, query = None, query_args:list = None,pool_method = None):
+    def process_all(self, files:list = None,destination:str = None, num_workers:int = -1,n_batches:int = None, select_cols: list = None , date_query = None, bvd_query = None, query = None, query_args:list = None,pool_method = None):
         """
         Read and process multiple files into DataFrames with optional filtering and parallel processing.
 
@@ -685,6 +685,7 @@ class _Process(_Selection):
         - `files` (list, optional): List of files to process. Defaults to `self.remote_files`.
         - `destination` (str, optional): Path to save processed files.
         - `num_workers` (int, optional): Number of workers for parallel processing. Default is -1 (auto-determined).
+        - `n_batches` (int, optional): Number of batches of files being process in parallel. Default is None (batch size will be equal to num_workers).
         - `select_cols` (list, optional): Columns to select from files. Defaults to `self._select_cols`.
         - `date_query`: (optional): Date query for filtering data. Defaults to `self.time_period`.
         - `bvd_query`: (optional): BVD query for filtering data. Defaults to `self._bvd_list[2]`.
@@ -751,7 +752,8 @@ class _Process(_Selection):
 
         # Read multithreaded
         if num_workers != 1 and len(files) > 1:
-            def batch_processing():
+            def batch_processing(n_batches:int = None):
+                
                 def batch_list(input_list, batch_size):
                     """Splits the input list into batches of a given size."""
                     batches = []
@@ -759,7 +761,11 @@ class _Process(_Selection):
                         batches.append(input_list[i:i + batch_size])
                     return batches
 
-                batches = batch_list(files,num_workers)
+                if n_batches is not None and isinstance(n_batches, (int, float)):
+                    batch_size = len(files) // n_batches
+                    batches = batch_list(files,batch_size)
+                else:
+                    batches = batch_list(files,num_workers)
 
                 lists = []
 
@@ -784,7 +790,7 @@ class _Process(_Selection):
 
                 return dfs, file_names, flags
 
-            dfs, file_names, flags = batch_processing()
+            dfs, file_names, flags = batch_processing(n_batches)
         
         else: # Read Sequential
             print(f'Processing  {len(files)} files in sequence')
