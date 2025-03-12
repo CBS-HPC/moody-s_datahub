@@ -17,8 +17,8 @@ subprocess.run(['pip', 'install', '-U', 'ipywidgets'])
 import asyncio
 
 sys.path.append('src')
-from widgets import _SelectData,_select_list,_select_product
-from connection import _Connection
+from .widgets import _SelectData,_select_list,_select_product
+from .connection import _Connection
 
 class _Selection(_Connection):
     

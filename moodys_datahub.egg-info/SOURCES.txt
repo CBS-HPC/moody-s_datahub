@@ -13,8 +13,6 @@ mkdocs/reference - utils.md
 mkdocs/reference.md
 mkdocs/.ipynb_checkpoints/how_to_get_started-checkpoint.ipynb
 moodys_datahub/__init__.py
-moodys_datahub/extra.py
-moodys_datahub/test.ipynb
 moodys_datahub/tools.py
 moodys_datahub.egg-info/PKG-INFO
 moodys_datahub.egg-info/SOURCES.txt

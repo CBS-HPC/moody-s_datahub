@@ -17,7 +17,7 @@ from IPython.display import display
 import asyncio
 
 sys.path.append('src')
-from utils import _construct_query, _check_list_format
+from .utils import _construct_query, _check_list_format
 
 class _SelectData:
     def __init__(self, df, title="Select Data"):

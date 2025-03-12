@@ -12,7 +12,7 @@ from multiprocessing import Pool, cpu_count
 
 # Check and install required libraries
 
-required_libraries = ['pandas','pyarrow','fastparquet','fastavro','openpyxl','tqdm','asyncio','rapidfuzz'] 
+required_libraries = ['pandas','pyarrow','fastparquet','fastavro','openpyxl','tqdm','asyncio','rapidfuzz','polars'] 
 for lib in required_libraries:
     try:
         importlib.import_module(lib)
@@ -30,6 +30,9 @@ import numpy as np
 from IPython.display import display
 from rapidfuzz import process
 from math import ceil
+import polars as pl
+
+
 
 
 # Dependency functions
@@ -90,7 +93,48 @@ def _run_parallel(fnc,params_list:list,n_total:int,num_workers:int=-1,pool_metho
 
     return lists
 
-def _save_files(df:pd.DataFrame, file_name:str, output_format:list = ['.parquet']):
+def _save_files_pl(df: pl.DataFrame, file_name: str, output_format: list = [".parquet"]):
+    def replace_columns_with_na(df, replacement_value: str = "N/A"):
+        return df.with_columns([
+            pl.when(pl.col(col).is_null().all()).then(replacement_value).otherwise(pl.col(col)).alias(col)
+            for col in df.columns
+        ])
+    
+    file_names = []
+    
+    try:
+        for extension in output_format:
+            current_file = f"{file_name}{extension}"
+            
+            if extension == ".csv":
+                df.write_csv(current_file)
+            elif extension == ".xlsx":
+                df.write_excel(current_file)
+            elif extension == ".parquet":
+                df.write_parquet(current_file)
+            elif extension == ".ipc":  # Arrow IPC (alternative to pickle)
+                df.write_ipc(current_file)
+            elif extension == ".dta":
+                df = replace_columns_with_na(df, replacement_value="N/A")  # Handle empty columns for Stata
+                df.write_stata(current_file)
+            else:
+                print(f"Unsupported format: {extension}")
+                continue
+            
+            file_names.append(current_file)
+    
+    except PermissionError as e:
+        print(f"PermissionError: {e}. Check if you have the necessary permissions to write to the specified location.")
+        
+        if not file_name.endswith("_copy"):
+            print(f'Saving "{file_name}" as "{file_name}_copy" instead')
+            return _save_files_pl(df, file_name + "_copy", output_format)
+        else:
+            print(f'"{file_name}" was not saved')
+
+    return file_names
+
+def _save_files_pd(df:pd.DataFrame, file_name:str, output_format:list = ['.parquet']):
     def replace_columns_with_na(df, replacement_value:str ='N/A'):
         for column_name in df.columns:
             if df[column_name].isna().all():
@@ -123,15 +167,42 @@ def _save_files(df:pd.DataFrame, file_name:str, output_format:list = ['.parquet'
         
         if not file_name.endswith('_copy'):
             print(f'Saving "{file_name}" as "{file_name}_copy" instead')
-            current_file = _save_files(df,file_name + "_copy",output_format)
+            current_file = _save_files_pd(df,file_name + "_copy",output_format)
             file_names.append(current_file)
         else: 
             print(f'"{file_name}" was not saved')
 
     return file_names
     
-def _create_chunks(dfs:list, output_format:list = ['.parquet'],file_size:int = 100):
-    total_rows = len(dfs)
+def _create_chunks(df, output_format:list = ['.parquet'],file_size:int = 100):
+
+    def memory_usage_pl(df: pl.DataFrame):
+        """
+        Estimate the memory usage of a Polars DataFrame.
+        This will sum the size of each column in the DataFrame.
+        """
+        column_sizes = []
+        for col in df.columns:
+            dtype = df[col].dtype
+            num_rows = df.height
+            if dtype == pl.Int32:
+                column_sizes.append(num_rows * 4)  # 4 bytes per Int32
+            elif dtype == pl.Int64:
+                column_sizes.append(num_rows * 8)  # 8 bytes per Int64
+            elif dtype == pl.Float32:
+                column_sizes.append(num_rows * 4)  # 4 bytes per Float32
+            elif dtype == pl.Float64:
+                column_sizes.append(num_rows * 8)  # 8 bytes per Float64
+            elif dtype == pl.Utf8:
+                # UTF-8 strings are variable-length, but we estimate an average string length
+                avg_str_len = 50  # You can adjust this value if needed
+                column_sizes.append(num_rows * avg_str_len)
+            else:
+                column_sizes.append(num_rows * 8)  # For other types (e.g., Boolean)
+        
+        return sum(column_sizes)
+
+    total_rows = len(df)
     if  '.xlsx' in output_format:
         chunk_size = 1_000_000  # ValueError: This sheet is too large! Your sheet size is: 1926781, 4 Max sheet size is: 1048576, 1
     else:
@@ -146,7 +217,11 @@ def _create_chunks(dfs:list, output_format:list = ['.parquet'],file_size:int = 1
         # Convert maximum file size to bytes
         file_size = file_size * 1024 * 1024 *size_factor
 
-        n_chunks = int(dfs.memory_usage(deep=True).sum()/file_size)
+        if isinstance(df, pd.DataFrame):
+            n_chunks = int(df.memory_usage(deep=True).sum()/file_size)
+        elif isinstance(df, pl.DataFrame):
+            n_chunks = int(memory_usage_pl(df)/file_size)
+    
         if n_chunks == 0:
             n_chunks = 1
         chunk_size = int(total_rows /n_chunks)
@@ -165,18 +240,20 @@ def _process_chunk(params):
         file_part = f'{file_name}_{i}'
     else:
         file_part = file_name
-        
-    file_name = _save_files(chunk, file_part, output_format)
+    if isinstance(chunk, pd.DataFrame):    
+        file_name = _save_files_pd(chunk, file_part, output_format)
+    elif isinstance(chunk, pl.DataFrame):
+        file_name = _save_files_pl(chunk, file_part, output_format)
 
     return file_name
 
 def _save_chunks(dfs:list, file_name:str, output_format:list = ['.csv'] , file_size:int = 100,num_workers:int = 1):
     num_workers = int(num_workers) 
     file_names = None
-    if dfs:
-        print('------ Concatenating fileparts')
-        #dfs = pd_modin.concat(dfs, ignore_index=True)
-        dfs = pd.concat(dfs, ignore_index=True)
+    if len(dfs) > 0: 
+        if isinstance(dfs, list):
+            print('------ Concatenating fileparts')
+            dfs = pd.concat(dfs, ignore_index=True)
       
         if output_format is None or file_name is None:
             return dfs, file_names
@@ -190,57 +267,68 @@ def _save_chunks(dfs:list, file_name:str, output_format:list = ['.csv'] , file_s
         total_rows = len(dfs)
         
         # Read multithreaded
-        if isinstance(num_workers, (int, float, complex))and num_workers != 1:
-            #num_workers = int(num_workers) 
+        if isinstance(num_workers, (int, float, complex))and num_workers != 1 and n_chunks > 1:
             print(f"Saving {n_chunks} files")
-
-            params_list =   [(i,dfs[start:min(start + chunk_size, total_rows)].copy(), n_chunks, file_name, output_format) for i, start in enumerate(range(0, total_rows, chunk_size),start=1)]
+            if isinstance(dfs, pd.DataFrame):  
+                params_list =   [(i,dfs[start:min(start + chunk_size, total_rows)].copy(), n_chunks, file_name, output_format) for i, start in enumerate(range(0, total_rows, chunk_size),start=1)]
+            elif isinstance(dfs, pl.DataFrame):
+                params_list =   [(i,dfs.slice(start, chunk_size), n_chunks, file_name, output_format) for i, start in enumerate(range(0, total_rows, chunk_size),start=1)]
+            
             file_names = _run_parallel(fnc=_process_chunk,params_list=params_list,n_total=n_chunks,num_workers=num_workers,msg='Saving') 
         else:
-            file_names =[]
+            file_names = []
             for i, start in enumerate(range(0, total_rows, chunk_size),start=1):
                     print(f" {i} of {n_chunks} files")
-                    current_file = _process_chunk([i, dfs[start:min(start + chunk_size, total_rows)].copy(), n_chunks, file_name, output_format])
+                    
+                    if isinstance(dfs, pd.DataFrame): 
+                        current_file = _process_chunk([i, dfs[start:min(start + chunk_size, total_rows)].copy(), n_chunks, file_name, output_format])
+                    elif isinstance(dfs, pl.DataFrame):
+                        current_file = _process_chunk([i, dfs.slice(start, chunk_size), n_chunks, file_name, output_format])  
+                    
                     file_names.append(current_file)
 
         file_names = [item for sublist in file_names for item in sublist if item is not None]
+
     return dfs, file_names
 
-def _load_table(file:str,select_cols = None, date_query:list=[None,None,None,"remove"], bvd_query:str=None, query = None, query_args:list = None):
+def _load_pd(file:str,select_cols = None, date_query:list=[None,None,None,"remove"], bvd_query:str=None, query = None, query_args:list = None):
     # FIX ME !!! - Implementering af log-function!!
-    def read_avro(file):
-        df = []
-        with open(file, 'rb') as avro_file:
-            avro_reader = fastavro.reader(avro_file)
-            for record in avro_reader:
-                df.append(record)
-        df = pd.DataFrame(df)
+    #def read_avro(file):
+    #    df = []
+    #    with open(file, 'rb') as avro_file:
+    #        avro_reader = fastavro.reader(avro_file)
+    #        for record in avro_reader:
+    #            df.append(record)
+    #    df = pd.DataFrame(df)
 
-        return df 
+    #    return df 
      
-    read_functions = {
-        'csv': pd.read_csv,
-        'xlsx': pd.read_excel,
-        'parquet': pd.read_parquet,
-        'orc': pd.read_orc,
-        'avro': read_avro,
-    }
+    #read_functions = {
+    #    'csv': pd.read_csv,
+    #    'xlsx': pd.read_excel,
+    #    'parquet': pd.read_parquet,
+    #    'orc': pd.read_orc,
+    #    'avro': read_avro,
+    #}
 
-    file_extension = file.lower().split('.')[-1]
+    #file_extension = file.lower().split('.')[-1]
 
-    if file_extension not in read_functions:
-        raise ValueError(f"Unsupported file format: {file_extension}")
+    #if file_extension not in read_functions:
+    #    raise ValueError(f"Unsupported file format: {file_extension}")
 
-    read_function = read_functions[file_extension]
+    #read_function = read_functions[file_extension]
+
 
     try:
-        if select_cols is None:
-            df = read_function(file)
-        else:  
-            if file_extension in ['csv','xlsx']:
-                df = read_function(file, usecols = select_cols)
-            elif file_extension in ['parquet','orc']:
-                df = read_function(file, columns = select_cols)
+        df =_read_pd(file,select_cols)
+        #if select_cols is None:
+        #    df = read_function(file)
+        #else:  
+        #    if file_extension in ['csv','xlsx']:
+        #        df = read_function(file, usecols = select_cols)
+        #    elif file_extension in ['parquet','orc']:
+        #        df = read_function(file, columns = select_cols)
+        
         if df.empty:
             print(f"{os.path.basename(file)} empty after column selection")
             return df
@@ -255,7 +343,7 @@ def _load_table(file:str,select_cols = None, date_query:list=[None,None,None,"re
 
     if all(date_query):
         try:
-            df = _date_fnc(df, date_col= date_query[2],  start_year = date_query[0], end_year = date_query[1],nan_action=date_query[3])
+            df = _date_pd(df, date_col= date_query[2],  start_year = date_query[0], end_year = date_query[1],nan_action=date_query[3])
         except Exception as e:
             raise ValueError(f"Error while date selection: {e}") 
         if df.empty:
@@ -287,6 +375,83 @@ def _load_table(file:str,select_cols = None, date_query:list=[None,None,None,"re
             print(f"{os.path.basename(file)} empty after query filtering")
     return df
 
+def _load_pl(file_list: list, select_cols=None, date_query=[None, None, None, "remove"], bvd_query=None, query=None, query_args=None):
+    """
+    Load multiple files into a Polars LazyFrame and apply optional filtering.
+
+    Parameters:
+    - file_list (list): List of file paths.
+    - select_cols (list, optional): Columns to select.
+    - date_query (list, optional): [start_year, end_year, date_column, nan_action].
+    - bvd_query (tuple, optional): (values_list, column_name).
+    - query (callable or str, optional): Function or string-based filter query.
+    - query_args (tuple, optional): Arguments for function-based query.
+
+    Returns:
+    - Polars DataFrame
+    """
+
+    # Read Avro function
+    #def read_avro(files):
+    #    df_list = []
+    #    for file in files:
+    #        with open(file, 'rb') as avro_file:
+    #            avro_reader = fastavro.reader(avro_file)
+    #            df_list.extend(avro_reader)  # Collect all records
+    #    return pl.LazyFrame(df_list)  # Convert to LazyFrame
+
+    #read_functions = {
+    #    "csv": lambda files: pl.scan_csv(files),
+    #    "xlsx": lambda files: pl.read_excel(files[0]).lazy(),  # Only supports single files
+    #    "parquet": lambda files: pl.scan_parquet(files),
+    #    "avro": read_avro,
+    #}
+
+    # Use the first file in the list to determine file extension
+    #first_file = file_list[0]
+    #file_extension = first_file.lower().split(".")[-1]
+
+    #if file_extension not in read_functions:
+    #    raise ValueError(f"Unsupported file format: {file_extension}")
+
+    #read_function = read_functions[file_extension]
+
+    try:
+        # Load files lazily
+        df_lazy = _read_pl(file_list)
+
+        ## Read all files together lazily
+        #df_lazy = read_function(file_list)
+
+        # Select specific columns
+        if select_cols is not None:
+            df_lazy = df_lazy.select(select_cols)
+
+        # Apply date filter if needed
+        if all(date_query[:3]):  # Ensure the first three elements are not None
+            df_lazy = _date_pl(
+                df_lazy, date_col=date_query[2], start_year=date_query[0], end_year=date_query[1], nan_action=date_query[3]
+            )
+
+        # Apply BVD query filter if provided
+        if bvd_query is not None and len(bvd_query) == 2:
+            df_lazy = df_lazy.filter(pl.col(bvd_query[1]).is_in(bvd_query[0]))
+
+        # Apply query function or string query
+        if query is not None:
+            if callable(query):  # Function-based query
+                df_lazy = df_lazy.filter(query(*query_args) if query_args else query())
+            elif isinstance(query, str):  # String-based query
+                df_lazy = df_lazy.filter(pl.col(query))
+
+        # Collect the results (triggering execution)
+        df = df_lazy.collect()
+
+        return df
+
+    except Exception as e:
+        raise RuntimeError(f"Error processing files: {file_list}") from e
+
 def _read_csv_chunk(params):
     # FIX ME !!! - Implementering af log-function!!
     file, chunk_idx, chunk_size, select_cols, col_index, date_query, bvd_query, query, query_args = params
@@ -301,7 +466,7 @@ def _read_csv_chunk(params):
 
     if all(date_query):
         try:
-            df = _date_fnc(df, date_col= date_query[2],  start_year = date_query[0], end_year = date_query[1],nan_action=date_query[3])
+            df = _date_pd(df, date_col= date_query[2],  start_year = date_query[0], end_year = date_query[1],nan_action=date_query[3])
         except Exception as e:
             raise ValueError(f"Error while date selection: {e}") 
         if df.empty:
@@ -395,11 +560,12 @@ def _load_csv_table(file:str,select_cols = None, date_query:list=[None,None,None
 
     return df
 
-def _save_to(df,filename,format):
-
-    if df is None:
+def _save_to(df, filename, format):
+    
+    if df is None or (isinstance(df, (pd.DataFrame, pl.DataFrame)) and df.is_empty()):
         print("df is empty and cannot be saved")
         return
+
     def check_format(file_type):
         allowed_values = {False, 'xlsx', 'csv'}
         if file_type not in allowed_values:
@@ -408,12 +574,20 @@ def _save_to(df,filename,format):
     check_format(format)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    if format == 'xlsx':            
+
+    if format == 'xlsx':
         filename = f"{filename}_{timestamp}.xlsx"
-        df.to_excel(filename)
+        if isinstance(df, pd.DataFrame):
+            df.to_excel(filename, index=False)
+        else:  # Convert Polars to Pandas before saving
+            df.to_pandas().to_excel(filename, index=False)
+    
     elif format == 'csv':
         filename = f"{filename}_{timestamp}.csv"
-        df.to_csv(filename)
+        if isinstance(df, pd.DataFrame):
+            df.to_csv(filename, index=False)
+        else:  # Convert Polars to Pandas before saving
+            df.write_csv(filename)
     else:
         filename = None
 
@@ -450,7 +624,7 @@ def _check_list_format(values, *args):
     
     return values
 
-def _date_fnc(df, date_col = None,  start_year:int = None, end_year:int = None,nan_action:str= 'remove'):
+def _date_pd(df, date_col = None,  start_year:int = None, end_year:int = None,nan_action:str= 'remove'):
     """
     Filter DataFrame based on a date column and optional start/end years.
 
@@ -502,6 +676,59 @@ def _date_fnc(df, date_col = None,  start_year:int = None, end_year:int = None,n
             df = pd.concat([df, nan_rows], sort=False)
             df = df.sort_index()
    
+    return df
+
+def _date_pl(df, date_col=None, start_year:int=None, end_year:int=None, nan_action:str='remove'):
+    """
+    Filter DataFrame based on a date column and optional start/end years.
+
+    Parameters:
+    df (pl.DataFrame): The DataFrame to filter.
+    date_col (str): The name of the date column in the DataFrame.
+    start_year (int, optional): The starting year for filtering (inclusive). Defaults to None (no lower bound).
+    end_year (int, optional): The ending year for filtering (inclusive). Defaults to None (no upper bound).
+
+    Returns:
+    pl.DataFrame: Filtered DataFrame based on the date and optional year filters.
+    """
+
+    if date_col is None:
+        columns_to_check = ['closing_date', 'information_date']
+    else:
+        columns_to_check = [date_col]
+
+    date_col = next((col for col in columns_to_check if col in df.columns), None)
+    
+    if not date_col:
+        print('No valid date columns found')
+        return df
+    
+    # Separate rows with null values in the date column (Polars uses is_null to check for NaNs)
+    if nan_action == 'keep':
+        nan_rows = df.filter(pl.col(date_col).is_null())
+    
+    # Remove rows with null values in the date column (if nan_action is 'remove')
+    df = df.filter(pl.col(date_col).is_not_null())
+    
+    # Apply the conversion to the date column lazily
+    df = df.with_columns(
+        pl.col(date_col).str.strptime(pl.Datetime, fmt="%Y-%m-%d").alias(date_col)
+    )
+
+    # Apply the date filtering for year range (inclusive)
+    if start_year is not None and end_year is not None:
+        df = df.filter(
+            (pl.col(date_col).dt.year() >= start_year) & (pl.col(date_col).dt.year() <= end_year)
+        )
+    elif start_year is not None:
+        df = df.filter(pl.col(date_col).dt.year() >= start_year)
+    elif end_year is not None:
+        df = df.filter(pl.col(date_col).dt.year() <= end_year)
+    
+    # Add back the NaN rows if 'keep' action is specified
+    if nan_action == 'keep' and nan_rows is not None:
+        df = df.vstack(nan_rows)
+    
     return df
 
 def _construct_query(bvd_cols,bvd_list,search_type):
@@ -670,3 +897,128 @@ def _bvd_changes_ray(initial_ids, df,num_workers:int=-1):
     ray.shutdown()
     import pandas as pd
     return new_ids, newest_ids, df
+
+def _bvd_changes_pl(initial_ids,file_list):
+    """
+    Load multiple files lazily and track the newest IDs.
+
+    Parameters:
+    - file_list (list): List of file paths.
+    - initial_ids (set): Set of initial IDs.
+
+    Returns:
+    - Polars LazyFrame with updated newest IDs.
+    """
+    # Load files lazily
+    df_lazy = _read_pl(file_list)
+
+    new_ids = set(initial_ids)
+    newest_ids = {id: id for id in new_ids}
+    current_ids = set()
+    found_new = True
+
+    while found_new:
+        found_new = False
+        if not current_ids:
+            current_ids = new_ids.copy()
+        else:
+            current_ids = new_ids - current_ids
+
+        # Filter for old_id and new_id matches
+        old_id_matches = df_lazy.filter(pl.col("old_id").is_in(current_ids)).collect()
+        new_id_matches = df_lazy.filter(pl.col("new_id").is_in(current_ids)).collect()
+
+        # Process old_id matches to update newest_ids
+        for row in old_id_matches.iter_rows(named=True):
+            old_id, new_id = row["old_id"], row["new_id"]
+            if new_id not in new_ids:
+                new_ids.add(new_id)
+                found_new = True
+                newest_ids[old_id] = new_id
+                newest_ids[new_id] = new_id
+
+        # Process new_id matches to update newest_ids
+        for row in new_id_matches.iter_rows(named=True):
+            old_id, new_id = row["old_id"], row["new_id"]
+            if old_id not in new_ids:
+                new_ids.add(old_id)
+                found_new = True
+                newest_ids[old_id] = newest_ids[new_id]
+
+    # Re-filter data based on new_ids
+    df_lazy = df_lazy.filter(pl.col("old_id").is_in(new_ids) | pl.col("new_id").is_in(new_ids))
+
+    # Map newest IDs using dictionary lookup
+    df_lazy = df_lazy.with_columns(
+        pl.when(pl.col("old_id").is_in(newest_ids))
+        .then(pl.col("old_id").map_dict(newest_ids))
+        .otherwise(pl.col("new_id").map_dict(newest_ids))
+        .alias("newest_id")
+    )
+
+    df_lazy.collect()
+    return df_lazy
+
+def _read_pd(file,select_cols):
+    """Load multiple files lazily based on extension."""
+    
+    def read_avro(file):
+        df = []
+        with open(file, 'rb') as avro_file:
+            avro_reader = fastavro.reader(avro_file)
+            for record in avro_reader:
+                df.append(record)
+        df = pd.DataFrame(df)
+
+        return df 
+     
+    read_functions = {
+        'csv': pd.read_csv,
+        'xlsx': pd.read_excel,
+        'parquet': pd.read_parquet,
+        'orc': pd.read_orc,
+        'avro': read_avro,
+    }
+        
+    file_ext = file.lower().split(".")[-1]
+
+    if file_ext not in read_functions:
+        raise ValueError(f"Unsupported file format: {file_ext}")
+    
+    read_function = read_functions[file_ext]
+
+    if select_cols is None:
+        df = read_function(file)
+    else:  
+        if file_ext in ['csv','xlsx']:
+            df = read_function(file, usecols = select_cols)
+        elif file_ext in ['parquet','orc']:
+            df = read_function(file, columns = select_cols)
+    return df
+
+def _read_pl(files):
+    """Load multiple files lazily based on extension."""
+    
+    # Read Avro function
+    def read_avro(files):
+        df_list = []
+        for file in files:
+            with open(file, 'rb') as avro_file:
+                avro_reader = fastavro.reader(avro_file)
+                df_list.extend(avro_reader)  # Collect all records
+        return pl.LazyFrame(df_list)  # Convert to LazyFrame
+
+    read_functions = {
+        "csv": lambda files: pl.scan_csv(files),
+        "xlsx": lambda files: pl.read_excel(files[0]).lazy(),  # Only supports single files
+        "parquet": lambda files: pl.scan_parquet(files),
+        "avro": read_avro,
+    }
+        
+    first_file = files[0]
+    file_ext = first_file.lower().split(".")[-1]
+
+    if file_ext not in read_functions:
+        raise ValueError(f"Unsupported file format: {file_ext}")
+
+    return read_functions[file_ext](files)

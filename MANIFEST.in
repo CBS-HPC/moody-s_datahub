@@ -1,6 +1,3 @@
-include moodys_datahub/data/data_dict.xlsx
-include moodys_datahub/data/data_products.xlsx
-include moodys_datahub/data/country_codes.xlsx
-include moodys_datahub/data/date_cols.xlsx
-include moodys_datahub/data/products.xlsx
-include moodys_datahub/data/bvd_numbers.txt
+include moodys_datahub/*.py
+include moodys_datahub/data/*.xlsx
+include moodys_datahub/data/*.tx

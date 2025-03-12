@@ -21,9 +21,9 @@ subprocess.run(['pip', 'install', '-U', 'ipywidgets'])
 import pandas as pd
 import pyarrow.parquet as pq 
 
-from src.utils import _save_to,_letters_only_regex,fuzzy_query,_bvd_changes_ray
-from src.load_data import _table_dictionary
-from src.process import _Process
+from .src.utils import _save_to,_letters_only_regex,fuzzy_query,_bvd_changes_ray
+from .src.load_data import _table_dictionary
+from .src.process import _Process
 
 # Defining Sftp Class
 class Sftp(_Process): 

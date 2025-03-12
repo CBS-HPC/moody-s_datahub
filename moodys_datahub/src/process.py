@@ -24,10 +24,10 @@ import asyncio
 from math import ceil
 
 sys.path.append('src')
-from utils import _run_parallel,_save_files,_save_chunks,_load_table,_load_csv_table,_save_to,_check_list_format,_construct_query,_letters_only_regex
-from widgets import _SelectMultiple,_SelectOptions,_CustomQuestion, _select_list,_select_bvd,_select_date
-from load_data import _table_dictionary,_country_codes,_table_dates
-from selection import _Selection
+from .utils import _run_parallel,_save_files_pd,_save_chunks,_load_pd,_load_csv_table,_save_to,_check_list_format,_construct_query,_letters_only_regex,_load_pl,_save_files_pl
+from .widgets import _SelectMultiple,_SelectOptions,_CustomQuestion, _select_list,_select_bvd,_select_date
+from .load_data import _table_dictionary,_country_codes,_table_dates
+from .selection import _Selection
 
 class _Process(_Selection):
     
@@ -443,7 +443,7 @@ class _Process(_Selection):
 
         asyncio.ensure_future(f(self, column, definition)) 
 
-    def search_dictionary(self,save_to:str=False, search_word = None,search_cols={'Data Product':True,'Table':True,'Column':True,'Definition':True}, letters_only:bool=False,extact_match:bool=False, data_product = None, table = None):
+    def search_dictionary(self, save_to:str=False, search_word = None, search_cols={'Data Product':True,'Table':True,'Column':True,'Definition':True}, letters_only:bool=False, extact_match:bool=False, data_product = None, table = None):
     
         """
         Search for a term in a column/variable dictionary and save results to a file.
@@ -531,7 +531,7 @@ class _Process(_Selection):
 
         return df  
 
-    def table_dates(self,save_to:str=False, data_product = None,table = None):
+    def table_dates(self, save_to:str=False, data_product = None, table = None):
         """
         Retrieve and save the available date columns for a specified data product and table.
 
@@ -589,7 +589,7 @@ class _Process(_Selection):
 
         return df    
     
-    def search_country_codes(self,search_word = None,search_cols={'Country':True,'Code':True}):        
+    def search_country_codes(self, search_word = None, search_cols={'Country':True,'Code':True}):        
         """
         Search for country codes matching a search term.
 
@@ -621,7 +621,7 @@ class _Process(_Selection):
 
         return df   
 
-    def process_one(self,save_to=False,files = None,n_rows:int=1000):
+    def process_one(self, save_to=False, files = None, n_rows:int=1000):
         """
         Retrieve a sample of data from a table and optionally save it to a file.
 
@@ -658,7 +658,7 @@ class _Process(_Selection):
         if df is None and files is not None:
             dfs = []
             for file in files:
-                df  = _load_table(file)
+                df  = _load_pd(file)
                 dfs.append(df)
             df = pd.concat(dfs, ignore_index=True)
             if n_rows > 0:
@@ -673,7 +673,119 @@ class _Process(_Selection):
             print("No rows were retained")  
         return df
     
-    def process_all(self, files:list = None,destination:str = None, num_workers:int = -1,n_batches:int = None, select_cols: list = None , date_query = None, bvd_query = None, query = None, query_args:list = None,pool_method = None):
+    def process_all(self, files:list = None, destination:str = None, num_workers:int = -1, n_batches:int = None, select_cols: list = None, date_query = None, bvd_query = None, query = None, query_args:list = None, pool_method = None):
+        """
+        Read and process multiple files into DataFrames with optional filtering and parallel processing.
+
+        This method reads multiple files into Pandas DataFrames, with options for selecting specific columns, 
+        applying filters, and performing parallel processing. It can handle file processing sequentially or 
+        in parallel, depending on the number of workers specified.
+
+        Input Variables:
+        - `files` (list, optional): List of files to process. Defaults to `self.remote_files`.
+        - `destination` (str, optional): Path to save processed files.
+        - `num_workers` (int, optional): Number of workers for parallel processing. Default is -1 (auto-determined).
+        - `n_batches` (int, optional): Number of batches of files being process in parallel. Default is None (batch size will be equal to num_workers).
+        - `select_cols` (list, optional): Columns to select from files. Defaults to `self._select_cols`.
+        - `date_query`: (optional): Date query for filtering data. Defaults to `self.time_period`.
+        - `bvd_query`: (optional): BVD query for filtering data. Defaults to `self._bvd_list[2]`.
+        - `query` (str, optional): Additional query for filtering data.
+        - `query_args` (list, optional): Arguments for the query.
+        - `pool_method` (optional): Method for parallel processing (e.g., 'fork', 'threading').
+
+        Returns:
+        - `dfs`: List of Pandas DataFrames with selected columns and filtered data.
+        - `file_names`: List of file names processed.
+
+        Notes:
+        - If `files` is `None`, the method will use `self.remote_files`.
+        - If `num_workers` is less than 1, it will be set automatically based on available system memory.
+        - Uses parallel processing if `num_workers` is greater than 1; otherwise, processes files sequentially.
+        - Handles file concatenation and deletion based on instance attributes (`concat_files`, `delete_files`).
+        - If `self.delete_files` is `True`, the method will print the current working directory.
+
+        Raises:
+        - `ValueError`: If validation of arguments (`files`, `destination`, etc.) fails.
+
+        Example:
+            dfs, file_names = self.process_all(files=['file1.csv', 'file2.csv'], destination='/processed', num_workers=4,
+                                            select_cols=['col1', 'col2'], date_query='2023-01-01', query='col1 > 0')
+        """
+        def batch_processing(n_batches:int = None):
+            
+            def batch_list(input_list, batch_size):
+                """Splits the input list into batches of a given size."""
+                batches = []
+                for i in range(0, len(input_list), batch_size):
+                    batches.append(input_list[i:i + batch_size])
+                return batches
+
+            if n_batches is not None and isinstance(n_batches, (int, float)):
+                batch_size = len(files) // n_batches
+                batches = batch_list(files,batch_size)
+            else:
+                batches = batch_list(files,num_workers)
+
+            lists = []
+
+            print(f'Processing {len(files)} files in Parallel')
+            
+            for index, batch in enumerate(batches,start=1):
+                print(f"Processing Batch {index} of {len(batches)}")
+                print(f"------ First file: '{batch[0]}'")  
+                print(f"------ Last file : '{batch[-1]}'")               
+                params_list = [(file, destination, select_cols, date_query, bvd_query, query, query_args) for file in batch]
+                list_batch = _run_parallel(fnc=self._process_parallel,params_list=params_list,n_total=len(batch),num_workers=num_workers,pool_method=pool_method ,msg='Processing')
+                lists.extend(list_batch)
+
+                
+            file_names = [elem[1] for elem in lists]
+            file_names = [file_name[0] for file_name in file_names if file_name is not None]
+                
+            dfs =  [elem[0] for elem in lists]
+            dfs = [df for df in dfs if df is not None]
+
+            flags =  [elem[2] for elem in lists]
+
+            return dfs, file_names, flags
+
+        files = files or self.remote_files
+        date_query = date_query or self.time_period
+        bvd_query = bvd_query or self._bvd_list[2]
+        query = query or self.query
+        query_args = query_args or self.query_args
+        select_cols = select_cols or self._select_cols
+        
+        # To handle executing when download_all() have not finished!
+        if not self._check_download(files):
+            return None, None
+
+        select_cols,files, destination, flag = self._validate_args(files = files, destination = destination, select_cols = select_cols, date_query = date_query, bvd_query = bvd_query, query = query)
+        if not flag:
+            return None
+    
+        # Set num_workers
+        num_workers = set_workers(num_workers,int(psutil.virtual_memory().total/ (1024 ** 3)/12))
+
+        # Read multithreaded
+        if num_workers != 1 and len(files) > 1:
+            dfs, file_names, flags = batch_processing(n_batches)
+        else: # Read Sequential
+            print(f'Processing  {len(files)} files in sequence')
+            dfs, file_names, flags = self._process_sequential(files, destination, select_cols, date_query, bvd_query, query, query_args,num_workers)
+        
+        flag =  all(flags) 
+
+        if (not self.concat_files and not flag) or len(dfs) == 0:
+                self.dfs = None
+        elif self.concat_files and not flag:
+            
+            # Concatenate and save
+            self.dfs, file_names = _save_chunks(dfs=dfs,file_name=destination,output_format=self.output_format,file_size=self.file_size_mb, num_workers=num_workers)
+    
+        return self.dfs, file_names
+  
+    def polars_all(self, files:list = None,destination:str = None, num_workers:int = -1, select_cols: list = None , date_query = None, bvd_query = None, query = None, query_args:list = None):
         """
         Read and process multiple files into DataFrames with optional filtering and parallel processing.
 
@@ -712,102 +824,36 @@ class _Process(_Selection):
                                             select_cols=['col1', 'col2'], date_query='2023-01-01', query='col1 > 0')
         """
 
+
         files = files or self.remote_files
         date_query = date_query or self.time_period
-        bvd_query = bvd_query or self._bvd_list[2]
+        bvd_query = bvd_query or [self._bvd_list[0],self._bvd_list[1]]
         query = query or self.query
         query_args = query_args or self.query_args
         select_cols = select_cols or self._select_cols
         
+        self.concat_files = True
+
         # To handle executing when download_all() have not finished!
-        if self._download_finished is False and all(file in self._remote_files for file in files): 
-            start_time = time.time()
-            timeout = 5
-            files_not_ready =  not all(file in self.local_files for file in files) 
-            while files_not_ready:
-                time.sleep(0.1)
-                files_not_ready =  not all(file in self.local_files for file in files)
-                if time.time() - start_time >= timeout:
-                    print(f"Files have not finished downloading within the timeout period of {timeout} seconds.")
-                    return None, None
-
-            self._download_finished =True 
-  
-        if select_cols is not None:
-            select_cols = _check_list_format(select_cols,self._bvd_list[1],self._time_period[2])
-        try:
-            flag =  any([select_cols, query, all(date_query),bvd_query]) and self.output_format
-            files, destination = self._check_args(files,destination,flag)
-        except ValueError as e:
-            print(e)
+        if not self._check_download(files):
+            return None, None
+        
+        select_cols,files, destination, flag = self._validate_args(files = files, destination = destination, select_cols = select_cols, date_query = date_query, bvd_query = bvd_query, query = query)
+        if not flag:
             return None
+
+        print(f'Processing  {len(files)} files using polars')
+        dfs = self._process_polars(files, destination, select_cols, date_query, bvd_query, query, query_args)
         
-        if isinstance(num_workers, (int, float, complex)):
-            num_workers = int(num_workers) 
-        else: 
-            num_workers = -1
-        
-        if num_workers < 1:
-            num_workers =int(psutil.virtual_memory().total/ (1024 ** 3)/12)
+        # Set num_workers  
+        num_workers = set_workers(num_workers,int(cpu_count() - 2))
 
-        # Read multithreaded
-        if num_workers != 1 and len(files) > 1:
-            def batch_processing(n_batches:int = None):
-                
-                def batch_list(input_list, batch_size):
-                    """Splits the input list into batches of a given size."""
-                    batches = []
-                    for i in range(0, len(input_list), batch_size):
-                        batches.append(input_list[i:i + batch_size])
-                    return batches
+        # Concatenate and save
+        self.dfs, file_names = _save_chunks(dfs=dfs,file_name=destination,output_format=self.output_format,file_size=self.file_size_mb, num_workers=num_workers)
 
-                if n_batches is not None and isinstance(n_batches, (int, float)):
-                    batch_size = len(files) // n_batches
-                    batches = batch_list(files,batch_size)
-                else:
-                    batches = batch_list(files,num_workers)
-
-                lists = []
-
-                print(f'Processing {len(files)} files in Parallel')
-              
-                for index, batch in enumerate(batches,start=1):
-                    print(f"Processing Batch {index} of {len(batches)}")
-                    print(f"------ First file: '{batch[0]}'")  
-                    print(f"------ Last file : '{batch[-1]}'")               
-                    params_list = [(file, destination, select_cols, date_query, bvd_query, query, query_args) for file in batch]
-                    list_batch = _run_parallel(fnc=self._process_parallel,params_list=params_list,n_total=len(batch),num_workers=num_workers,pool_method=pool_method ,msg='Processing')
-                    lists.extend(list_batch)
-
-                   
-                file_names = [elem[1] for elem in lists]
-                file_names = [file_name[0] for file_name in file_names if file_name is not None]
-                    
-                dfs =  [elem[0] for elem in lists]
-                dfs = [df for df in dfs if df is not None]
-
-                flags =  [elem[2] for elem in lists]
-
-                return dfs, file_names, flags
-
-            dfs, file_names, flags = batch_processing(n_batches)
-        
-        else: # Read Sequential
-            print(f'Processing  {len(files)} files in sequence')
-            dfs, file_names, flags = self._process_sequential(files, destination, select_cols, date_query, bvd_query, query, query_args,num_workers)
-        
-        flag =  all(flags) 
-
-        if (not self.concat_files and not flag) or len(dfs) == 0:
-                self.dfs = None
-        elif self.concat_files and not flag:
-            
-            # Concatenate and save
-            self.dfs, file_names = _save_chunks(dfs=dfs,file_name=destination,output_format=self.output_format,file_size=self.file_size_mb, num_workers=num_workers)
-    
         return self.dfs, file_names
-  
-    def download_all(self,num_workers = None):
+    
+    def download_all(self,files:list = None, num_workers:int = None, async_mode:bool=True):
         """
         Initiates downloading of all remote files using parallel processing.
 
@@ -829,6 +875,8 @@ class _Process(_Selection):
             self.download_all(num_workers=4)
         """
         
+        files = files or self.remote_files
+
         if hasattr(os, 'fork'):
             pool_method = 'fork'
         else:
@@ -838,52 +886,66 @@ class _Process(_Selection):
         if self._set_data_product is None or self._set_table is None:
             self.select_data()
         
-        if num_workers is None:
-            num_workers= int(cpu_count() - 2)
+        # Set num_workers  
+        num_workers = set_workers(num_workers,int(cpu_count() - 2))
 
-        if isinstance(num_workers, (int, float, complex))and num_workers != 1:
-            num_workers= int(num_workers)
-
-        _, _ = self._check_args(self._remote_files)
+        _, _ = self._check_args(files)
 
         self._download_finished = None 
         self.delete_files = False
+        
+        missing_files = [file for file in files if not os.path.exists(self._file_exist(file)[0])]
+       
 
-        print("Downloading all files")
-        process = Process(target=self.process_all, kwargs={'num_workers': num_workers, 'pool_method': pool_method})
-        process.start()
+        if missing_files:
+            print(f"Downloading {len(missing_files)} of {len(files)} files ")
 
-        self._download_finished = False 
+            current_value = self.concat_files
+
+            self.concat_files = False
+            if async_mode:
+                #process = Process(target=self.process_all, kwargs={'files':missing_files,'num_workers': num_workers, 'pool_method': pool_method,'n_batches':1})
+                process = Process(target=_run_parallel, kwargs={'fnc':self._get_file,'params_list':[(file) for file in missing_files],'n_total':len(missing_files),'num_workers':num_workers,'pool_method':pool_method ,'msg':'Downloading'})
+                process.start()
+                self.concat_files = current_value 
+                self._download_finished = False
+            else:
+                #self.process_all(files = missing_files, num_workers = num_workers, pool_method = pool_method, n_batches =  1,select_cols=None)
+
+                _run_parallel(fnc=self._get_file,params_list=[(file) for file in missing_files],n_total=len(missing_files),num_workers=num_workers,pool_method=pool_method ,msg='Downloading')
+
+            self.concat_files = current_value
+        else: 
+            print("Are files are already downloaded")
+    
+    def _file_exist(self,file:str):
+        base_path = os.getcwd()
+        base_path = base_path.replace("\\", "/")
+
+        if not file.startswith(base_path):
+            file = os.path.join(base_path,file)
+
+        if len(file) > self._max_path_length:
+            raise ValueError(f"file path is longer ({len(file)}) than the max path length of the OS {self._max_path_length}. Set '.local_path' closer to root. The file is : '{file}'") 
+
+        if os.path.exists(file):
+            self.delete_files = False
+            flag = True
+        else:
+            file = self._local_path + "/" + os.path.basename(file)
+            #file = os.path.normpath(os.path.join(self._local_path,os.path.basename(file)))
+            flag = False
+            if not file.startswith(base_path):
+                file = base_path + "/" + file
+                #file  = os.path.normpath(os.path.join(base_path,file))
+
+        if len(file) > self._max_path_length:
+            raise ValueError(f"file path is longer ({len(file)}) than the max path length of the OS {self._max_path_length}. Set '.local_path' closer to root. The file is : '{file}'")     
+
+        return file, flag
 
     def _get_file(self,file:str):
-        
-        def _file_exist(file:str):
-            base_path = os.getcwd()
-            base_path = base_path.replace("\\", "/")
-
-            if not file.startswith(base_path):
-                file = os.path.join(base_path,file)
-    
-            if len(file) > self._max_path_length:
-                raise ValueError(f"file path is longer ({len(file)}) than the max path length of the OS {self._max_path_length}. Set '.local_path' closer to root. The file is : '{file}'") 
-
-            if os.path.exists(file):
-                self.delete_files = False
-                flag = True
-            else:
-                file = self._local_path + "/" + os.path.basename(file)
-                #file = os.path.normpath(os.path.join(self._local_path,os.path.basename(file)))
-                flag = False
-                if not file.startswith(base_path):
-                    file = base_path + "/" + file
-                    #file  = os.path.normpath(os.path.join(base_path,file))
-
-            if len(file) > self._max_path_length:
-                raise ValueError(f"file path is longer ({len(file)}) than the max path length of the OS {self._max_path_length}. Set '.local_path' closer to root. The file is : '{file}'")     
-
-            return file, flag
-
-        local_file,flag = _file_exist(file) 
+        local_file,flag = self._file_exist(file) 
 
         if not os.path.exists(local_file):
             try:
@@ -899,13 +961,11 @@ class _Process(_Selection):
         
         return local_file, flag
 
-    def _curate_file(self,flag:bool,file:str,destination:str,local_file:str,select_cols:list, date_query:list=[None,None,None,"remove"], bvd_query:str = None, query = None, query_args:list = None,num_workers:int = -1):
+    def _curate_file(self,flag:bool,destination:str,local_file:str,select_cols:list, date_query:list=[None,None,None,"remove"], bvd_query:str = None, query = None, query_args:list = None,num_workers:int = -1):
         df = None 
         file_name = None
-        if any([select_cols, query, all(date_query),bvd_query]) or flag: 
-            
-            file_extension = file.lower().split('.')[-1]
-
+        if any([select_cols, query, all(date_query),bvd_query]) or flag:  
+            file_extension = local_file.lower().split('.')[-1]
             if file_extension in ['csv']:
                 df = _load_csv_table(file = local_file, 
                                     select_cols = select_cols, 
@@ -916,7 +976,7 @@ class _Process(_Selection):
                                     num_workers = num_workers
                                     )
             else:
-                df = _load_table(file = local_file, 
+                df = _load_pd(file = local_file, 
                                     select_cols = select_cols, 
                                     date_query = date_query, 
                                     bvd_query = bvd_query, 
@@ -925,9 +985,9 @@ class _Process(_Selection):
                                     )
 
             if (df is not None and self.concat_files is False and self.output_format is not None) and not flag:
-                file_name, _ = os.path.splitext(destination + "/" + file)
-                #file_name, _ = os.path.splitext(os.path.normpath(os.path.join(destination,file)))
-                file_name = _save_files(df,file_name,self.output_format)
+  
+                file_name, _ = os.path.splitext(destination + "/" + os.path.basename(local_file))
+                file_name = _save_files_pd(df,file_name,self.output_format)
                 df = None
 
             if self.delete_files and not flag:
@@ -950,8 +1010,7 @@ class _Process(_Selection):
                 print(f"{i} of {total_files} files")   
             try:
                 local_file, flag = self._get_file(file)
-                df , file_name = self._curate_file(flag = flag,
-                                                    file = file,
+                df, file_name = self._curate_file(flag = flag,
                                                     destination = destination,
                                                     local_file = local_file,
                                                     select_cols = select_cols,
@@ -971,12 +1030,31 @@ class _Process(_Selection):
                 print(e)
         
         return dfs,file_names,flags
+    
+    def _process_polars(self, files:list=None, destination:str=None, select_cols:list = None, date_query:list=[None,None,None,"remove"], bvd_query:str = None, query = None, query_args:list = None,num_workers:int = -1):
+        
+        files = files or self.remote_files
+
+        self.download_all(files = files, num_workers=num_workers, async_mode=False)
+    
+        print("### Start processing files with polars")
+
+        local_files = [self._file_exist(file)[0] for file in files if os.path.exists(self._file_exist(file)[0])]
+
+        df = _load_pl(file_list=local_files,
+                    select_cols = select_cols,
+                    date_query = date_query,
+                    bvd_query = bvd_query,
+                    query = query,
+                    query_args = query_args
+                    )
+
+        return df
 
     def _process_parallel(self, inputs_args:list):      
         file, destination, select_cols, date_query, bvd_query, query, query_args = inputs_args
         local_file, flag = self._get_file(file)
         df, file_name = self._curate_file(flag = flag,
-                                                file = file,
                                                 destination = destination,
                                                 local_file = local_file,
                                                 select_cols = select_cols,
@@ -1062,3 +1140,44 @@ class _Process(_Selection):
                 os.makedirs(parent_directory)
 
         return files, destination   
+
+    def _check_download(self,files):
+        # To handle executing when download_all() have not finished!
+        if self._download_finished is False and all(file in self._remote_files for file in files): 
+            start_time = time.time()
+            timeout = 5
+            files_not_ready =  not all(file in self.local_files for file in files) 
+            while files_not_ready:
+                time.sleep(0.1)
+                files_not_ready =  not all(file in self.local_files for file in files)
+                if time.time() - start_time >= timeout:
+                    print(f"Files have not finished downloading within the timeout period of {timeout} seconds.")
+                    return False
+                
+            self._download_finished =True 
+        return True
+
+    def _validate_args(self, files:list = None, destination:str = None, select_cols: list = None, date_query = None, bvd_query = None, query = None):
+        
+        if select_cols is not None:
+            select_cols = _check_list_format(select_cols,self._bvd_list[1],self._time_period[2])
+        
+        try:
+            flag =  any([select_cols, query, all(date_query),bvd_query]) and self.output_format
+            files, destination = self._check_args(files,destination,flag)
+            return select_cols, files, destination, True
+        except ValueError as e:
+            print(e)
+            return select_cols, None, None, False
+
+def set_workers(num_workers,default_value:int):
+
+    if isinstance(num_workers, (int, float, complex))and num_workers != 1:
+        num_workers= int(num_workers)
+    else: 
+        num_workers = -1
+    
+    if num_workers < 1:
+        num_workers= default_value
+
+    return num_workers

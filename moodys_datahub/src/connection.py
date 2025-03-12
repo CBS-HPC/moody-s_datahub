@@ -25,9 +25,9 @@ import asyncio
 from math import ceil
 
 sys.path.append('src')
-from utils import _run_parallel,_save_to,_check_list_format
-from widgets import _CustomQuestion,_Multi_dropdown
-from load_data import _table_names,_table_match
+from .utils import _run_parallel,_save_to,_check_list_format
+from .widgets import _CustomQuestion,_Multi_dropdown
+from .load_data import _table_names,_table_match
 
 # Defining Sftp Class
 class _Connection:
