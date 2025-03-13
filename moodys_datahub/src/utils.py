@@ -292,43 +292,9 @@ def _save_chunks(dfs:list, file_name:str, output_format:list = ['.csv'] , file_s
     return dfs, file_names
 
 def _load_pd(file:str,select_cols = None, date_query:list=[None,None,None,"remove"], bvd_query:str=None, query = None, query_args:list = None):
-    # FIX ME !!! - Implementering af log-function!!
-    #def read_avro(file):
-    #    df = []
-    #    with open(file, 'rb') as avro_file:
-    #        avro_reader = fastavro.reader(avro_file)
-    #        for record in avro_reader:
-    #            df.append(record)
-    #    df = pd.DataFrame(df)
-
-    #    return df 
-     
-    #read_functions = {
-    #    'csv': pd.read_csv,
-    #    'xlsx': pd.read_excel,
-    #    'parquet': pd.read_parquet,
-    #    'orc': pd.read_orc,
-    #    'avro': read_avro,
-    #}
-
-    #file_extension = file.lower().split('.')[-1]
-
-    #if file_extension not in read_functions:
-    #    raise ValueError(f"Unsupported file format: {file_extension}")
-
-    #read_function = read_functions[file_extension]
-
-
     try:
         df =_read_pd(file,select_cols)
-        #if select_cols is None:
-        #    df = read_function(file)
-        #else:  
-        #    if file_extension in ['csv','xlsx']:
-        #        df = read_function(file, usecols = select_cols)
-        #    elif file_extension in ['parquet','orc']:
-        #        df = read_function(file, columns = select_cols)
-        
+
         if df.empty:
             print(f"{os.path.basename(file)} empty after column selection")
             return df
@@ -390,59 +356,33 @@ def _load_pl(file_list: list, select_cols=None, date_query=[None, None, None, "r
     Returns:
     - Polars DataFrame
     """
-
-    # Read Avro function
-    #def read_avro(files):
-    #    df_list = []
-    #    for file in files:
-    #        with open(file, 'rb') as avro_file:
-    #            avro_reader = fastavro.reader(avro_file)
-    #            df_list.extend(avro_reader)  # Collect all records
-    #    return pl.LazyFrame(df_list)  # Convert to LazyFrame
-
-    #read_functions = {
-    #    "csv": lambda files: pl.scan_csv(files),
-    #    "xlsx": lambda files: pl.read_excel(files[0]).lazy(),  # Only supports single files
-    #    "parquet": lambda files: pl.scan_parquet(files),
-    #    "avro": read_avro,
-    #}
-
-    # Use the first file in the list to determine file extension
-    #first_file = file_list[0]
-    #file_extension = first_file.lower().split(".")[-1]
-
-    #if file_extension not in read_functions:
-    #    raise ValueError(f"Unsupported file format: {file_extension}")
-
-    #read_function = read_functions[file_extension]
-
     try:
         # Load files lazily
         df_lazy = _read_pl(file_list)
-
-        ## Read all files together lazily
-        #df_lazy = read_function(file_list)
 
         # Select specific columns
         if select_cols is not None:
             df_lazy = df_lazy.select(select_cols)
 
+        # FIX ME -need to test
         # Apply date filter if needed
         if all(date_query[:3]):  # Ensure the first three elements are not None
-            df_lazy = _date_pl(
-                df_lazy, date_col=date_query[2], start_year=date_query[0], end_year=date_query[1], nan_action=date_query[3]
-            )
+            raise ValueError("Year filter does not work for polars.. please use '.process_all()'")
+   
+            #df_lazy = _date_pl(
+            #    df_lazy, date_col=date_query[2], start_year=date_query[0], end_year=date_query[1], nan_action=date_query[3]
+            #)
 
         # Apply BVD query filter if provided
         if bvd_query is not None and len(bvd_query) == 2:
             df_lazy = df_lazy.filter(pl.col(bvd_query[1]).is_in(bvd_query[0]))
-
-        # Apply query function or string query
+        
+        # Apply query function or filter
         if query is not None:
-            if callable(query):  # Function-based query
-                df_lazy = df_lazy.filter(query(*query_args) if query_args else query())
-            elif isinstance(query, str):  # String-based query
-                df_lazy = df_lazy.filter(pl.col(query))
+            if isinstance(query, type(lambda: None)):
+                df_lazy = query(df_lazy, *query_args) if query_args else query(df_lazy)
+            elif isinstance(query, pl.Expr):
+                df_lazy = df_lazy.filter(query)
 
         # Collect the results (triggering execution)
         df = df_lazy.collect()
@@ -562,7 +502,7 @@ def _load_csv_table(file:str,select_cols = None, date_query:list=[None,None,None
 
 def _save_to(df, filename, format):
     
-    if df is None or (isinstance(df, (pd.DataFrame, pl.DataFrame)) and df.is_empty()):
+    if df is None or (isinstance(df, (pd.DataFrame, pl.DataFrame)) and (df.empty if isinstance(df, pd.DataFrame) else df.is_empty())):
         print("df is empty and cannot be saved")
         return
 
@@ -620,9 +560,9 @@ def _check_list_format(values, *args):
                         values.append(item)
             else:
                 raise ValueError("Additional arguments must be either None, a string, or a list of strings")
-            
     
-    return values
+    # Retain unique values before returning
+    return list(set(values))
 
 def _date_pd(df, date_col = None,  start_year:int = None, end_year:int = None,nan_action:str= 'remove'):
     """
@@ -710,9 +650,23 @@ def _date_pl(df, date_col=None, start_year:int=None, end_year:int=None, nan_acti
     # Remove rows with null values in the date column (if nan_action is 'remove')
     df = df.filter(pl.col(date_col).is_not_null())
     
+    # Get the first row efficiently
+    first_row = df.select(date_col).fetch(1)
+
+    # Extract the first element
+    if not first_row.is_empty():
+        first_element = first_row[date_col].to_list()[0]
+    else:
+        first_element = None
+
+    # Check the type and cast if necessary
+    if first_element is not None and not isinstance(first_element, str):
+        df = df.with_columns(pl.col(date_col).cast(pl.Utf8))
+        
     # Apply the conversion to the date column lazily
     df = df.with_columns(
-        pl.col(date_col).str.strptime(pl.Datetime, fmt="%Y-%m-%d").alias(date_col)
+        #pl.col(date_col).str.strptime(pl.Datetime, format="%Y-%m-%d") 
+        pl.col(date_col).str.to_datetime(exact=False, strict=False).alias(date_col)
     )
 
     # Apply the date filtering for year range (inclusive)

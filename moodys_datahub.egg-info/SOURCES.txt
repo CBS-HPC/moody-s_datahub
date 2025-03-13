@@ -27,7 +27,14 @@ moodys_datahub/data/data_products.xlsx
 moodys_datahub/data/date_cols.xlsx
 moodys_datahub/data/products.xlsx
 moodys_datahub/data/__pycache__/__init__.cpython-311.pyc
+moodys_datahub/moodys_datahub.egg-info/PKG-INFO
+moodys_datahub/moodys_datahub.egg-info/SOURCES.txt
+moodys_datahub/moodys_datahub.egg-info/dependency_links.txt
+moodys_datahub/moodys_datahub.egg-info/requires.txt
+moodys_datahub/moodys_datahub.egg-info/top_level.txt
+moodys_datahub/src/__init__.py
 moodys_datahub/src/connection.py
+moodys_datahub/src/extra.py
 moodys_datahub/src/load_data.py
 moodys_datahub/src/process.py
 moodys_datahub/src/selection.py
@@ -38,3 +45,4 @@ orbis.egg-info/SOURCES.txt
 orbis.egg-info/dependency_links.txt
 orbis.egg-info/requires.txt
 orbis.egg-info/top_level.txt
+test/test.ipynb

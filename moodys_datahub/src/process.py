@@ -204,6 +204,7 @@ class _Process(_Selection):
     
     @time_period.setter
     def time_period(self,years: list = None):
+        
         def check_year(years):
             # Get the current year
             current_year = datetime.now().year
@@ -239,8 +240,7 @@ class _Process(_Selection):
             if (self._time_period[2] is not None and self._select_cols is not None) and self._time_period[2] in self._select_cols:
                 self._select_cols.remove(self._time_period[2])
             
-            self._time_period = check_year(years)
-            self._time_period.append("remove")
+            self._time_period[:3]= check_year(years)
             
             if self._set_data_product is None or self._set_table is None:
                 self.select_data()
