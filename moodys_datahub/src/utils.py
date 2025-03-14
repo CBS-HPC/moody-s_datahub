@@ -12,7 +12,7 @@ from multiprocessing import Pool, cpu_count
 
 # Check and install required libraries
 
-required_libraries = ['pandas','pyarrow','fastparquet','fastavro','openpyxl','tqdm','asyncio','rapidfuzz','polars'] 
+required_libraries = ['pandas','pyarrow','fastparquet','fastavro','openpyxl','tqdm','asyncio','rapidfuzz','polars',"polars_ds",'ray','modin[ray]'] 
 for lib in required_libraries:
     try:
         importlib.import_module(lib)
@@ -22,6 +22,7 @@ for lib in required_libraries:
 subprocess.run(['pip', 'install', '-U', 'ipywidgets'])
 
 import ray
+import modin.pandas as pd
 import pandas as pd
 import pyarrow
 from tqdm import tqdm
@@ -31,6 +32,7 @@ from IPython.display import display
 from rapidfuzz import process
 from math import ceil
 import polars as pl
+import polars_ds as pds
 
 
 
@@ -364,7 +366,6 @@ def _load_pl(file_list: list, select_cols=None, date_query=[None, None, None, "r
         if select_cols is not None:
             df_lazy = df_lazy.select(select_cols)
 
-        # FIX ME -need to test
         # Apply date filter if needed
         if all(date_query[:3]):  # Ensure the first three elements are not None
             raise ValueError("Year filter does not work for polars.. please use '.process_all()'")
@@ -618,6 +619,7 @@ def _date_pd(df, date_col = None,  start_year:int = None, end_year:int = None,na
    
     return df
 
+# FIX ME - Not working
 def _date_pl(df, date_col=None, start_year:int=None, end_year:int=None, nan_action:str='remove'):
     """
     Filter DataFrame based on a date column and optional start/end years.
@@ -707,7 +709,8 @@ def _letters_only_regex(text):
         return re.sub(r'[^a-zA-Z0-9]', '', text.lower())
     else:
         return text
-    
+
+
 def _fuzzy_match(args):
     """
     Worker function to perform fuzzy matching for each batch of names.
@@ -794,11 +797,157 @@ def fuzzy_query(df: pd.DataFrame, names: list, match_column: str = None, return_
 
     return result_df
 
-def _bvd_changes_ray(initial_ids, df,num_workers:int=-1):
+# FIX ME
+def fuzzy_match_pl(names: list,file_list:list=None, match_column: str = None, return_column: str = None, cut_off: int = 0.50, remove_str: list = None):
+    try:
+
+        df_lazy = _read_pl(file_list)
+
+        df_lazy = df_lazy.with_columns(pl.col(match_column).alias('BestMatch').str.to_lowercase())
+
+        names_lower = [s.lower() for s in names]
+
+        # Apply remove_str filtering if provided
+        if remove_str:
+            # Filter out rows where match_column ends with any of the substrings in remove_str
+            for substr in remove_str:
+
+                df_lazy = df_lazy.with_columns(pl.col('BestMatch').str.replace_all(substr, '').alias('BestMatch'))
+                #df_lazy = df_lazy.filter(~pl.col('BestMatch').str.ends_with(substr))
+                
+                # Remove the suffix from each string if it ends with the specified suffix
+                #names_lower = [s[:-len(substr)] if s.endswith(substr) else s for s in names_lower]
+                names_lower = [name.replace(substr, '') for name in names_lower]
+        
+        # Filter rows where match_column values are in names
+        df_matches = df_lazy.filter(pl.col('BestMatch').is_in(names_lower))
+
+         # Add a new column 'score' with a constant value of 100
+        df_matches = df_matches.with_columns(pl.lit(1.0000).alias('Score'))
+
+        df_matches = df_matches.with_columns(pl.col('BestMatch').alias('Search_string'))
+
+        # Select only the match_column and return_column
+        select_cols = [pl.col(['Search_string', 'BestMatch', 'Score'])]
+
+        if match_column:
+            select_cols.append(pl.col(match_column))
+        if return_column:
+            select_cols.append(pl.col(return_column))
+
+        df_matches = df_matches.select(select_cols)
+
+        # Collect the results
+        df_matches = df_matches.collect()
+
+        # Convert df_matches 'Search_string' column to a set
+        df_matches_set = set(df_matches['BestMatch'])
+
+        # Find names not in df_matches
+        names_fuzzy = [name for name in names_lower if name not in df_matches_set]
+
+        df_names_fuzzy = pl.DataFrame({'Search_string': names_fuzzy})
+       
+        names_lazy = df_names_fuzzy.lazy()
+
+        # Filter rows where 'Search_string' values are NOT in names
+        df_fuzzy = df_lazy.filter(~pl.col('BestMatch').is_in(names_lower))
+     
+        # Perform a cross join and calculate similarity scores
+        df_fuzzy = df_fuzzy.join_where(
+            names_lazy,
+            pl.lit(True),  # Always true to generate all combinations
+            #how="cross"
+        ).with_columns(pds.str_fuzz('Search_string', 'BestMatch').alias("Score"))
+  
+        # Filter rows where the 'fuzz' score is greater than or equal to 90
+        df_fuzzy = df_fuzzy.filter(pl.col("Score") >= cut_off)
+        
+        df_fuzzy = df_fuzzy.select(select_cols).collect()
+
+        result_df = pl.concat([df_matches, df_fuzzy])
+
+        return result_df 
+
+    except Exception as e:
+        raise RuntimeError(f"Error processing files: {file_list}") from e
+
+
+
+# FIX ME
+def _bvd_changes_ray_not_working(initial_ids, df, num_workers=-1):
+    """
+    Track the newest IDs using Modin and Ray.
+
+    Parameters:
+    - initial_ids (set): Set of initial IDs.
+    - df (DataFrame): Modin DataFrame containing 'old_id' and 'new_id' columns.
+    - num_workers (int): Number of workers for Ray. Defaults to using all available CPUs minus two.
+
+    Returns:
+    - new_ids (set): Set of all discovered IDs.
+    - newest_ids (dict): Mapping of each ID to its newest ID.
+    - df (DataFrame): Filtered DataFrame with an additional 'newest_id' column.
+    """
+    if num_workers < 1:
+        num_workers = max(1, os.cpu_count() - 2)
     
-    subprocess.run(['pip', 'install','ray'])
-    subprocess.run(['pip', 'install','modin[ray]'])
-    #import ray
+    ray.init(num_cpus=num_workers)
+
+    new_ids = set(initial_ids)
+    newest_ids = {id: id for id in new_ids}
+    current_ids = set()
+    found_new = True
+
+    while found_new:
+        found_new = False
+        if not current_ids:
+            current_ids = new_ids.copy()
+        else:
+            current_ids = new_ids - current_ids
+
+        # Filter for old_id and new_id matches
+        old_matches = df[df['old_id'].isin(current_ids)]
+        new_matches = df[df['new_id'].isin(current_ids)]
+
+        if old_matches.empty and new_matches.empty:
+            break
+
+        # Extract unique old_id and new_id values
+        old_id = set(old_matches['old_id'].unique())
+        new_id = set(new_matches['new_id'].unique())
+
+        # Determine new IDs not already in new_ids
+        new_old_ids = old_id - new_ids
+        new_new_ids = new_id - new_ids
+
+        # Check if new IDs were found
+        found_new = bool(new_old_ids or new_new_ids)
+
+         # Update new_ids set
+        new_ids.update(new_old_ids)
+        new_ids.update(new_new_ids)
+
+        # Update newest_ids mapping
+        newest_ids.update(old_matches.set_index('old_id')['new_id'].to_dict())
+        newest_ids.update(old_matches.set_index('new_id')['new_id'].to_dict())
+
+      
+
+
+    # Re-filter data based on new_ids
+    df = df[(df['old_id'].isin(new_ids)) | (df['new_id'].isin(new_ids))]
+
+    # Map newest IDs using dictionary lookup
+    df['newest_id'] = df.apply(
+        lambda row: newest_ids.get(row['old_id'], newest_ids.get(row['new_id'])),
+        axis=1
+    )
+
+    ray.shutdown()
+    return new_ids, newest_ids, df
+
+def _bvd_changes_ray(initial_ids, df,num_workers:int=-1):
     import modin.pandas as pd
 
     if not num_workers or num_workers < 0:
@@ -819,11 +968,11 @@ def _bvd_changes_ray(initial_ids, df,num_workers:int=-1):
             current_ids = new_ids - current_ids
 
         # Use pandas isin to check for matching old_id and new_id in a vectorized way
-        old_id_matches = df[df['old_id'].isin(current_ids)]
-        new_id_matches = df[df['new_id'].isin(current_ids)]
+        old_matches = df[df['old_id'].isin(current_ids)]
+        new_matches = df[df['new_id'].isin(current_ids)]
 
         # Process old_id matches to find corresponding new_ids
-        for _, row in old_id_matches.iterrows():
+        for _, row in old_matches.iterrows():
             new_id = row['new_id']
             old_id = row['old_id']
             if new_id not in new_ids:
@@ -833,7 +982,7 @@ def _bvd_changes_ray(initial_ids, df,num_workers:int=-1):
                 newest_ids[new_id] = new_id
 
         # Process new_id matches to find corresponding old_ids
-        for _, row in new_id_matches.iterrows():
+        for _, row in new_matches.iterrows():
             old_id = row['old_id']
             new_id = row['new_id']
             if old_id not in new_ids:
@@ -852,6 +1001,7 @@ def _bvd_changes_ray(initial_ids, df,num_workers:int=-1):
     import pandas as pd
     return new_ids, newest_ids, df
 
+# FIX ME
 def _bvd_changes_pl(initial_ids,file_list):
     """
     Load multiple files lazily and track the newest IDs.
@@ -911,6 +1061,75 @@ def _bvd_changes_pl(initial_ids,file_list):
     )
 
     df_lazy.collect()
+    return df_lazy
+# FIX ME
+def _bvd_changes_pl_not_tested(initial_ids, file_list):
+    """
+    Load multiple files lazily and track the newest IDs.
+
+    Parameters:
+    - initial_ids (set): Set of initial IDs.
+    - file_list (list): List of file paths.
+
+    Returns:
+    - Polars LazyFrame with updated newest IDs.
+    """
+    # Load files lazily
+    df_lazy = _read_pl(file_list)
+
+    new_ids = set(initial_ids)
+    newest_ids = {id: id for id in new_ids}
+    current_ids = set()
+    found_new = True
+
+    while found_new:
+        found_new = False
+        if not current_ids:
+            current_ids = new_ids.copy()
+        else:
+            current_ids = new_ids - current_ids
+
+        # Filter for old_id and new_id matches
+        matches = df_lazy.filter(
+            pl.col("old_id").is_in(current_ids) | pl.col("new_id").is_in(current_ids)
+        ).collect()
+
+        if matches.is_empty():
+            break
+
+        # Extract unique old_id and new_id values
+        old_ids = set(matches.select("old_id").unique().to_series())
+        new_ids = set(matches.select("new_id").unique().to_series())
+
+        # Determine new IDs not already in new_ids
+        new_old_ids = old_ids - new_ids
+        new_new_ids = new_ids - new_ids
+
+        # Update newest_ids mapping
+        newest_ids.update(
+            {row["old_id"]: row["new_id"] for row in matches.iter_rows(named=True)}
+        )
+
+        # Update new_ids set
+        new_ids.update(new_old_ids)
+        new_ids.update(new_new_ids)
+
+        # Check if new IDs were found
+        found_new = bool(new_old_ids or new_new_ids)
+
+    # Re-filter data based on new_ids
+    df_lazy = df_lazy.filter(
+        pl.col("old_id").is_in(new_ids) | pl.col("new_id").is_in(new_ids)
+    )
+
+    # Map newest IDs using dictionary lookup
+    df_lazy = df_lazy.with_columns(
+        pl.when(pl.col("old_id").is_in(newest_ids))
+        .then(pl.col("old_id").map_dict(newest_ids))
+        .otherwise(pl.col("new_id").map_dict(newest_ids))
+        .alias("newest_id")
+    )
+
     return df_lazy
 
 def _read_pd(file,select_cols):
