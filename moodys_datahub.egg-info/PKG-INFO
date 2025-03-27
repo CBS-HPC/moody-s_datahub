@@ -1,4 +1,4 @@
-Metadata-Version: 2.2
+Metadata-Version: 2.4
 Name: moodys_datahub
 Version: 0.0.1
 Summary: moody datahub package
@@ -29,6 +29,7 @@ Requires-Dist: rapidfuzz
 Requires-Dist: tqdm
 Requires-Dist: tzdata
 Requires-Dist: widgetsnbextension
+Dynamic: license-file
 
 # Moody's Datahub
 
