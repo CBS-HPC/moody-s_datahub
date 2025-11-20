@@ -32,7 +32,7 @@ Install the package "moodys_datahub-1.0.0rc1-py3-none-any.whl":
 
 
 ```python
-from moodys_datahub.tools import *
+from moodys_datahub import Sftp
 ```
 
 ### Connect to SFTP server
