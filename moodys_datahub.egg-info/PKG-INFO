@@ -6,6 +6,7 @@ Author-email: Kristoffer Gulmark Poulsen <kgp.lib@cbs.dk>
 Requires-Python: >=3.9.16
 Description-Content-Type: text/markdown
 License-File: LICENSE.md
+Requires-Dist: pip
 Requires-Dist: asyncio
 Requires-Dist: bcrypt
 Requires-Dist: cffi
@@ -17,18 +18,26 @@ Requires-Dist: fastparquet
 Requires-Dist: fsspec
 Requires-Dist: ipywidgets
 Requires-Dist: jupyterlab-widgets
+Requires-Dist: numpy
 Requires-Dist: openpyxl
 Requires-Dist: pandas
-Requires-Dist: paramiko
+Requires-Dist: paramiko==3.5.1
+Requires-Dist: polars
+Requires-Dist: polars-ds
+Requires-Dist: psutil
 Requires-Dist: pyarrow
 Requires-Dist: pycparser
 Requires-Dist: pynacl
 Requires-Dist: pysftp
 Requires-Dist: pytz
 Requires-Dist: rapidfuzz
+Requires-Dist: ray
+Requires-Dist: modin[ray]
 Requires-Dist: tqdm
 Requires-Dist: tzdata
 Requires-Dist: widgetsnbextension
+Provides-Extra: dev
+Requires-Dist: ruff; extra == "dev"
 Dynamic: license-file
 
 # Moody's Datahub

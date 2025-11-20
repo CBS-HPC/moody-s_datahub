@@ -1,40 +1,24 @@
-import sys
-import shutil
-import importlib
-import shlex
-import subprocess
 import os
 import re
-import psutil
-from datetime import datetime
+import shlex
+import shutil
+import subprocess
+import sys
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
+from math import ceil
 from multiprocessing import Pool, cpu_count
 
-# Check and install required libraries
-
-required_libraries = ['pandas','pyarrow','fastparquet','fastavro','openpyxl','tqdm','asyncio','rapidfuzz','polars',"polars_ds",'ray','modin[ray]'] 
-for lib in required_libraries:
-    try:
-        importlib.import_module(lib)
-    except ImportError:
-        print(f"Installing {lib}...")
-        subprocess.check_call([sys.executable, '-m', 'pip', 'install', lib])
-subprocess.run(['pip', 'install', '-U', 'ipywidgets'])
-
-import ray
-import modin.pandas as pd
-import pandas as pd
-import pyarrow
-from tqdm import tqdm
 import fastavro
 import numpy as np
-from IPython.display import display
-from rapidfuzz import process
-from math import ceil
+import pandas as pd
 import polars as pl
 import polars_ds as pds
-
-
+import psutil
+import pyarrow
+import ray
+from rapidfuzz import process
+from tqdm import tqdm
 
 
 # Dependency functions
@@ -95,7 +79,10 @@ def _run_parallel(fnc,params_list:list,n_total:int,num_workers:int=-1,pool_metho
 
     return lists
 
-def _save_files_pl(df: pl.DataFrame, file_name: str, output_format: list = [".parquet"]):
+def _save_files_pl(df: pl.DataFrame, file_name: str, output_format: list | None = None):
+    if output_format is None:
+        output_format = [".parquet"]
+
     def replace_columns_with_na(df, replacement_value: str = "N/A"):
         return df.with_columns([
             pl.when(pl.col(col).is_null().all()).then(replacement_value).otherwise(pl.col(col)).alias(col)
@@ -136,7 +123,10 @@ def _save_files_pl(df: pl.DataFrame, file_name: str, output_format: list = [".pa
 
     return file_names
 
-def _save_files_pd(df:pd.DataFrame, file_name:str, output_format:list = ['.parquet']):
+def _save_files_pd(df:pd.DataFrame, file_name:str, output_format:list | None = None):
+    if output_format is None:
+        output_format = ['.parquet']
+
     def replace_columns_with_na(df, replacement_value:str ='N/A'):
         for column_name in df.columns:
             if df[column_name].isna().all():
@@ -176,7 +166,10 @@ def _save_files_pd(df:pd.DataFrame, file_name:str, output_format:list = ['.parqu
 
     return file_names
     
-def _create_chunks(df, output_format:list = ['.parquet'],file_size:int = 100):
+def _create_chunks(df, output_format:list | None = None,file_size:int = 100):
+    if output_format is None:
+        output_format = ['.parquet']
+
 
     def memory_usage_pl(df: pl.DataFrame):
         """
@@ -249,7 +242,9 @@ def _process_chunk(params):
 
     return file_name
 
-def _save_chunks(dfs:list, file_name:str, output_format:list = ['.csv'] , file_size:int = 100,num_workers:int = 1):
+def _save_chunks(dfs:list, file_name:str, output_format:list | None = None , file_size:int = 100,num_workers:int = 1):
+    if output_format is None:
+        output_format = ['.csv']
     num_workers = int(num_workers) 
     file_names = None
     if len(dfs) > 0: 
@@ -293,7 +288,9 @@ def _save_chunks(dfs:list, file_name:str, output_format:list = ['.csv'] , file_s
 
     return dfs, file_names
 
-def _load_pd(file:str,select_cols = None, date_query:list=[None,None,None,"remove"], bvd_query:str=None, query = None, query_args:list = None):
+def _load_pd(file:str,select_cols = None, date_query:list | None = None, bvd_query:str=None, query = None, query_args:list | None = None):
+    if date_query is None:
+        date_query = [None, None, None, "remove"]
     try:
         df =_read_pd(file,select_cols)
 
@@ -305,15 +302,15 @@ def _load_pd(file:str,select_cols = None, date_query:list=[None,None,None,"remov
         if os.path.exists(folder_path) and os.path.isdir(folder_path):
             shutil.rmtree(folder_path)
 
-        raise ValueError(f"Error reading {os.path.basename(file)} folder and sub files {folder_path} has been removed): {e}")
+        raise ValueError(f"Error reading {os.path.basename(file)} folder and sub files {folder_path} has been removed): {e}") from e
     except Exception as e:
-        raise ValueError(f"Error reading file: {e}")
+        raise ValueError(f"Error reading file: {e}") from e
 
     if all(date_query):
         try:
             df = _date_pd(df, date_col= date_query[2],  start_year = date_query[0], end_year = date_query[1],nan_action=date_query[3])
         except Exception as e:
-            raise ValueError(f"Error while date selection: {e}") 
+            raise ValueError(f"Error while date selection: {e}") from e 
         if df.empty:
             print(f"{os.path.basename(file)} empty after date selection")
             return df
@@ -322,7 +319,7 @@ def _load_pd(file:str,select_cols = None, date_query:list=[None,None,None,"remov
         try:
             df = df.query(bvd_query)
         except Exception as e:
-            raise ValueError(f"Error while bvd filtration: {e}")    
+            raise ValueError(f"Error while bvd filtration: {e}") from e    
         if df.empty:
             print(f"{os.path.basename(file)} empty after bvd selection")
             return df
@@ -333,17 +330,19 @@ def _load_pd(file:str,select_cols = None, date_query:list=[None,None,None,"remov
             try:
                 df = query(df, *query_args) if query_args else query(df)
             except Exception as e:
-                raise ValueError(f"Error curating file with custom function: {e}")
+                raise ValueError(f"Error curating file with custom function: {e}") from e
         elif isinstance(query,str):
             try:
                 df = df.query(query)
             except Exception as e:
-                raise ValueError(f"Error curating file with pd.query(): {e}")
+                raise ValueError(f"Error curating file with pd.query(): {e}") from e
         if df.empty:
             print(f"{os.path.basename(file)} empty after query filtering")
     return df
 
-def _load_pl(file_list: list, select_cols=None, date_query=[None, None, None, "remove"], bvd_query=None, query=None, query_args=None):
+def _load_pl(file_list: list, select_cols=None, date_query=None, bvd_query=None, query=None, query_args=None):
+    if date_query is None:
+        date_query = [None, None, None, "remove"]
     """
     Load multiple files into a Polars LazyFrame and apply optional filtering.
 
@@ -399,7 +398,7 @@ def _read_csv_chunk(params):
     try:
         df = pd.read_csv(file, low_memory=False, skiprows=chunk_idx * chunk_size, nrows=chunk_size)
     except Exception as e:
-            raise ValueError(f"Error while reading chunk: {e}") 
+            raise ValueError(f"Error while reading chunk: {e}") from e 
 
     if select_cols is not None:
             df = df.iloc[:,col_index]
@@ -409,7 +408,7 @@ def _read_csv_chunk(params):
         try:
             df = _date_pd(df, date_col= date_query[2],  start_year = date_query[0], end_year = date_query[1],nan_action=date_query[3])
         except Exception as e:
-            raise ValueError(f"Error while date selection: {e}") 
+            raise ValueError(f"Error while date selection: {e}") from e 
         if df.empty:
             print(f"{os.path.basename(file)} empty after date selection")
             return df
@@ -417,7 +416,7 @@ def _read_csv_chunk(params):
         try:
             df = df.query(bvd_query)
         except Exception as e:
-            raise ValueError(f"Error while bvd filtration: {e}")    
+            raise ValueError(f"Error while bvd filtration: {e}") from e    
         if df.empty:
             print(f"{os.path.basename(file)} empty after bvd selection")
             return df
@@ -428,17 +427,20 @@ def _read_csv_chunk(params):
             try:
                 df = query(df, *query_args) if query_args else query(df)
             except Exception as e:
-                raise ValueError(f"Error curating file with custom function: {e}")
+                raise ValueError(f"Error curating file with custom function: {e}") from e
         elif isinstance(query,str):
             try:
                 df = df.query(query)
             except Exception as e:
-                raise ValueError(f"Error curating file with pd.query(): {e}")
+                raise ValueError(f"Error curating file with pd.query(): {e}") from e
         if df.empty:
             print(f"{os.path.basename(file)} empty after query filtering")
     return df   
   
-def _load_csv_table(file:str,select_cols = None, date_query:list=[None,None,None,"remove"], bvd_query:str=None, query = None, query_args:list = None,num_workers:int = -1):
+def _load_csv_table(file:str,select_cols = None, date_query:list | None = None, bvd_query:str | None = None, query = None, query_args:list | None = None,num_workers:int = -1):
+    if date_query is None:
+        date_query = [None, None, None, "remove"]
+
 
     def check_cols(file, select_cols):
 
@@ -948,17 +950,17 @@ def _bvd_changes_ray_not_working(initial_ids, df, num_workers=-1):
     return new_ids, newest_ids, df
 
 def _bvd_changes_ray(initial_ids, df,num_workers:int=-1):
-    import modin.pandas as pd
 
     if not num_workers or num_workers < 0:
             num_workers = max(1, cpu_count() - 2)
     ray.init(num_cpus=num_workers) 
     
-    new_ids = set(initial_ids)
+    initial_ids = set(initial_ids)
+    new_ids = initial_ids
     newest_ids = {id: id for id in new_ids}
     current_ids = set()  # Keep track of processed IDs
     found_new = True
-    
+    no_iter = 1
     while found_new:
         found_new = False
 
@@ -978,6 +980,7 @@ def _bvd_changes_ray(initial_ids, df,num_workers:int=-1):
             if new_id not in new_ids:
                 new_ids.add(new_id)
                 found_new = True
+                no_iter += 1
                 newest_ids[old_id] = new_id
                 newest_ids[new_id] = new_id
 
@@ -988,6 +991,7 @@ def _bvd_changes_ray(initial_ids, df,num_workers:int=-1):
             if old_id not in new_ids:
                 new_ids.add(old_id)
                 found_new = True
+                no_iter += 1
                 newest_ids[old_id] = newest_ids[new_id]
 
     # Filter the DataFrame based on new_ids
@@ -998,139 +1002,13 @@ def _bvd_changes_ray(initial_ids, df,num_workers:int=-1):
         lambda row: newest_ids.get(row['old_id'], newest_ids.get(row['new_id'])), axis=1
     )
     ray.shutdown()
-    import pandas as pd
+    
+    print(f"Bvd_id changes were found at {no_iter} steps")
+
+    if initial_ids == new_ids:
+        print("No changes were found for the provided bvd_ids")
+
     return new_ids, newest_ids, df
-
-# FIX ME
-def _bvd_changes_pl(initial_ids,file_list):
-    """
-    Load multiple files lazily and track the newest IDs.
-
-    Parameters:
-    - file_list (list): List of file paths.
-    - initial_ids (set): Set of initial IDs.
-
-    Returns:
-    - Polars LazyFrame with updated newest IDs.
-    """
-    # Load files lazily
-    df_lazy = _read_pl(file_list)
-
-    new_ids = set(initial_ids)
-    newest_ids = {id: id for id in new_ids}
-    current_ids = set()
-    found_new = True
-
-    while found_new:
-        found_new = False
-        if not current_ids:
-            current_ids = new_ids.copy()
-        else:
-            current_ids = new_ids - current_ids
-
-        # Filter for old_id and new_id matches
-        old_id_matches = df_lazy.filter(pl.col("old_id").is_in(current_ids)).collect()
-        new_id_matches = df_lazy.filter(pl.col("new_id").is_in(current_ids)).collect()
-
-        # Process old_id matches to update newest_ids
-        for row in old_id_matches.iter_rows(named=True):
-            old_id, new_id = row["old_id"], row["new_id"]
-            if new_id not in new_ids:
-                new_ids.add(new_id)
-                found_new = True
-                newest_ids[old_id] = new_id
-                newest_ids[new_id] = new_id
-
-        # Process new_id matches to update newest_ids
-        for row in new_id_matches.iter_rows(named=True):
-            old_id, new_id = row["old_id"], row["new_id"]
-            if old_id not in new_ids:
-                new_ids.add(old_id)
-                found_new = True
-                newest_ids[old_id] = newest_ids[new_id]
-
-    # Re-filter data based on new_ids
-    df_lazy = df_lazy.filter(pl.col("old_id").is_in(new_ids) | pl.col("new_id").is_in(new_ids))
-
-    # Map newest IDs using dictionary lookup
-    df_lazy = df_lazy.with_columns(
-        pl.when(pl.col("old_id").is_in(newest_ids))
-        .then(pl.col("old_id").map_dict(newest_ids))
-        .otherwise(pl.col("new_id").map_dict(newest_ids))
-        .alias("newest_id")
-    )
-
-    df_lazy.collect()
-    return df_lazy
-# FIX ME
-def _bvd_changes_pl_not_tested(initial_ids, file_list):
-    """
-    Load multiple files lazily and track the newest IDs.
-
-    Parameters:
-    - initial_ids (set): Set of initial IDs.
-    - file_list (list): List of file paths.
-
-    Returns:
-    - Polars LazyFrame with updated newest IDs.
-    """
-    # Load files lazily
-    df_lazy = _read_pl(file_list)
-
-    new_ids = set(initial_ids)
-    newest_ids = {id: id for id in new_ids}
-    current_ids = set()
-    found_new = True
-
-    while found_new:
-        found_new = False
-        if not current_ids:
-            current_ids = new_ids.copy()
-        else:
-            current_ids = new_ids - current_ids
-
-        # Filter for old_id and new_id matches
-        matches = df_lazy.filter(
-            pl.col("old_id").is_in(current_ids) | pl.col("new_id").is_in(current_ids)
-        ).collect()
-
-        if matches.is_empty():
-            break
-
-        # Extract unique old_id and new_id values
-        old_ids = set(matches.select("old_id").unique().to_series())
-        new_ids = set(matches.select("new_id").unique().to_series())
-
-        # Determine new IDs not already in new_ids
-        new_old_ids = old_ids - new_ids
-        new_new_ids = new_ids - new_ids
-
-        # Update newest_ids mapping
-        newest_ids.update(
-            {row["old_id"]: row["new_id"] for row in matches.iter_rows(named=True)}
-        )
-
-        # Update new_ids set
-        new_ids.update(new_old_ids)
-        new_ids.update(new_new_ids)
-
-        # Check if new IDs were found
-        found_new = bool(new_old_ids or new_new_ids)
-
-    # Re-filter data based on new_ids
-    df_lazy = df_lazy.filter(
-        pl.col("old_id").is_in(new_ids) | pl.col("new_id").is_in(new_ids)
-    )
-
-    # Map newest IDs using dictionary lookup
-    df_lazy = df_lazy.with_columns(
-        pl.when(pl.col("old_id").is_in(newest_ids))
-        .then(pl.col("old_id").map_dict(newest_ids))
-        .otherwise(pl.col("new_id").map_dict(newest_ids))
-        .alias("newest_id")
-    )
-
-    return df_lazy
 
 def _read_pd(file,select_cols):
     """Load multiple files lazily based on extension."""

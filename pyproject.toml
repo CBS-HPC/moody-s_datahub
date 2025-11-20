@@ -12,6 +12,7 @@ version = "1.0.0-rc.1"
 readme = "README.md"
 requires-python = ">=3.9.16"
 dependencies = [
+    "pip",
     "asyncio",
     "bcrypt",
     "cffi",
@@ -23,27 +24,60 @@ dependencies = [
     "fsspec",
     "ipywidgets",
     "jupyterlab-widgets",
+    "numpy",
     "openpyxl",
     "pandas",
-    "paramiko",
+    "paramiko==3.5.1",
+    "polars",
+    "polars-ds",
+    "psutil",
     "pyarrow",
     "pycparser",
     "pynacl",
     "pysftp",
     "pytz",
     "rapidfuzz",
+    "ray",
+    "modin[ray]",
     "tqdm",
     "tzdata",
     "widgetsnbextension"
 ]
 
+# ---- NEW: optional dev dependencies ----
+[project.optional-dependencies]
+dev = [
+    "ruff",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]
-#where = ["moodys_datahub"]
 include = ["moodys_datahub"]
-
 
 [tool.setuptools.package-data]
 moodys_datahub = ["data/*.xlsx", "data/*.txt"]
-#moodys_datahub = ["data/data_dict.xlsx", "data/data_products.xlsx","data/country_codes.xlsx","data/date_cols.xlsx","data/products.xlsx","data/bvd_numbers.txt"]
+
+# ---- NEW: Ruff configuration ----
+[tool.ruff]
+target-version = "py39"
+line-length = 88
+# This is your package root
+src = ["moodys_datahub"]
+exclude = [
+  "dist",
+  "moodys_datahub.egg-info",
+  "mkdocs/.ipynb_checkpoints",
+]
+
+[tool.ruff.lint]
+select = [
+  "E",  # pycodestyle errors
+  "F",  # pyflakes
+  "I",  # import sorting
+  "B",  # flake8-bugbear
+]
+ignore = [
+  # example: ignore line length if that’s too strict for now
+  # remove E501 from here if you want line length enforced
+  "E501",
+]

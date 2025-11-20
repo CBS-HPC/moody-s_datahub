@@ -1,24 +1,13 @@
+import asyncio
+import os
 import sys
 import time
-import importlib
-import subprocess
-import os
-
-# Check and install required libraries
-required_libraries = ['asyncio'] 
-for lib in required_libraries:
-    try:
-        importlib.import_module(lib)
-    except ImportError:
-        print(f"Installing {lib}...")
-        subprocess.check_call([sys.executable, '-m', 'pip', 'install', lib])
-subprocess.run(['pip', 'install', '-U', 'ipywidgets'])
-
-import asyncio
+from pathlib import Path
 
 sys.path.append('src')
-from .widgets import _SelectData,_select_list,_select_product
 from .connection import _Connection
+from .widgets import _select_list, _select_product, _SelectData
+
 
 class _Selection(_Connection):
     
@@ -85,13 +74,13 @@ class _Selection(_Connection):
             self._local_path   = None
 
             if self._local_repo:
-                self._remote_files, self._remote_path = self._check_path(path)
+                self._remote_files, self._remote_path = self._check_path(path, None)
             else:
-                self._remote_files, self._remote_path = self._check_path(path,"remote")
+                self._remote_files, self._remote_path = self._check_path(path, "remote")
      
             if self._remote_path:
                 if len(self._tables_available) > 1:
-                    df = self._tables_available.query(f"`Base Directory` == '{self._remote_path}'") # FIX ME !! Investigating this !!!  get stuck on this if df len == 1
+                    df = self._tables_available.query(f"`Base Directory` == '{self._remote_path}'")
                 else:
                     df = self._tables_available
       
@@ -271,7 +260,7 @@ class _Selection(_Connection):
 
         asyncio.ensure_future(f(self))
 
-    def _check_path(self,path,mode=None):
+    def _check_path(self, path, mode=None):
         files = []
         if path is not None:
             if mode == "local" or mode is None:
@@ -305,12 +294,16 @@ class _Selection(_Connection):
                     files = [next((file for file in files if os.path.splitext(file)[0] == self._set_table), None)]
 
             if mode=="remote" and not self._time_stamp:
-                file_attributes = sftp.stat(path + "/" + files[0])
-                #file_attributes = sftp.stat(os.path.normpath(os.path.join(path,files[0])))
+                file_attributes = sftp.stat(Path(path) / files[0])
+                #file_attributes = sftp.stat(path + "/" + files[0])
+
                 self._time_stamp = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(file_attributes.st_mtime))
         else:
             files = []
-        return files,path      
+        
+        path = str(Path(path))
+
+        return files, path      
   
     def _check_files(self,value):
         if isinstance(value, list) and all(isinstance(item, str) for item in value):

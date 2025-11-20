@@ -1,29 +1,17 @@
-import sys
-import shutil
-import importlib
-import subprocess
+import copy
+import importlib.resources as pkg_resources
 import os
+import shutil
 from datetime import datetime
 from multiprocessing import cpu_count
-import importlib.resources as pkg_resources
-import copy
-
-# Check and install required libraries
-required_libraries = ['pandas','pyarrow','fastparquet','openpyxl'] 
-for lib in required_libraries:
-    try:
-        importlib.import_module(lib)
-    except ImportError:
-        print(f"Installing {lib}...")
-        subprocess.check_call([sys.executable, '-m', 'pip', 'install', lib])
-subprocess.run(['pip', 'install', '-U', 'ipywidgets'])
 
 import pandas as pd
-import pyarrow.parquet as pq 
+import pyarrow.parquet as pq
 
-from .src.utils import _save_to,_letters_only_regex,fuzzy_query,_bvd_changes_ray
 from .src.load_data import _table_dictionary
 from .src.process import _Process
+from .src.utils import _bvd_changes_ray, _letters_only_regex, _save_to, fuzzy_query
+
 
 # Defining Sftp Class
 class Sftp(_Process): 
@@ -489,7 +477,10 @@ class Sftp(_Process):
         return filtered_df
 
     # Under development
-    def _search_dictionary_list(self, save_to:str=False, search_word=None, search_cols={'Data Product':True, 'Table':True, 'Column':True, 'Definition':True}, letters_only:bool=False, exact_match:bool=False, data_product = None, table = None):
+    def _search_dictionary_list(self, save_to:str=False, search_word=None, search_cols: dict | None = None, letters_only:bool=False, exact_match:bool=False, data_product = None, table = None):
+        if search_cols is None:
+            search_cols = {'Data Product': True, 'Table': True, 'Column': True, 'Definition': True}
+
         """
         Search for a term in a column/variable dictionary and save results to a file.
 

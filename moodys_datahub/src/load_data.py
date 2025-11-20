@@ -1,20 +1,8 @@
-import sys
-import importlib
-import subprocess
-import os
 import importlib.resources as pkg_resources
-
-# Check and install required libraries
-required_libraries = ['pandas'] 
-for lib in required_libraries:
-    try:
-        importlib.import_module(lib)
-    except ImportError:
-        print(f"Installing {lib}...")
-        subprocess.check_call([sys.executable, '-m', 'pip', 'install', lib])
-subprocess.run(['pip', 'install', '-U', 'ipywidgets'])
+import os
 
 import pandas as pd
+
 
 # Data Related functions
 def _read_excel(file_name):

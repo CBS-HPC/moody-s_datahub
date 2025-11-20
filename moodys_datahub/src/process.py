@@ -1,33 +1,40 @@
-import sys
-import time
-import importlib
-import subprocess
+import asyncio
 import os
 import re
-import psutil
+import sys
+import time
 from datetime import datetime
-from multiprocessing import cpu_count, Process
+from multiprocessing import Process, cpu_count
+from pathlib import Path
 
-# Check and install required libraries
-required_libraries = ['pandas','fastparquet','openpyxl','asyncio'] 
-for lib in required_libraries:
-    try:
-        importlib.import_module(lib)
-    except ImportError:
-        print(f"Installing {lib}...")
-        subprocess.check_call([sys.executable, '-m', 'pip', 'install', lib])
-subprocess.run(['pip', 'install', '-U', 'ipywidgets'])
-
-import pandas as pd
 import numpy as np
-import asyncio
-from math import ceil
+import pandas as pd
+import psutil
 
 sys.path.append('src')
-from .utils import _run_parallel,_save_files_pd,_save_chunks,_load_pd,_load_csv_table,_save_to,_check_list_format,_construct_query,_letters_only_regex,_load_pl,_save_files_pl
-from .widgets import _SelectMultiple,_SelectOptions,_CustomQuestion, _select_list,_select_bvd,_select_date
-from .load_data import _table_dictionary,_country_codes,_table_dates
+from .load_data import _country_codes, _table_dates, _table_dictionary
 from .selection import _Selection
+from .utils import (
+    _check_list_format,
+    _construct_query,
+    _letters_only_regex,
+    _load_csv_table,
+    _load_pd,
+    _load_pl,
+    _run_parallel,
+    _save_chunks,
+    _save_files_pd,
+    _save_to,
+)
+from .widgets import (
+    _CustomQuestion,
+    _select_bvd,
+    _select_date,
+    _select_list,
+    _SelectMultiple,
+    _SelectOptions,
+)
+
 
 class _Process(_Selection):
     
@@ -443,8 +450,11 @@ class _Process(_Selection):
 
         asyncio.ensure_future(f(self, column, definition)) 
 
-    def search_dictionary(self, save_to:str=False, search_word = None, search_cols={'Data Product':True,'Table':True,'Column':True,'Definition':True}, letters_only:bool=False, extact_match:bool=False, data_product = None, table = None):
-    
+    def search_dictionary(self, save_to: str = False, search_word=None, search_cols: dict | None = None,
+                         letters_only: bool = False, extact_match: bool = False, data_product=None, table=None):
+        if search_cols is None:
+            search_cols = {'Data Product': True, 'Table': True, 'Column': True, 'Definition': True}
+
         """
         Search for a term in a column/variable dictionary and save results to a file.
 
@@ -525,7 +535,7 @@ class _Process(_Selection):
                 df = df_backup.loc[df.index]
 
             if save_to:
-                print(f"The folloiwng query was executed:" + final_string)
+                print("The folloiwng query was executed:" + final_string)
 
         _save_to(df,'dict_search',save_to)
 
@@ -589,7 +599,9 @@ class _Process(_Selection):
 
         return df    
     
-    def search_country_codes(self, search_word = None, search_cols={'Country':True,'Code':True}):        
+    def search_country_codes(self, search_word=None, search_cols: dict | None = None):        
+        if search_cols is None:
+            search_cols = {'Country': True, 'Code': True}
         """
         Search for country codes matching a search term.
 
@@ -617,7 +629,7 @@ class _Process(_Selection):
                 print("No such 'search word' was detected across columns: " + search_conditions)
                 return df
             else:
-                print(f"The folloiwng query was executed:" + final_string)
+                print("The folloiwng query was executed:" + final_string)
 
         return df   
 
@@ -932,13 +944,14 @@ class _Process(_Selection):
             self.delete_files = False
             flag = True
         else:
-            file = self._local_path + "/" + os.path.basename(file)
-            #file = os.path.normpath(os.path.join(self._local_path,os.path.basename(file)))
+            
+            file = str(Path(self._local_path) / os.path.basename(file))
+            #file = self._local_path + "/" + os.path.basename(file)
             flag = False
             if not file.startswith(base_path):
-                file = base_path + "/" + file
-                #file  = os.path.normpath(os.path.join(base_path,file))
-
+                file = str(Path(base_path) / file)
+                #file = base_path + "/" + file
+                
         if len(file) > self._max_path_length:
             raise ValueError(f"file path is longer ({len(file)}) than the max path length of the OS {self._max_path_length}. Set '.local_path' closer to root. The file is : '{file}'")     
 
@@ -950,18 +963,20 @@ class _Process(_Selection):
         if not os.path.exists(local_file):
             try:
                 with self._connect() as sftp: 
-                    remote_file =  self.remote_path + "/" + os.path.basename(file)
+                    remote_file =  str(self.remote_path + "/" + os.path.basename(file))
                     #remote_file = os.path.normpath(os.path.join(self.remote_path,os.path.basename(file)))
                     sftp.get(remote_file, local_file)
                     file_attributes = sftp.stat(remote_file)
                     time_stamp = file_attributes.st_mtime
                     os.utime(local_file, (time_stamp, time_stamp))
             except Exception as e:
-                raise ValueError(f"Error reading remote file: {e}")
+                raise ValueError(f"Error reading remote file: {e}") from e
         
         return local_file, flag
 
-    def _curate_file(self,flag:bool,destination:str,local_file:str,select_cols:list, date_query:list=[None,None,None,"remove"], bvd_query:str = None, query = None, query_args:list = None,num_workers:int = -1):
+    def _curate_file(self,flag:bool,destination:str,local_file:str,select_cols:list, date_query:list | None = None, bvd_query:str | None = None, query = None, query_args:list | None = None,num_workers:int = -1):
+        if date_query is None:
+            date_query = [None, None, None, "remove"]
         df = None 
         file_name = None
         if any([select_cols, query, all(date_query),bvd_query]) or flag:  
@@ -986,21 +1001,22 @@ class _Process(_Selection):
 
             if (df is not None and self.concat_files is False and self.output_format is not None) and not flag:
   
-                file_name, _ = os.path.splitext(destination + "/" + os.path.basename(local_file))
+                file_name, _ = os.path.splitext(str(Path(destination) / os.path.basename(local_file)))
+                #file_name, _ = os.path.splitext(destination + "/" + os.path.basename(local_file))
                 file_name = _save_files_pd(df,file_name,self.output_format)
                 df = None
 
             if self.delete_files and not flag:
                 try: 
                     os.remove(local_file)
-                except:
-                    raise ValueError(f"Error deleting local file: {local_file}")
+                except Exception as e:
+                    raise ValueError(f"Error deleting local file: {local_file}") from e
         else:
             file_name = local_file  
 
         return df, file_name
          
-    def _process_sequential(self, files:list, destination:str=None, select_cols:list = None, date_query:list=[None,None,None,"remove"], bvd_query:str = None, query = None, query_args:list = None,num_workers:int = -1):
+    def _process_sequential(self, files:list, destination:str=None, select_cols:list | None = None, date_query:list | None = None, bvd_query:str | None = None, query = None, query_args:list | None = None,num_workers:int = -1):
         dfs = []
         file_names = []
         flags   = []
@@ -1031,8 +1047,11 @@ class _Process(_Selection):
         
         return dfs,file_names,flags
     
-    def _process_polars(self, files:list=None, destination:str=None, select_cols:list = None, date_query:list=[None,None,None,"remove"], bvd_query:str = None, query = None, query_args:list = None,num_workers:int = -1):
+    def _process_polars(self, files:list=None, destination:str=None, select_cols:list = None, date_query: list | None = None, bvd_query:str = None, query = None, query_args:list = None,num_workers:int = -1):
         
+        if date_query is None:
+            date_query = [None, None, None, "remove"]
+
         files = files or self.remote_files
 
         self.download_all(files = files, num_workers=num_workers, async_mode=False)
@@ -1091,11 +1110,16 @@ class _Process(_Selection):
                 if self._local_path is None and self._remote_path is not None:
 
                     if self._time_stamp:
-                        self.local_path = "Data Products" + "/" + self.set_data_product +'_exported '+ format_timestamp(self._time_stamp) + "/" + self.set_table
-                        #self.local_path = os.path.normpath(os.path.join("Data Products",(self.set_data_product +'_exported '+ format_timestamp(self._time_stamp)),self.set_table))
+                        folder_name = f"{self.set_data_product}_exported {format_timestamp(self._time_stamp)}"
                     else:
-                        self.local_path = "Data Products" + "/" + self.set_data_product + "/" + self.set_table
-                        #self.local_path = os.path.normpath(os.path.join("Data Products",self.set_data_product,self.set_table))
+                        folder_name = self.set_data_product
+
+                    self.local_path = str(Path("Data Products") / folder_name / self.set_table)
+
+                    #if self._time_stamp:  
+                    #    self.local_path = "Data Products" + "/" + self.set_data_product +'_exported '+ format_timestamp(self._time_stamp) + "/" + self.set_table
+                    #else:
+                    #    self.local_path = "Data Products" + "/" + self.set_data_product + "/" + self.set_table
                     
                 missing_files = [file for file in files if file not in self._remote_files and file not in self.local_files]
                 existing_files = [file for file in files if file in self._remote_files or file in self.local_files] 
@@ -1126,8 +1150,8 @@ class _Process(_Selection):
             base_path = os.getcwd()
             base_path = base_path.replace("\\", "/")
 
-            destination = base_path + "/" + destination
-            #destination = os.path.normpath(os.path.join(base_path,destination))
+            destination = str(Path(base_path) / destination)
+            #destination = base_path + "/" + destination
         
             
         if self.concat_files is False and destination is not None:

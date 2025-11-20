@@ -1,24 +1,8 @@
-import sys
-import importlib
-import subprocess
-import re
 from multiprocessing import Pool, cpu_count
 
-# Check and install required libraries
-required_libraries = ['pandas','rapidfuzz','numpy'] 
-for lib in required_libraries:
-    try:
-        importlib.import_module(lib)
-    except ImportError:
-        print(f"Installing {lib}...")
-        subprocess.check_call([sys.executable, '-m', 'pip', 'install', lib])
-subprocess.run(['pip', 'install', '-U', 'ipywidgets'])
-
-from rapidfuzz import process
-import pandas as pd
 import numpy as np
-from math import ceil
-from IPython.display import display
+import pandas as pd
+from rapidfuzz import process
 
 
 # Common Wrangling Functions
@@ -184,79 +168,3 @@ def fuzzy_match(df: pd.DataFrame, names: list, match_column: str = None, return_
     unique_best_matches = best_matches.drop_duplicates()
 
     return unique_best_matches.reset_index(drop=True)
-
-def _fuzzy_worker(args):
-    """
-    Worker function to perform fuzzy matching for each batch of names.
-    """
-    name_batch, choices, cut_off, df, match_column, return_column, choice_to_index = args
-    results = []
-    
-    for name in name_batch:
-        # First, check if an exact match exists in the choices
-        if name in choice_to_index:
-            match_index = choice_to_index[name]
-            match_value = df.iloc[match_index][match_column]
-            return_value = df.iloc[match_index][return_column]
-            results.append((name, name, 100, match_value, return_value))  # Exact match with score 100
-        else:
-            # Perform fuzzy matching if no exact match is found
-            match_obj = process.extractOne(name, choices, score_cutoff=cut_off)
-            if match_obj:
-                match, score, match_index = match_obj
-                match_value = df.iloc[match_index][match_column]
-                return_value = df.iloc[match_index][return_column]
-                results.append((name, match, score, match_value, return_value))
-            else:
-                results.append((name, None, 0, None, None))
-    
-    return results
-
-def fuzzy_match(df: pd.DataFrame, names: list, match_column: str = None, return_column: str = None, cut_off: int = 50, remove_str: list = None, num_workers: int = None):
-    """
-    Perform fuzzy string matching with a list of input strings against a specific column in a DataFrame.
-    """
-
-    def remove_substrings(choices, substrings):
-        for substring in substrings:
-            choices = [choice.replace(substring.lower(), '') for choice in choices]
-        return choices
-
-    choices = [choice.lower() for choice in df[match_column].tolist()]
-    names = [name.lower() for name in names]
-
-    if remove_str:
-        choices = remove_substrings(choices, remove_str)
-
-    # Create a mapping of choice to index for fast exact match lookup
-    choice_to_index = {choice: i for i, choice in enumerate(choices)}
-
-    # Determine the number of workers if not specified
-    if not num_workers  or num_workers < 0:
-        num_workers = max(1, cpu_count() - 2)
-
-    # Ensure number of workers is not greater than the number of names
-    if len(names) < num_workers:
-        num_workers = len(names)
-
-    # Split names into batches according to the number of workers
-    batch_size = ceil(len(names) / num_workers)
-    name_batches = [names[i:i + batch_size] for i in range(0, len(names), batch_size)]
-
-    args_list = [(batch, choices, cut_off, df, match_column, return_column, choice_to_index) for batch in name_batches]
-
-    # Parallel processing
-    matches = []
-    if num_workers > 1:
-        with Pool(processes=num_workers) as pool:
-            results = pool.map(_fuzzy_worker, args_list)
-            for result_batch in results:
-                matches.extend(result_batch)
-    else:
-        # If single worker, process in a simple loop
-        for batch in name_batches:
-            matches.extend(_fuzzy_worker((batch, choices, cut_off, df, match_column, return_column, choice_to_index)))
-
-    # Create the result DataFrame
-    result_df = pd.DataFrame(matches, columns=['Search_string', 'BestMatch', 'Score', match_column, return_column])
-    return result_df

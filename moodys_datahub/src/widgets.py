@@ -1,23 +1,12 @@
+import asyncio
 import sys
-import importlib
-import subprocess
-
-# Check and install required libraries
-required_libraries = ['asyncio'] 
-for lib in required_libraries:
-    try:
-        importlib.import_module(lib)
-    except ImportError:
-        print(f"Installing {lib}...")
-        subprocess.check_call([sys.executable, '-m', 'pip', 'install', lib])
-subprocess.run(['pip', 'install', '-U', 'ipywidgets'])
 
 import ipywidgets as widgets
 from IPython.display import display
-import asyncio
 
 sys.path.append('src')
-from .utils import _construct_query, _check_list_format
+from .utils import _check_list_format, _construct_query
+
 
 class _SelectData:
     def __init__(self, df, title="Select Data"):
@@ -290,7 +279,7 @@ class _Multi_dropdown:
     async def _list_change(self, change):
         # Handle asynchronous dropdown updates
         if change['type'] == 'change' and change['name'] == 'value':
-            for i, (hbox, dropdown) in enumerate(self.dropdown_widgets):
+            for i, (_hbox, dropdown) in enumerate(self.dropdown_widgets):
                 if dropdown is change.owner:
                     self.selected_values[i] = change.new
                     self.ok_button.disabled = False  # Enable OK button on change
@@ -302,14 +291,14 @@ class _Multi_dropdown:
     def _ok_button_click(self, b):
         self.ok_button.disabled = True  # Disable OK button after it's clicked
         self.cancel_button.disabled = True
-        for hbox, dropdown in self.dropdown_widgets:
+        for _hbox, dropdown in self.dropdown_widgets:
             dropdown.disabled = True
 
     def _cancel_button_click(self, b):
         self.selected_values = None  # Reset selected values
         self.ok_button.disabled = True  # Disable OK button
         self.cancel_button.disabled = True
-        for hbox, dropdown in self.dropdown_widgets:
+        for _hbox, dropdown in self.dropdown_widgets:
             dropdown.disabled = True
 
     async def display_widgets(self):

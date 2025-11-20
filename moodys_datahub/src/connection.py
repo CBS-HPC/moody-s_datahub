@@ -1,33 +1,22 @@
-import sys
-import time
+import ast
+import asyncio
 import json
-import importlib
-import subprocess
 import os
 import re
+import sys
+import time
 from datetime import datetime
-from multiprocessing import  cpu_count
-import ast
-
-# Check and install required libraries
-required_libraries = ['pandas', 'pysftp','fastparquet','openpyxl','asyncio'] 
-for lib in required_libraries:
-    try:
-        importlib.import_module(lib)
-    except ImportError:
-        print(f"Installing {lib}...")
-        subprocess.check_call([sys.executable, '-m', 'pip', 'install', lib])
-subprocess.run(['pip', 'install', '-U', 'ipywidgets'])
+from multiprocessing import cpu_count
+from pathlib import Path
 
 import pandas as pd
 import pysftp
-import asyncio
-from math import ceil
 
 sys.path.append('src')
-from .utils import _run_parallel,_save_to,_check_list_format
-from .widgets import _CustomQuestion,_Multi_dropdown
-from .load_data import _table_names,_table_match
+from .load_data import _table_match, _table_names
+from .utils import _check_list_format, _run_parallel, _save_to
+from .widgets import _CustomQuestion, _Multi_dropdown
+
 
 # Defining Sftp Class
 class _Connection:
@@ -82,7 +71,7 @@ class _Connection:
         Returns:
         - Current worker pool method (`'fork'`, `'threading'`, `'spawn'`).
         """
-        if not method in ['fork','theading','spawn']:
+        if method not in ['fork','theading','spawn']:
             print('invalid worker pool method')
             method = 'fork'
 
@@ -91,7 +80,7 @@ class _Connection:
             method = 'spawn'
          
         print(f'"{method}" is chosen as worker pool method')
-        self._pool_method == method
+        self._pool_method = method
     
     def tables_available(self,product_overview = None,save_to:str=False,reset:bool=False):
         """
@@ -161,14 +150,14 @@ class _Connection:
                 else:    
                     data_products.append(sel_product.values[0])
                 
-                tnfs_folder = product_path + "/" + "tnfs"
-                #tnfs_folder = os.path.normpath(os.path.join(product_path ,"tnfs"))
+                tnfs_folder = str(Path(product_path) / "tnfs")
+                #tnfs_folder = product_path + "/" + "tnfs"
 
                 export_paths =  sftp.listdir(product_path)
 
                 if not sftp.exists(tnfs_folder):
-                    path = product_path + "/" + export_paths[0]
-                    #path = os.path.normpath(os.path.join(product_path ,export_paths[0]))
+                    path = str(Path(product_path) / export_paths[0])
+                    #path = product_path + "/" + export_paths[0]
                     newest_exports.append(path)
                     time_stamp.append(None)
                     continue
@@ -185,8 +174,8 @@ class _Connection:
 
                 # Determine the newest .tnfs file
                 for tnfs_file in tnfs_files:
-                    tnfs_file_path  = tnfs_folder + "/" + tnfs_file
-                    #tnfs_file_path = os.path.normpath(os.path.join(tnfs_folder,tnfs_file))
+                    tnfs_file_path  = str(Path(tnfs_folder) / tnfs_file)
+                    #tnfs_file_path  = tnfs_folder + "/" + tnfs_file
                     file_attributes = sftp.stat(tnfs_file_path)
                     mtime = file_attributes.st_mtime
                     if mtime > newest_mtime:
@@ -200,8 +189,8 @@ class _Connection:
                 if newest_tnfs_file:
                     time_stamp.append(time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(newest_mtime)))
                     if self._local_path is not None:
-                        local_file = self._local_path + "/" +  "temp.tnf"
-                        #local_file = os.path.normpath(os.path.join(self._local_path,"temp.tnf"))
+                        local_file = str(Path(self._local_path) / "temp.tnf")
+                        #local_file = self._local_path + "/" +  "temp.tnf"
                     else: 
                         local_file = "temp.tnf"
                     sftp.get(newest_tnfs_file,  local_file)
@@ -209,15 +198,15 @@ class _Connection:
                     # Read the contents of the newest .tnfs file
                     with open( local_file , 'r') as f:
                         tnfs_data = json.load(f)
-                        newest_export = product_path + "/" + tnfs_data.get('DataFolder')
-                        #newest_export = os.path.normpath(os.path.join(product_path,tnfs_data.get('DataFolder')))
+                        newest_export = str(Path(product_path) / tnfs_data.get('DataFolder'))
+                        #newest_export = product_path + "/" + tnfs_data.get('DataFolder')
                         newest_exports.append(newest_export)
                 
                     os.remove(local_file)
 
                     for export_path in export_paths:
-                        export_path = product_path + "/" +  export_path 
-                        #export_path = os.path.normpath(os.path.join(product_path,export_path))
+                        export_path = str(Path(product_path) / export_path)
+                        #export_path = product_path + "/" +  export_path 
                         if export_path != newest_export and export_path != tnfs_folder:
                             to_delete.append(export_path)
 
@@ -232,9 +221,8 @@ class _Connection:
             time_stamps = []
             data_products = []
             for product_path in product_paths:
-
-                newest_exports.append(local_path + "/" + product_path) # FIX ME
-                #newest_exports.append(os.path.normpath(os.path.join(local_path ,product_path)))
+   
+                newest_exports.append(str(Path(local_path) / product_path))
                
                 filename = os.path.basename(product_path)  # Extract the last part of the path
                 # Split by '_exported' and strip spaces
@@ -259,7 +247,7 @@ class _Connection:
             df = pd.DataFrame({'Data Product': data_products,'Top-level Directory': product_paths,'Newest Export': newest_exports,'Timestamp': time_stamps})
 
             return df, []
-        
+            
         def compile_table(df,sftp = None):
             data = []
 
@@ -271,12 +259,13 @@ class _Connection:
                 
                 if sftp:
                     tables = sftp.listdir(export)
-                    full_paths  = [export + "/" + table for table in tables]
-                    #full_paths  = [os.path.normpath(os.path.join(export,table)) for table in tables]
+                    #full_paths  = [str(Path(export) / table) for table in tables]
+                    #full_paths  = [export + "/" + table for table in tables]
 
                 else:
                     tables = os.listdir(export)
-                    full_paths  = [os.path.normpath(os.path.join(export ,table)) for table in tables]
+                    #full_paths  = [os.path.normpath(os.path.join(export ,table)) for table in tables]
+                full_paths  = [str(Path(export) / table) for table in tables]
 
                 full_paths = [os.path.dirname(full_path) if full_path.endswith('.csv') else full_path for full_path in full_paths]
                 tables = [table[:-4] if table.endswith(".csv") else table for table in tables ]
@@ -380,8 +369,8 @@ class _Connection:
             file_paths = []
             with self._connect() as sftp:
                 for file_attr in sftp.listdir_attr(path):
-                    full_path = path + "/" + file_attr.filename
-                    #full_path = os.path.normpath(os.path.join(path,file_attr.filename))
+                    full_path = str(Path(path) / file_attr.filename)
+                    #full_path = path + "/" + file_attr.filename
 
                     # Check if the file ends with any of the specified extensions
                     if full_path.endswith(extensions):
@@ -403,14 +392,14 @@ class _Connection:
         
         def recursive_delete(sftp, path):
             for file_attr in sftp.listdir_attr(path):
-                full_path = path + "/" + file_attr.filename
-                #full_path = os.path.normpath(os.path.join(path,file_attr.filename))
+                full_path = str(Path(path) / file_attr.filename)
+                #full_path = path + "/" + file_attr.filename
                 sftp.remove(full_path)   
 
         def recursive_delete_not_used(sftp, path,extensions: tuple = (".parquet", ".csv",".orc",".avro")):
             for file_attr in sftp.listdir_attr(path):
-                full_path = path + "/" + file_attr.filename
-                #full_path = os.path.normpath(os.path.join(path,file_attr.filename))
+                full_path = str(Path(path) / file_attr.filename)
+                #full_path = path + "/" + file_attr.filename
 
                 # Check if the file ends with any of the specified extensions
                 if full_path.endswith(extensions):
