@@ -6,12 +6,11 @@ import time
 from datetime import datetime
 from multiprocessing import Process, cpu_count
 from pathlib import Path
-
 import numpy as np
 import pandas as pd
 import psutil
 
-sys.path.append('src')
+
 from .load_data import _country_codes, _table_dates, _table_dictionary
 from .selection import _Selection
 from .utils import (
@@ -406,7 +405,6 @@ class _Process(_Selection):
         If no columns are found for the specified table, a `ValueError` is raised.
 
         Args:
-        - `self`: Implicit reference to the instance.
 
         Notes:
         - This method uses `asyncio.ensure_future` to run the asynchronous function `f` which handles the widget interaction.
@@ -459,7 +457,6 @@ class _Process(_Selection):
         Search for a term in a column/variable dictionary and save results to a file.
 
         Args:
-        - `self`: Implicit reference to the instance.
         - `save_to` (str, optional): Format to save results. If False, results are not saved (default is False).
         - `search_word` (str, optional): Search term. If None, no term is searched.
         - `search_cols` (dict, optional): Dictionary indicating which columns to search. Columns are 'Data Product', 'Table', 'Column', and 'Definition' with default value as True for each.
@@ -535,7 +532,7 @@ class _Process(_Selection):
                 df = df_backup.loc[df.index]
 
             if save_to:
-                print("The folloiwng query was executed:" + final_string)
+                print("The following query was executed:" + final_string)
 
         _save_to(df,'dict_search',save_to)
 
@@ -551,7 +548,6 @@ class _Process(_Selection):
         3. Optionally saves the filtered results to a specified format.
 
         Args:
-        - `self`: Implicit reference to the instance.
         - `save_to` (str, optional): Format to save results. If False, results are not saved (default is False).
         - `data_product` (str, optional): Specific data product to filter results by. If None, defaults to `self.set_data_product`.
         - `table` (str, optional): Specific table to filter results by. If None, defaults to `self.set_table`.
@@ -605,8 +601,7 @@ class _Process(_Selection):
         """
         Search for country codes matching a search term.
 
-        Input Variables:
-        - `self`: Implicit reference to the instance.
+        Args:
         - `search_word` (str, optional): Term to search for country codes.
         - `search_cols` (dict, optional): Dictionary indicating columns to search (default is {'Country':True,'Code':True}).
 
@@ -629,7 +624,7 @@ class _Process(_Selection):
                 print("No such 'search word' was detected across columns: " + search_conditions)
                 return df
             else:
-                print("The folloiwng query was executed:" + final_string)
+                print("The following query was executed:" + final_string)
 
         return df   
 
@@ -641,7 +636,7 @@ class _Process(_Selection):
         the default file from `self.remote_files`. It processes the files, retrieves the specified number of rows, 
         and saves the result to the specified format if `save_to` is provided.
 
-        Input Variables:
+        Args:
         - `save_to` (str, optional): Format to save the sample data (default is 'CSV'). Other formats may be supported based on implementation.
         - `files` (list, optional): List of files to process. Defaults to `self.remote_files`. If an integer is provided, it is treated as a file identifier.
         - `n_rows` (int, optional): Number of rows to retrieve from the data (default is 1000).
@@ -693,7 +688,7 @@ class _Process(_Selection):
         applying filters, and performing parallel processing. It can handle file processing sequentially or 
         in parallel, depending on the number of workers specified.
 
-        Input Variables:
+        Args:
         - `files` (list, optional): List of files to process. Defaults to `self.remote_files`.
         - `destination` (str, optional): Path to save processed files.
         - `num_workers` (int, optional): Number of workers for parallel processing. Default is -1 (auto-determined).
@@ -873,7 +868,7 @@ class _Process(_Selection):
         It uses parallel processing if `num_workers` is specified, defaulting to `cpu_count() - 2` if not. 
         The process is managed using the `fork` method, which is supported only on Unix systems.
 
-        Input Variables:
+        Args:
         - `num_workers` (int, optional): Number of workers for parallel processing. Defaults to `cpu_count() - 2`.
 
         Notes:

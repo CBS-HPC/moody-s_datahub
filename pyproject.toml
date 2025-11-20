@@ -44,29 +44,32 @@ dependencies = [
     "widgetsnbextension"
 ]
 
-# ---- NEW: optional dev dependencies ----
 [project.optional-dependencies]
 dev = [
     "ruff",
 ]
 
+# Tell setuptools where to find packages (src layout)
 [tool.setuptools.packages.find]
-where = ["."]
+where = ["src"]
 include = ["moodys_datahub"]
 
+# Include data files inside the package
 [tool.setuptools.package-data]
 moodys_datahub = ["data/*.xlsx", "data/*.txt"]
 
-# ---- NEW: Ruff configuration ----
+# Ruff configuration
 [tool.ruff]
 target-version = "py39"
 line-length = 88
-# This is your package root
-src = ["moodys_datahub"]
+# Source roots for import resolution
+src = ["src"]
 exclude = [
   "dist",
-  "moodys_datahub.egg-info",
+  "*.egg-info",
   "mkdocs/.ipynb_checkpoints",
+  ".venv",
+  "build",
 ]
 
 [tool.ruff.lint]

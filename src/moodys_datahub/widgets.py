@@ -1,10 +1,7 @@
 import asyncio
-import sys
-
 import ipywidgets as widgets
 from IPython.display import display
 
-sys.path.append('src')
 from .utils import _check_list_format, _construct_query
 
 

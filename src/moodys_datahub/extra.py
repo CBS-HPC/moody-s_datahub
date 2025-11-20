@@ -10,8 +10,7 @@ def year_distribution(df=None):
     """
     Display the distribution of years in the data.
 
-    Input Variables:
-    - `self`: Implicit reference to the instance.
+    Args:
 
     Returns:
     - None
@@ -114,7 +113,7 @@ def fuzzy_match(df: pd.DataFrame, names: list, match_column: str = None, return_
     """
     Perform fuzzy string matching with a list of input strings against a specific column in a DataFrame.
 
-    Parameters:
+    Args:
     - df (pandas.DataFrame): The DataFrame containing the target columns.
     - names (list): A list of strings for fuzzy matching.
     - match_column (str): The name of the column to match against.

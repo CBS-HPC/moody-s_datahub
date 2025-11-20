@@ -4,7 +4,6 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.append('src')
 from .connection import _Connection
 from .widgets import _select_list, _select_product, _SelectData
 
@@ -25,8 +24,7 @@ class _Selection(_Connection):
         """
         Get or set the local path for operations.
 
-        Input Variables:
-        - `self`: Implicit reference to the instance.
+        Args:
         - `path` (str): Local path to set or retrieve.
 
         Returns:
@@ -58,8 +56,7 @@ class _Selection(_Connection):
         """
         Get or set the remote path for operations.
 
-        Input Variables:
-        - `self`: Implicit reference to the instance.
+        Args:
         - `path` (str): Remote path to set or retrieve.
 
         Returns:
@@ -112,8 +109,7 @@ class _Selection(_Connection):
         """
         Set or retrieve the current data product.
 
-        Input Variables:
-        - `self`: Implicit reference to the instance.
+        Args:
         - `product` (str): Data product name to set or retrieve.
 
         Returns:
@@ -137,9 +133,9 @@ class _Selection(_Connection):
                 else:
                     matches   = df[['Data Product']].drop_duplicates()
                     if len(matches) >1:
-                        print(f"Multiple data products partionally match '{product}' : {matches['Data Product'].tolist()}. Please set right data product" )
+                        print(f"Multiple data products partially match '{product}' : {matches['Data Product'].tolist()}. Please set right data product" )
                     else:
-                        print(f"One data product partionally match '{product}' : {matches['Data Product'].tolist()}. Please set right data product")
+                        print(f"One data product partially match '{product}' : {matches['Data Product'].tolist()}. Please set right data product")
 
             elif len(df['Export'].unique()) > 1:
                 matches   = df[['Data Product','Export']].drop_duplicates()
@@ -160,8 +156,7 @@ class _Selection(_Connection):
         """
         Set or retrieve the current table.
 
-        Input Variables:
-        - `self`: Implicit reference to the instance.
+        Args:
         - `table` (str): Table name to set or retrieve.
 
         Returns:
@@ -180,7 +175,7 @@ class _Selection(_Connection):
                 df = self._tables_available.query(f"`Table`.str.contains('{table}', case=False, na=False,regex=False)")
                 if len(df) >1:
                     matches   = df[['Data Product','Table']].drop_duplicates()
-                    print(f"Multiple tables partionally match '{table}' : {matches['Table'].tolist()} from {matches['Data Product'].tolist()}. Please set right table" )
+                    print(f"Multiple tables partially match '{table}' : {matches['Table'].tolist()} from {matches['Data Product'].tolist()}. Please set right table" )
                 elif df.empty:    
                     print("No such Table was found. Please set right table")
                 self._set_table = None

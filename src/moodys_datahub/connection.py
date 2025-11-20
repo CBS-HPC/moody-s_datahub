@@ -8,11 +8,9 @@ import time
 from datetime import datetime
 from multiprocessing import cpu_count
 from pathlib import Path
-
 import pandas as pd
 import pysftp
 
-sys.path.append('src')
 from .load_data import _table_match, _table_names
 from .utils import _check_list_format, _run_parallel, _save_to
 from .widgets import _CustomQuestion, _Multi_dropdown
@@ -64,8 +62,7 @@ class _Connection:
         """
         Get or set the worker pool method for concurrent operations.
 
-        Input Variables:
-        - `self`: Implicit reference to the instance.
+        Args:
         - `method` (str): Worker pool method (`'fork'`, `'threading'`, `'spawn'`).
 
         Returns:
@@ -89,7 +86,7 @@ class _Connection:
         This method fetches the available data products and tables from the SFTP server. It can optionally 
         save the results to a file in the specified format and reset the data if needed.
 
-        Input Variables:
+        Args:
         - `product_overview` (str, optional): Overview of the data products to filter. Defaults to None.
         - `save_to` (str, optional): Format to save the results (e.g., 'csv', 'xlsx'). Defaults to 'csv'.
         - `reset` (bool, optional): Flag to force refresh and reset the data products and tables. Defaults to False.
@@ -125,8 +122,7 @@ class _Connection:
         """
         Establish an SFTP connection.
 
-        Input Variables:
-        - `self`: Implicit reference to the instance.
+        Args:
 
         Returns:
         - SFTP connection object.
@@ -421,9 +417,9 @@ class _Connection:
     def _specify_data_products(self):
 
         def extract_options(row):
-            if "Mutliple_Options: " in row:
-                # Extract the substring starting after "Mutliple_Options: "
-                list_str = row.split("Mutliple_Options: ")[1]
+            if "Multiple_Options: " in row:
+                # Extract the substring starting after "Multiple_Options: "
+                list_str = row.split("Multiple_Options: ")[1]
                 # Convert the extracted substring to a Python list using ast.literal_eval
                 try:
                     options_list = ast.literal_eval(list_str)
@@ -434,9 +430,9 @@ class _Connection:
             else:
                 return None
 
-        # Function to check if a row contains "Mutliple_Options: "  
+        # Function to check if a row contains "Multiple_Options: "  
         def contains_multiple_options(row):
-            return "Mutliple_Options: " in row
+            return "Multiple_Options: " in row
 
         async def f(self,df,df_multiple):    
                     selected_values = None
@@ -476,7 +472,7 @@ class _Connection:
  
         df = self._tables_available.copy()
 
-        # Filter rows where column '1' contains "Mutliple_Options: "
+        # Filter rows where column '1' contains "Multiple_Options: "
         df_multiple = df[df['Data Product'].apply(contains_multiple_options)].copy()
 
         if not df_multiple.empty:

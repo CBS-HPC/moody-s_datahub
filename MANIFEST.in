@@ -1,3 +1,0 @@
-include moodys_datahub/*.py
-include moodys_datahub/data/*.xlsx
-include moodys_datahub/data/*.tx

@@ -346,7 +346,7 @@ def _load_pl(file_list: list, select_cols=None, date_query=None, bvd_query=None,
     """
     Load multiple files into a Polars LazyFrame and apply optional filtering.
 
-    Parameters:
+    Args:
     - file_list (list): List of file paths.
     - select_cols (list, optional): Columns to select.
     - date_query (list, optional): [start_year, end_year, date_column, nan_action].
@@ -571,7 +571,7 @@ def _date_pd(df, date_col = None,  start_year:int = None, end_year:int = None,na
     """
     Filter DataFrame based on a date column and optional start/end years.
 
-    Parameters:
+    Args:
     df (pd.DataFrame): The DataFrame to filter.
     date_col (str): The name of the date column in the DataFrame.
     start_year (int, optional): The starting year for filtering (inclusive). Defaults to None (no lower bound).
@@ -626,7 +626,7 @@ def _date_pl(df, date_col=None, start_year:int=None, end_year:int=None, nan_acti
     """
     Filter DataFrame based on a date column and optional start/end years.
 
-    Parameters:
+    Args:
     df (pl.DataFrame): The DataFrame to filter.
     date_col (str): The name of the date column in the DataFrame.
     start_year (int, optional): The starting year for filtering (inclusive). Defaults to None (no lower bound).
@@ -881,7 +881,7 @@ def _bvd_changes_ray_not_working(initial_ids, df, num_workers=-1):
     """
     Track the newest IDs using Modin and Ray.
 
-    Parameters:
+    Args:
     - initial_ids (set): Set of initial IDs.
     - df (DataFrame): Modin DataFrame containing 'old_id' and 'new_id' columns.
     - num_workers (int): Number of workers for Ray. Defaults to using all available CPUs minus two.

@@ -59,7 +59,7 @@ def _table_match(tables, file_name: str = None):
     if len(matched_groups) > 0:
         
         #data_product = matched_groups[0]
-        data_product = f"Mutliple_Options: {matched_groups}"
+        data_product = f"Multiple_Options: {matched_groups}"
         #print("It was not possible to determine the 'data product' for all exports. Run 'self.specify_data_product()' to correct")
 
         # Add "[.csv]" only if the original tables list contained .csv suffixes

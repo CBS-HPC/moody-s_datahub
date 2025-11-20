@@ -8,9 +8,9 @@ from multiprocessing import cpu_count
 import pandas as pd
 import pyarrow.parquet as pq
 
-from .src.load_data import _table_dictionary
-from .src.process import _Process
-from .src.utils import _bvd_changes_ray, _letters_only_regex, _save_to, fuzzy_query
+from .load_data import _table_dictionary
+from .process import _Process
+from .utils import _bvd_changes_ray, _letters_only_regex, _save_to, fuzzy_query
 
 
 # Defining Sftp Class
@@ -108,7 +108,7 @@ class Sftp(_Process):
         in Moody's DataHub. The function returns a DataFrame with matched headings and a list of headings 
         not found in Moody's DataHub.
 
-        Input Variables:
+        Args:
         - `file` (str): Path to the Orbis output file.
 
         Returns:
@@ -188,8 +188,7 @@ class Sftp(_Process):
         """
         Retrieve column names from a DataFrame or dictionary and save them to a file.
 
-        Input Variables:
-        - `self`: Implicit reference to the instance.
+        Args:
         - `save_to` (str, optional): Format to save results (default is CSV).
         - `files` (list, optional): List of files to retrieve column names from.
 
@@ -243,7 +242,7 @@ class Sftp(_Process):
         It processes the provided names against a dataset of firmographic data 
         and returns the best matches based on the specified cut-off score.
 
-        Parameters:
+        Args:
         names : list
             A list of company names to search for.
             
@@ -434,7 +433,7 @@ class Sftp(_Process):
         and returns the new IDs, the newest IDs, and a filtered DataFrame 
         containing relevant change information.
 
-        Parameters:
+        Args:
         bvd_list : list
             A list of BvD IDs to check for changes.
 
@@ -485,7 +484,6 @@ class Sftp(_Process):
         Search for a term in a column/variable dictionary and save results to a file.
 
         Args:
-        - `self`: Implicit reference to the instance.
         - `save_to` (str, optional): Format to save results. If False, results are not saved (default is False).
         - `search_word` (str or list of str, optional): Search term(s). If None, no term is searched.
         - `search_cols` (dict, optional): Dictionary indicating which columns to search. Columns are 'Data Product', 'Table', 'Column', and 'Definition' with default value as True for each.
