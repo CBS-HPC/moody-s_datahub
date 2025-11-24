@@ -1101,21 +1101,35 @@ class _Process(_Selection):
     
                 if not self.local_files and not self.remote_files:
                     raise ValueError("No local or remote files detected") 
-    
+
                 if self._local_path is None and self._remote_path is not None:
 
-                    if self._time_stamp:
-                        folder_name = f"{self.set_data_product}_exported {format_timestamp(self._time_stamp)}"
-                    else:
-                        folder_name = self.set_data_product
-
-                    self.local_path = str(Path("Data Products") / folder_name / self.set_table)
-
-                    #if self._time_stamp:  
-                    #    self.local_path = "Data Products" + "/" + self.set_data_product +'_exported '+ format_timestamp(self._time_stamp) + "/" + self.set_table
-                    #else:
-                    #    self.local_path = "Data Products" + "/" + self.set_data_product + "/" + self.set_table
+                    if self.set_table is None:
+                        raise ValueError(
+                            "Table is not set. Please select a table first "
+                            "before calling process_all (e.g. via define_options/select_columns)."
+                        )
                     
+                    if self.set_data_product is None:
+                        raise ValueError(
+                            "Data Product is not set. Please select a data product and table first "
+                            "before calling process_all (e.g. via define_options/select_columns)."
+                        )
+
+                    if self._time_stamp:
+                        folder_name  = f"{self.set_data_product}_exported {format_timestamp(self._time_stamp)}"
+                    else:
+                        folder_name  = self.set_data_product
+
+                    path = str(Path("Data Products") / folder_name / self.set_table)
+                    
+                    #if self._time_stamp and self.set_data_product is not None:
+                    #    path = "Data Products" + "/" + self.set_data_product +'_exported '+ format_timestamp(self._time_stamp) + "/" + self.set_table
+                    #else:
+                    #    path = "Data Products" + "/" + self.set_data_product + "/" + self.set_table
+                    
+                    self.local_path = path
+
                 missing_files = [file for file in files if file not in self._remote_files and file not in self.local_files]
                 existing_files = [file for file in files if file in self._remote_files or file in self.local_files] 
             

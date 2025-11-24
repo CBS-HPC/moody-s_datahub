@@ -2,6 +2,8 @@
 LICENSE.md
 README.md
 pyproject.toml
+dist/moodys_datahub-1.0.0rc1-py3-none-any.whl
+dist/moodys_datahub-1.0.0rc1.tar.gz
 mkdocs/examples.ipynb
 mkdocs/how_to_get_started.ipynb
 mkdocs/how_to_get_started.md
@@ -23,6 +25,7 @@ src/moodys_datahub.egg-info/SOURCES.txt
 src/moodys_datahub.egg-info/dependency_links.txt
 src/moodys_datahub.egg-info/requires.txt
 src/moodys_datahub.egg-info/top_level.txt
+src/moodys_datahub/data/__init__.py
 src/moodys_datahub/data/bvd_numbers.txt
 src/moodys_datahub/data/country_codes.xlsx
 src/moodys_datahub/data/data_dict.xlsx

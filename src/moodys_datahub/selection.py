@@ -254,52 +254,55 @@ class _Selection(_Connection):
         self._download_finished = None 
 
         asyncio.ensure_future(f(self))
-
-    def _check_path(self, path, mode=None):
-        files = []
+    
+    def _check_path(self, path, mode=None):    
+        files = []     
         if path is not None:
             if mode == "local" or mode is None:
-                if os.path.exists(path):
+                if os.path.exists(path):     
                     if os.path.isdir(path):
-                        files = os.listdir(path)
+                        files = os.listdir(path)   
                     elif os.path.isfile(path):
                         files = [os.path.basename(path)]
                         path  = os.path.dirname(path)
-                else:
+                else:  # added
                     if mode is None:
                         mode = "remote"
                     else:
                         os.makedirs(path)
                         print(f"Folder '{path}' created.")
 
-            if mode=="remote":
+            if mode == "remote":
                 sftp = self._connect()
+                
                 if sftp.exists(path):
                     files = sftp.listdir(path)
                     if not files:
                         files = [os.path.basename(path)]
                         path  = os.path.dirname(path)
                 else:
-                    print(f"Remote path is invalid:'{path}'")
+                    print(f"Remote path is invalid: '{path}'")
                     path = None
 
             if len(files) > 1 and any(file.endswith('.csv') for file in files):
                 if self._set_table:
-                    # Find the file that matches the match_string without the .csv suffix
-                    files = [next((file for file in files if os.path.splitext(file)[0] == self._set_table), None)]
-
-            if mode=="remote" and not self._time_stamp:
-                file_attributes = sftp.stat(Path(path) / files[0])
-                #file_attributes = sftp.stat(path + "/" + files[0])
-
-                self._time_stamp = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(file_attributes.st_mtime))
+                    matched_file = next((file for file in files if os.path.splitext(file)[0] == self._set_table), None)
+                    files = [matched_file]
+            
+            if mode == "remote" and not self._time_stamp:
+                if files and files[0] is not None:
+                    file_attributes = sftp.stat(Path(path) / files[0])
+                    self._time_stamp = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(file_attributes.st_mtime))
+                else:
+                    print(f"WARNING: Cannot get timestamp, files is empty or None")
         else:
             files = []
         
-        path = str(Path(path))
-
-        return files, path      
+        if path is not None:
+            path = str(Path(path))
   
+        return files, path
+    
     def _check_files(self,value):
         if isinstance(value, list) and all(isinstance(item, str) for item in value):
             return value
