@@ -8,10 +8,11 @@ authors = [
     {name = "Kristoffer Gulmark Poulsen", email = "kgp.lib@cbs.dk"}
 ]
 description = "moody datahub package"
-version = "0.0.1"
+version = "1.0.0-rc.1"
 readme = "README.md"
 requires-python = ">=3.9.16"
 dependencies = [
+    "pip",
     "asyncio",
     "bcrypt",
     "cffi",
@@ -23,23 +24,63 @@ dependencies = [
     "fsspec",
     "ipywidgets",
     "jupyterlab-widgets",
+    "numpy",
     "openpyxl",
     "pandas",
     "paramiko==3.5.1",
+    "polars",
+    "polars-ds",
+    "psutil",
     "pyarrow",
     "pycparser",
     "pynacl",
     "pysftp",
     "pytz",
     "rapidfuzz",
+    "ray",
+    "modin[ray]",
     "tqdm",
     "tzdata",
     "widgetsnbextension"
 ]
 
+[project.optional-dependencies]
+dev = [
+    "ruff",
+]
+
+# Tell setuptools where to find packages (src layout)
 [tool.setuptools.packages.find]
-where = ["."]
+where = ["src"]
 include = ["moodys_datahub"]
 
+# Include data files inside the package
 [tool.setuptools.package-data]
-moodys_datahub = ["data/data_dict.xlsx", "data/data_products.xlsx","data/country_codes.xlsx","data/date_cols.xlsx"]
+moodys_datahub = ["data/*.xlsx", "data/*.txt"]
+
+# Ruff configuration
+[tool.ruff]
+target-version = "py39"
+line-length = 88
+# Source roots for import resolution
+src = ["src"]
+exclude = [
+  "dist",
+  "*.egg-info",
+  "mkdocs/.ipynb_checkpoints",
+  ".venv",
+  "build",
+]
+
+[tool.ruff.lint]
+select = [
+  "E",  # pycodestyle errors
+  "F",  # pyflakes
+  "I",  # import sorting
+  "B",  # flake8-bugbear
+]
+ignore = [
+  # example: ignore line length if that’s too strict for now
+  # remove E501 from here if you want line length enforced
+  "E501",
+]
