@@ -110,7 +110,7 @@ class _Connection:
         elif reset:
             self._tables_available = self._tables_backup.copy()
       
-        
+    
         # Specify unknown data product exports
         self._specify_data_products()
 
@@ -146,14 +146,14 @@ class _Connection:
                 else:    
                     data_products.append(sel_product.values[0])
                 
-                tnfs_folder = str(Path(product_path) / "tnfs")
-                #tnfs_folder = product_path + "/" + "tnfs"
+                #tnfs_folder = str(Path(product_path) / "tnfs")
+                tnfs_folder = product_path + "/" + "tnfs"
 
                 export_paths =  sftp.listdir(product_path)
-
+           
                 if not sftp.exists(tnfs_folder):
-                    path = str(Path(product_path) / export_paths[0])
-                    #path = product_path + "/" + export_paths[0]
+                    #path = str(Path(product_path) / export_paths[0])
+                    path = product_path + "/" + export_paths[0]
                     newest_exports.append(path)
                     time_stamp.append(None)
                     continue
@@ -170,8 +170,8 @@ class _Connection:
 
                 # Determine the newest .tnfs file
                 for tnfs_file in tnfs_files:
-                    tnfs_file_path  = str(Path(tnfs_folder) / tnfs_file)
-                    #tnfs_file_path  = tnfs_folder + "/" + tnfs_file
+                    #tnfs_file_path  = str(Path(tnfs_folder) / tnfs_file)
+                    tnfs_file_path  = tnfs_folder + "/" + tnfs_file
                     file_attributes = sftp.stat(tnfs_file_path)
                     mtime = file_attributes.st_mtime
                     if mtime > newest_mtime:
@@ -201,8 +201,8 @@ class _Connection:
                     os.remove(local_file)
 
                     for export_path in export_paths:
-                        export_path = str(Path(product_path) / export_path)
-                        #export_path = product_path + "/" +  export_path 
+                        #export_path = str(Path(product_path) / export_path)
+                        export_path = product_path + "/" +  export_path 
                         if export_path != newest_export and export_path != tnfs_folder:
                             to_delete.append(export_path)
 
@@ -246,7 +246,6 @@ class _Connection:
             
         def compile_table(df,sftp = None):
             data = []
-
             for _ , row  in df.iterrows():                
                 data_product = row['Data Product']
                 timestamp = row['Timestamp']
@@ -256,16 +255,18 @@ class _Connection:
                 if sftp:
                     tables = sftp.listdir(export)
                     #full_paths  = [str(Path(export) / table) for table in tables]
-                    #full_paths  = [export + "/" + table for table in tables]
+                    full_paths  = [export + "/" + table for table in tables]
 
                 else:
                     tables = os.listdir(export)
                     #full_paths  = [os.path.normpath(os.path.join(export ,table)) for table in tables]
-                full_paths  = [str(Path(export) / table) for table in tables]
+                    full_paths  = [str(Path(export) / table) for table in tables]
 
                 full_paths = [os.path.dirname(full_path) if full_path.endswith('.csv') else full_path for full_path in full_paths]
                 tables = [table[:-4] if table.endswith(".csv") else table for table in tables ]
-                            
+
+                tables = [table.replace("usd_interim", "interim_usd").replace("eur_interim", "interim_eur") for table in tables]
+
                 if pd.isna(data_product):
                     data_product, tables = _table_match(tables)
 
@@ -286,16 +287,17 @@ class _Connection:
  
         if not self._local_repo:
             print('Retrieving Data Product overview from SFTP..wait a moment')
-            product_overview =_table_names(file_name = product_overview) 
+            product_overview =_table_names(file_name = product_overview)
             with self._connect() as sftp:
-                df, to_delete = check_sftp(product_overview,sftp) 
-                df = compile_table(df,sftp)              
+                df, to_delete = check_sftp(product_overview,sftp)
+
+                df = compile_table(df,sftp) 
+        
         else:
             print(f'Retrieving Data Product overview from {self._local_repo}')
             df, to_delete = check_local(self._local_repo)
 
             df = compile_table(df) 
-  
         return  df, to_delete
 
     def _server_clean_up(self,to_delete):
@@ -365,8 +367,8 @@ class _Connection:
             file_paths = []
             with self._connect() as sftp:
                 for file_attr in sftp.listdir_attr(path):
-                    full_path = str(Path(path) / file_attr.filename)
-                    #full_path = path + "/" + file_attr.filename
+                    #full_path = str(Path(path) / file_attr.filename)
+                    full_path = path + "/" + file_attr.filename
 
                     # Check if the file ends with any of the specified extensions
                     if full_path.endswith(extensions):
@@ -388,22 +390,9 @@ class _Connection:
         
         def recursive_delete(sftp, path):
             for file_attr in sftp.listdir_attr(path):
-                full_path = str(Path(path) / file_attr.filename)
-                #full_path = path + "/" + file_attr.filename
+                #full_path = str(Path(path) / file_attr.filename)
+                full_path = path + "/" + file_attr.filename
                 sftp.remove(full_path)   
-
-        def recursive_delete_not_used(sftp, path,extensions: tuple = (".parquet", ".csv",".orc",".avro")):
-            for file_attr in sftp.listdir_attr(path):
-                full_path = str(Path(path) / file_attr.filename)
-                #full_path = path + "/" + file_attr.filename
-
-                # Check if the file ends with any of the specified extensions
-                if full_path.endswith(extensions):
-                    sftp.remove(full_path)
-                elif sftp.isdir(full_path):
-                    recursive_delete(sftp, full_path)
-                else:
-                    sftp.remove(full_path)        
 
         with self._connect() as sftp:
             try:
@@ -474,7 +463,7 @@ class _Connection:
 
         # Filter rows where column '1' contains "Multiple_Options: "
         df_multiple = df[df['Data Product'].apply(contains_multiple_options)].copy()
-
+        
         if not df_multiple.empty:
             asyncio.ensure_future(f(self,df,df_multiple))
   

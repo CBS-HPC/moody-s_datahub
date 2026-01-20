@@ -29,6 +29,7 @@ src/moodys_datahub/data/__init__.py
 src/moodys_datahub/data/bvd_numbers.txt
 src/moodys_datahub/data/country_codes.xlsx
 src/moodys_datahub/data/data_dict.xlsx
+src/moodys_datahub/data/data_dict_available.xlsx
 src/moodys_datahub/data/data_products.xlsx
 src/moodys_datahub/data/date_cols.xlsx
 src/moodys_datahub/data/products.xlsx

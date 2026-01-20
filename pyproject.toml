@@ -52,7 +52,9 @@ dev = [
 # Tell setuptools where to find packages (src layout)
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["moodys_datahub"]
+include = ["moodys_datahub*"]  # The asterisk is critical!
+
+
 
 # Include data files inside the package
 [tool.setuptools.package-data]
