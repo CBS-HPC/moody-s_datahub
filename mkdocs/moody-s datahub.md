@@ -23,6 +23,22 @@ workflow end to end:
 
 ## Typical workflow
 
+### Interactive notebook workflow
+
+```python
+from moodys_datahub import Sftp
+
+SFTP = Sftp(privatekey="user_provided-ssh-key.pem")
+SFTP.select_data()
+SFTP.define_options()
+SFTP.select_columns()
+SFTP.bvd_list = ["DK28505116", "SE5567031702"]
+
+df, files = SFTP.process_all()
+```
+
+### Direct setup workflow
+
 ```python
 from moodys_datahub import Sftp
 
@@ -34,6 +50,10 @@ SFTP.bvd_list = ["DK28505116", "SE5567031702"]
 
 df, files = SFTP.polars_all()
 ```
+
+Use `select_data()` when you want the interactive widget-based flow in notebook
+environments. Use `set_data_product` and `set_table` when you want a fully
+scripted workflow.
 
 Use `process_all()` for the pandas-based workflow and `polars_all()` when you
 want the faster exact-match path for large BvD ID filters.
