@@ -2,6 +2,25 @@
 
 All notable changes to this project should be documented in this file.
 
+## [1.0.0] - 2026-03-20
+
+### Added
+- Stable release packaging and release-facing installation guidance.
+- GitHub release asset upload in the publish workflow so wheels and source
+  archives are attached to tagged releases.
+
+### Changed
+- Package version promoted from `1.0.0rc1` to `1.0.0`.
+- Development status classifier promoted to `Production/Stable`.
+- README installation instructions now cover PyPI, GitHub release wheels, and
+  local wheel installation.
+
+### Fixed
+- Polars exact BvD filtering now supports multiple candidate columns in a single
+  pass without duplicate rows.
+- `process_one(..., n_rows=...)` sampling behavior is now consistent with its
+  returned result.
+
 ## [1.0.0rc1] - 2026-02-17
 
 ### Added
@@ -39,5 +58,3 @@ All notable changes to this project should be documented in this file.
   - `tables_available()`
   - `set_data_product` / `set_table`
   - `process_all(files=[absolute_csv_path], num_workers=1)`
-- Observed issue to track before stable:
-  - `process_one(..., n_rows=2)` returned all rows and printed `No rows were retained` in the same run, indicating inconsistent branching/logging behavior in current `process_one` flow.
