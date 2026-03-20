@@ -1,0 +1,12 @@
+prune .github
+prune .ruff_cache
+prune .venv
+prune build
+prune dist
+prune mkdocs
+prune tests
+
+exclude src/moodys_datahub/data/data_dict_available.xlsx
+
+global-exclude __pycache__
+global-exclude *.py[cod]

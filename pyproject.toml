@@ -1,52 +1,62 @@
 [build-system]
-requires = ["setuptools", "setuptools-scm"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "moodys_datahub"
+version = "1.0.0rc1"
+description = "Python tools for accessing and processing Moody's DataHub exports via SFTP."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+license-files = ["LICENSE.md"]
 authors = [
     {name = "Kristoffer Gulmark Poulsen", email = "kgp.lib@cbs.dk"}
 ]
-description = "moody datahub package"
-version = "1.0.0-rc.1"
-readme = "README.md"
-requires-python = ">=3.9.16"
+keywords = ["moodys", "datahub", "sftp", "data-engineering", "finance-data"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: OS Independent",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+]
 dependencies = [
-    "pip",
-    "asyncio",
-    "bcrypt",
-    "cffi",
-    "cramjam",
-    "cryptography",
-    "et-xmlfile",
     "fastavro",
-    "fastparquet",
-    "fsspec",
     "ipywidgets",
-    "jupyterlab-widgets",
     "numpy",
     "openpyxl",
     "pandas",
-    "paramiko==3.5.1",
+    "paramiko>=3.5.1",
     "polars",
     "polars-ds",
     "psutil",
     "pyarrow",
-    "pycparser",
-    "pynacl",
     "pysftp",
-    "pytz",
     "rapidfuzz",
-    "ray",
-    "modin[ray]",
+    "ray; python_version < '3.13'",
     "tqdm",
-    "tzdata",
-    "widgetsnbextension"
 ]
+
+[project.urls]
+Homepage = "https://github.com/CBS-HPC/moody-s_datahub"
+Documentation = "https://cbs-hpc.github.io/moody-s_datahub/"
+Repository = "https://github.com/CBS-HPC/moody-s_datahub"
+Issues = "https://github.com/CBS-HPC/moody-s_datahub/issues"
 
 [project.optional-dependencies]
 dev = [
+    "build",
+    "pytest",
     "ruff",
+    "twine",
 ]
 
 # Tell setuptools where to find packages (src layout)
@@ -58,7 +68,14 @@ include = ["moodys_datahub*"]  # The asterisk is critical!
 
 # Include data files inside the package
 [tool.setuptools.package-data]
-moodys_datahub = ["data/*.xlsx", "data/*.txt"]
+moodys_datahub = [
+    "data/bvd_numbers.txt",
+    "data/country_codes.xlsx",
+    "data/data_dict.xlsx",
+    "data/data_products.xlsx",
+    "data/date_cols.xlsx",
+    "data/products.xlsx",
+]
 
 # Ruff configuration
 [tool.ruff]
@@ -69,6 +86,8 @@ src = ["src"]
 exclude = [
   "dist",
   "*.egg-info",
+  "*.ipynb",
+  "mkdocs",
   "mkdocs/.ipynb_checkpoints",
   ".venv",
   "build",

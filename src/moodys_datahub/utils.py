@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from math import ceil
 from multiprocessing import Pool, cpu_count
+from typing import Literal
 
 import fastavro
 import numpy as np
@@ -16,85 +17,123 @@ import polars as pl
 import polars_ds as pds
 import psutil
 import pyarrow
-import ray
 from rapidfuzz import process
 from tqdm import tqdm
 
+try:
+    import ray
+except ImportError:  # pragma: no cover - depends on interpreter/dependency resolution
+    ray = None
+
+
+def _require_ray():
+    if ray is None:
+        raise ImportError(
+            "ray is required for BvD change tracking. "
+            "Install it in a supported Python version (currently <3.13)."
+        )
+
+
+SaveFormat = Literal["xlsx", "csv"] | None
+
 
 # Dependency functions
-def _create_workers(num_workers:int = -1,n_total:int=None,pool_method = None  ,query = None):
-
+def _create_workers(
+    num_workers: int = -1, n_total: int = None, pool_method=None, query=None
+):
     if num_workers < 1:
-            num_workers =int(psutil.virtual_memory().total/ (1024 ** 3)/12)
+        num_workers = int(psutil.virtual_memory().total / (1024**3) / 12)
 
     if num_workers > int(cpu_count()):
         num_workers = int(cpu_count())
 
     if num_workers > n_total:
         num_workers = int(n_total)
-     
 
     print(f"------ Creating Worker Pool of {num_workers}")
 
     if pool_method is None:
-        if hasattr(os, 'fork'):
-            pool_method = 'fork'
+        if hasattr(os, "fork"):
+            pool_method = "fork"
         else:
-            pool_method = 'threading'
+            pool_method = "threading"
 
-    method = 'process'
-    if pool_method == 'spawn' and query is not None:
+    method = "process"
+    if pool_method == "spawn" and query is not None:
         print('The custom function (query) is not supported by "spawn" proceses')
-        if not hasattr(os, 'fork'):
-           print('Switching worker pool to "ThreadPoolExecutor(max_workers=num_workers)" which is under Global Interpreter Lock (GIL) - I/O operations should still speed up')
-           method = 'thread'
-    elif pool_method == 'threading':
-        method = 'thread' 
+        if not hasattr(os, "fork"):
+            print(
+                'Switching worker pool to "ThreadPoolExecutor(max_workers=num_workers)" which is under Global Interpreter Lock (GIL) - I/O operations should still speed up'
+            )
+            method = "thread"
+    elif pool_method == "threading":
+        method = "thread"
 
-    if method == 'process':
+    if method == "process":
         worker_pool = Pool(processes=num_workers)
-    elif method == 'thread':
+    elif method == "thread":
         worker_pool = ThreadPoolExecutor(max_workers=num_workers)
-        
-    return worker_pool, method 
 
-def _run_parallel(fnc,params_list:list,n_total:int,num_workers:int=-1,pool_method:str= None,msg:str= 'Process'):
-        
-    worker_pool, method = _create_workers(num_workers,n_total,pool_method)   
-    lists  = []
+    return worker_pool, method
+
+
+def _run_parallel(
+    fnc,
+    params_list: list,
+    n_total: int,
+    num_workers: int = -1,
+    pool_method: str = None,
+    msg: str = "Process",
+):
+    worker_pool, method = _create_workers(num_workers, n_total, pool_method)
+    lists = []
     try:
         with worker_pool as pool:
-            print(f'------ {msg} {n_total} files in parallel')
-            if method == 'process':
-                lists = list(tqdm(pool.map(fnc, params_list, chunksize=1), total=n_total, mininterval=0.1))
+            print(f"------ {msg} {n_total} files in parallel")
+            if method == "process":
+                lists = list(
+                    tqdm(
+                        pool.map(fnc, params_list, chunksize=1),
+                        total=n_total,
+                        mininterval=0.1,
+                    )
+                )
             else:
-                lists = list(tqdm(pool.map(fnc, params_list)             , total=n_total, mininterval=0.1))
+                lists = list(
+                    tqdm(pool.map(fnc, params_list), total=n_total, mininterval=0.1)
+                )
     except Exception as e:
         print(f"Error occurred: {e}")
-    
+
     finally:
-        if method == 'process':
+        if method == "process":
             worker_pool.close()
             worker_pool.join()
 
     return lists
+
 
 def _save_files_pl(df: pl.DataFrame, file_name: str, output_format: list | None = None):
     if output_format is None:
         output_format = [".parquet"]
 
     def replace_columns_with_na(df, replacement_value: str = "N/A"):
-        return df.with_columns([
-            pl.when(pl.col(col).is_null().all()).then(replacement_value).otherwise(pl.col(col)).alias(col)
-            for col in df.columns
-        ])
-    
+        return df.with_columns(
+            [
+                pl.when(pl.col(col).is_null().all())
+                .then(replacement_value)
+                .otherwise(pl.col(col))
+                .alias(col)
+                for col in df.columns
+            ]
+        )
+
     file_names = []
-    
+
     try:
         for extension in output_format:
             current_file = f"{file_name}{extension}"
-            
+
             if extension == ".csv":
                 df.write_csv(current_file)
             elif extension == ".xlsx":
@@ -104,17 +143,21 @@ def _save_files_pl(df: pl.DataFrame, file_name: str, output_format: list | None 
             elif extension == ".ipc":  # Arrow IPC (alternative to pickle)
                 df.write_ipc(current_file)
             elif extension == ".dta":
-                df = replace_columns_with_na(df, replacement_value="N/A")  # Handle empty columns for Stata
+                df = replace_columns_with_na(
+                    df, replacement_value="N/A"
+                )  # Handle empty columns for Stata
                 df.write_stata(current_file)
             else:
                 print(f"Unsupported format: {extension}")
                 continue
-            
+
             file_names.append(current_file)
-    
+
     except PermissionError as e:
-        print(f"PermissionError: {e}. Check if you have the necessary permissions to write to the specified location.")
-        
+        print(
+            f"PermissionError: {e}. Check if you have the necessary permissions to write to the specified location."
+        )
+
         if not file_name.endswith("_copy"):
             print(f'Saving "{file_name}" as "{file_name}_copy" instead')
             return _save_files_pl(df, file_name + "_copy", output_format)
@@ -123,53 +166,58 @@ def _save_files_pl(df: pl.DataFrame, file_name: str, output_format: list | None 
 
     return file_names
 
-def _save_files_pd(df:pd.DataFrame, file_name:str, output_format:list | None = None):
-    if output_format is None:
-        output_format = ['.parquet']
 
-    def replace_columns_with_na(df, replacement_value:str ='N/A'):
+def _save_files_pd(df: pd.DataFrame, file_name: str, output_format: list | None = None):
+    if output_format is None:
+        output_format = [".parquet"]
+
+    def replace_columns_with_na(df, replacement_value: str = "N/A"):
         for column_name in df.columns:
             if df[column_name].isna().all():
                 df[column_name] = replacement_value
         return df
-    
+
     file_names = []
     try:
         for extension in output_format:
-            if extension == '.csv':
-                current_file = file_name + '.csv'
-                df.to_csv(current_file,index=False)
-            elif extension == '.xlsx':
-                current_file = file_name + '.xlsx'
-                df.to_excel(current_file,index=False)
-            elif extension == '.parquet':
-                current_file = file_name + '.parquet'
+            if extension == ".csv":
+                current_file = file_name + ".csv"
+                df.to_csv(current_file, index=False)
+            elif extension == ".xlsx":
+                current_file = file_name + ".xlsx"
+                df.to_excel(current_file, index=False)
+            elif extension == ".parquet":
+                current_file = file_name + ".parquet"
                 df.to_parquet(current_file)
-            elif extension == '.pickle':
-                current_file = file_name + '.pickle'
-                df.to_pickle(current_file) 
-            elif extension == '.dta':
-                current_file = file_name + '.dta'              
-                df = replace_columns_with_na(df, replacement_value='N/A') # .dta format does not like empty columns so these are removed
+            elif extension == ".pickle":
+                current_file = file_name + ".pickle"
+                df.to_pickle(current_file)
+            elif extension == ".dta":
+                current_file = file_name + ".dta"
+                df = replace_columns_with_na(
+                    df, replacement_value="N/A"
+                )  # .dta format does not like empty columns so these are removed
                 df.to_stata(current_file)
             file_names.append(current_file)
 
     except PermissionError as e:
-        print(f"PermissionError: {e}. Check if you have the necessary permissions to write to the specified location.")
-        
-        if not file_name.endswith('_copy'):
+        print(
+            f"PermissionError: {e}. Check if you have the necessary permissions to write to the specified location."
+        )
+
+        if not file_name.endswith("_copy"):
             print(f'Saving "{file_name}" as "{file_name}_copy" instead')
-            current_file = _save_files_pd(df,file_name + "_copy",output_format)
+            current_file = _save_files_pd(df, file_name + "_copy", output_format)
             file_names.append(current_file)
-        else: 
+        else:
             print(f'"{file_name}" was not saved')
 
     return file_names
-    
-def _create_chunks(df, output_format:list | None = None,file_size:int = 100):
-    if output_format is None:
-        output_format = ['.parquet']
 
+
+def _create_chunks(df, output_format: list | None = None, file_size: int = 100):
+    if output_format is None:
+        output_format = [".parquet"]
 
     def memory_usage_pl(df: pl.DataFrame):
         """
@@ -194,105 +242,166 @@ def _create_chunks(df, output_format:list | None = None,file_size:int = 100):
                 column_sizes.append(num_rows * avg_str_len)
             else:
                 column_sizes.append(num_rows * 8)  # For other types (e.g., Boolean)
-        
+
         return sum(column_sizes)
 
     total_rows = len(df)
-    if  '.xlsx' in output_format:
+    if ".xlsx" in output_format:
         chunk_size = 1_000_000  # ValueError: This sheet is too large! Your sheet size is: 1926781, 4 Max sheet size is: 1048576, 1
     else:
-           # Rough size factor to assure that compressed files of "file_size" size.
-        if '.dta' in output_format or '.pickle' in output_format:
-            size_factor = 1.5 
-        elif '.csv' in output_format:
-            size_factor =  3
-        elif '.parquet' in output_format:
-            size_factor =  12
+        # Rough size factor to assure that compressed files of "file_size" size.
+        if ".dta" in output_format or ".pickle" in output_format:
+            size_factor = 1.5
+        elif ".csv" in output_format:
+            size_factor = 3
+        elif ".parquet" in output_format:
+            size_factor = 12
 
         # Convert maximum file size to bytes
-        file_size = file_size * 1024 * 1024 *size_factor
+        file_size = file_size * 1024 * 1024 * size_factor
 
         if isinstance(df, pd.DataFrame):
-            n_chunks = int(df.memory_usage(deep=True).sum()/file_size)
+            n_chunks = int(df.memory_usage(deep=True).sum() / file_size)
         elif isinstance(df, pl.DataFrame):
-            n_chunks = int(memory_usage_pl(df)/file_size)
-    
+            n_chunks = int(memory_usage_pl(df) / file_size)
+
         if n_chunks == 0:
             n_chunks = 1
-        chunk_size = int(total_rows /n_chunks)
+        chunk_size = int(total_rows / n_chunks)
 
-
-        n_chunks = pd.Series(np.ceil(total_rows /chunk_size)).astype(int)
+        n_chunks = pd.Series(np.ceil(total_rows / chunk_size)).astype(int)
         n_chunks = int(n_chunks.iloc[0])
         if n_chunks == 0:
             n_chunks = 1
 
-        return n_chunks,total_rows,chunk_size
+        return n_chunks, total_rows, chunk_size
+
 
 def _process_chunk(params):
     i, chunk, n_chunks, file_name, output_format = params
     if n_chunks > 1:
-        file_part = f'{file_name}_{i}'
+        file_part = f"{file_name}_{i}"
     else:
         file_part = file_name
-    if isinstance(chunk, pd.DataFrame):    
+    if isinstance(chunk, pd.DataFrame):
         file_name = _save_files_pd(chunk, file_part, output_format)
     elif isinstance(chunk, pl.DataFrame):
         file_name = _save_files_pl(chunk, file_part, output_format)
 
     return file_name
 
-def _save_chunks(dfs:list, file_name:str, output_format:list | None = None , file_size:int = 100,num_workers:int = 1):
+
+def _save_chunks(
+    dfs: list,
+    file_name: str,
+    output_format: list | None = None,
+    file_size: int = 100,
+    num_workers: int = 1,
+):
     if output_format is None:
-        output_format = ['.csv']
-    num_workers = int(num_workers) 
+        output_format = [".csv"]
+    num_workers = int(num_workers)
     file_names = None
-    if len(dfs) > 0: 
+    if len(dfs) > 0:
         if isinstance(dfs, list):
-            print('------ Concatenating fileparts')
+            print("------ Concatenating fileparts")
             dfs = pd.concat(dfs, ignore_index=True)
-      
+
         if output_format is None or file_name is None:
             return dfs, file_names
-        
+
         elif len(dfs) == 0:
-            print('No rows have been retained')
+            print("No rows have been retained")
             return dfs, file_names
-        
-        print('------ Saving files')
-        n_chunks,total_rows,chunk_size = _create_chunks(dfs, output_format,file_size)
+
+        print("------ Saving files")
+        n_chunks, total_rows, chunk_size = _create_chunks(dfs, output_format, file_size)
         total_rows = len(dfs)
-        
+
         # Read multithreaded
-        if isinstance(num_workers, (int, float, complex))and num_workers != 1 and n_chunks > 1:
+        if (
+            isinstance(num_workers, (int, float, complex))
+            and num_workers != 1
+            and n_chunks > 1
+        ):
             print(f"Saving {n_chunks} files")
-            if isinstance(dfs, pd.DataFrame):  
-                params_list =   [(i,dfs[start:min(start + chunk_size, total_rows)].copy(), n_chunks, file_name, output_format) for i, start in enumerate(range(0, total_rows, chunk_size),start=1)]
+            if isinstance(dfs, pd.DataFrame):
+                params_list = [
+                    (
+                        i,
+                        dfs[start : min(start + chunk_size, total_rows)].copy(),
+                        n_chunks,
+                        file_name,
+                        output_format,
+                    )
+                    for i, start in enumerate(range(0, total_rows, chunk_size), start=1)
+                ]
             elif isinstance(dfs, pl.DataFrame):
-                params_list =   [(i,dfs.slice(start, chunk_size), n_chunks, file_name, output_format) for i, start in enumerate(range(0, total_rows, chunk_size),start=1)]
-            
-            file_names = _run_parallel(fnc=_process_chunk,params_list=params_list,n_total=n_chunks,num_workers=num_workers,msg='Saving') 
+                params_list = [
+                    (
+                        i,
+                        dfs.slice(start, chunk_size),
+                        n_chunks,
+                        file_name,
+                        output_format,
+                    )
+                    for i, start in enumerate(range(0, total_rows, chunk_size), start=1)
+                ]
+
+            file_names = _run_parallel(
+                fnc=_process_chunk,
+                params_list=params_list,
+                n_total=n_chunks,
+                num_workers=num_workers,
+                msg="Saving",
+            )
         else:
             file_names = []
-            for i, start in enumerate(range(0, total_rows, chunk_size),start=1):
-                    print(f" {i} of {n_chunks} files")
-                    
-                    if isinstance(dfs, pd.DataFrame): 
-                        current_file = _process_chunk([i, dfs[start:min(start + chunk_size, total_rows)].copy(), n_chunks, file_name, output_format])
-                    elif isinstance(dfs, pl.DataFrame):
-                        current_file = _process_chunk([i, dfs.slice(start, chunk_size), n_chunks, file_name, output_format])  
-                    
-                    file_names.append(current_file)
+            for i, start in enumerate(range(0, total_rows, chunk_size), start=1):
+                print(f" {i} of {n_chunks} files")
 
-        file_names = [item for sublist in file_names for item in sublist if item is not None]
+                if isinstance(dfs, pd.DataFrame):
+                    current_file = _process_chunk(
+                        [
+                            i,
+                            dfs[start : min(start + chunk_size, total_rows)].copy(),
+                            n_chunks,
+                            file_name,
+                            output_format,
+                        ]
+                    )
+                elif isinstance(dfs, pl.DataFrame):
+                    current_file = _process_chunk(
+                        [
+                            i,
+                            dfs.slice(start, chunk_size),
+                            n_chunks,
+                            file_name,
+                            output_format,
+                        ]
+                    )
+
+                file_names.append(current_file)
+
+        file_names = [
+            item for sublist in file_names for item in sublist if item is not None
+        ]
 
     return dfs, file_names
 
-def _load_pd(file:str,select_cols = None, date_query:list | None = None, bvd_query:str=None, query = None, query_args:list | None = None):
+
+def _load_pd(
+    file: str,
+    select_cols=None,
+    date_query: list | None = None,
+    bvd_query: str = None,
+    query=None,
+    query_args: list | None = None,
+):
     if date_query is None:
         date_query = [None, None, None, "remove"]
     try:
-        df =_read_pd(file,select_cols)
+        df = _read_pd(file, select_cols)
 
         if df.empty:
             print(f"{os.path.basename(file)} empty after column selection")
@@ -302,36 +411,46 @@ def _load_pd(file:str,select_cols = None, date_query:list | None = None, bvd_que
         if os.path.exists(folder_path) and os.path.isdir(folder_path):
             shutil.rmtree(folder_path)
 
-        raise ValueError(f"Error reading {os.path.basename(file)} folder and sub files {folder_path} has been removed): {e}") from e
+        raise ValueError(
+            f"Error reading {os.path.basename(file)} folder and sub files {folder_path} has been removed): {e}"
+        ) from e
     except Exception as e:
         raise ValueError(f"Error reading file: {e}") from e
 
     if all(date_query):
         try:
-            df = _date_pd(df, date_col= date_query[2],  start_year = date_query[0], end_year = date_query[1],nan_action=date_query[3])
+            df = _date_pd(
+                df,
+                date_col=date_query[2],
+                start_year=date_query[0],
+                end_year=date_query[1],
+                nan_action=date_query[3],
+            )
         except Exception as e:
-            raise ValueError(f"Error while date selection: {e}") from e 
+            raise ValueError(f"Error while date selection: {e}") from e
         if df.empty:
             print(f"{os.path.basename(file)} empty after date selection")
             return df
-    
+
     if bvd_query is not None:
         try:
             df = df.query(bvd_query)
         except Exception as e:
-            raise ValueError(f"Error while bvd filtration: {e}") from e    
+            raise ValueError(f"Error while bvd filtration: {e}") from e
         if df.empty:
             print(f"{os.path.basename(file)} empty after bvd selection")
             return df
-    
+
     # Apply function or query to filter df
     if query is not None:
         if isinstance(query, type(lambda: None)):
             try:
                 df = query(df, *query_args) if query_args else query(df)
             except Exception as e:
-                raise ValueError(f"Error curating file with custom function: {e}") from e
-        elif isinstance(query,str):
+                raise ValueError(
+                    f"Error curating file with custom function: {e}"
+                ) from e
+        elif isinstance(query, str):
             try:
                 df = df.query(query)
             except Exception as e:
@@ -340,7 +459,15 @@ def _load_pd(file:str,select_cols = None, date_query:list | None = None, bvd_que
             print(f"{os.path.basename(file)} empty after query filtering")
     return df
 
-def _load_pl(file_list: list, select_cols=None, date_query=None, bvd_query=None, query=None, query_args=None):
+
+def _load_pl(
+    file_list: list,
+    select_cols=None,
+    date_query=None,
+    bvd_query=None,
+    query=None,
+    query_args=None,
+):
     if date_query is None:
         date_query = [None, None, None, "remove"]
     """
@@ -350,13 +477,33 @@ def _load_pl(file_list: list, select_cols=None, date_query=None, bvd_query=None,
     - file_list (list): List of file paths.
     - select_cols (list, optional): Columns to select.
     - date_query (list, optional): [start_year, end_year, date_column, nan_action].
-    - bvd_query (tuple, optional): (values_list, column_name).
+    - bvd_query (tuple, optional): (values_list, column_name or column_names).
     - query (callable or str, optional): Function or string-based filter query.
     - query_args (tuple, optional): Arguments for function-based query.
 
     Returns:
     - Polars DataFrame
     """
+
+    def _normalize_pl_bvd_query(bvd_query):
+        values, columns = bvd_query
+
+        if isinstance(values, (pd.Series, np.ndarray)):
+            values = values.tolist()
+        elif not isinstance(values, list):
+            values = [values]
+
+        values = [str(value) for value in values]
+
+        if isinstance(columns, str):
+            columns = [columns]
+        elif isinstance(columns, (pd.Series, np.ndarray)):
+            columns = columns.tolist()
+        elif not isinstance(columns, list):
+            columns = [columns]
+
+        return values, columns
+
     try:
         # Load files lazily
         df_lazy = _read_pl(file_list)
@@ -367,16 +514,23 @@ def _load_pl(file_list: list, select_cols=None, date_query=None, bvd_query=None,
 
         # Apply date filter if needed
         if all(date_query[:3]):  # Ensure the first three elements are not None
-            raise ValueError("Year filter does not work for polars.. please use '.process_all()'")
-   
-            #df_lazy = _date_pl(
+            raise ValueError(
+                "Year filter does not work for polars.. please use '.process_all()'"
+            )
+
+            # df_lazy = _date_pl(
             #    df_lazy, date_col=date_query[2], start_year=date_query[0], end_year=date_query[1], nan_action=date_query[3]
-            #)
+            # )
 
         # Apply BVD query filter if provided
         if bvd_query is not None and len(bvd_query) == 2:
-            df_lazy = df_lazy.filter(pl.col(bvd_query[1]).is_in(bvd_query[0]))
-        
+            values, columns = _normalize_pl_bvd_query(bvd_query)
+            filters = [
+                pl.col(column).cast(pl.Utf8, strict=False).is_in(values)
+                for column in columns
+            ]
+            df_lazy = df_lazy.filter(pl.any_horizontal(filters))
+
         # Apply query function or filter
         if query is not None:
             if isinstance(query, type(lambda: None)):
@@ -392,23 +546,42 @@ def _load_pl(file_list: list, select_cols=None, date_query=None, bvd_query=None,
     except Exception as e:
         raise RuntimeError(f"Error processing files: {file_list}") from e
 
+
 def _read_csv_chunk(params):
     # FIX ME !!! - Implementering af log-function!!
-    file, chunk_idx, chunk_size, select_cols, col_index, date_query, bvd_query, query, query_args = params
+    (
+        file,
+        chunk_idx,
+        chunk_size,
+        select_cols,
+        col_index,
+        date_query,
+        bvd_query,
+        query,
+        query_args,
+    ) = params
     try:
-        df = pd.read_csv(file, low_memory=False, skiprows=chunk_idx * chunk_size, nrows=chunk_size)
+        df = pd.read_csv(
+            file, low_memory=False, skiprows=chunk_idx * chunk_size, nrows=chunk_size
+        )
     except Exception as e:
-            raise ValueError(f"Error while reading chunk: {e}") from e 
+        raise ValueError(f"Error while reading chunk: {e}") from e
 
     if select_cols is not None:
-            df = df.iloc[:,col_index]
-            df.columns = select_cols
+        df = df.iloc[:, col_index]
+        df.columns = select_cols
 
     if all(date_query):
         try:
-            df = _date_pd(df, date_col= date_query[2],  start_year = date_query[0], end_year = date_query[1],nan_action=date_query[3])
+            df = _date_pd(
+                df,
+                date_col=date_query[2],
+                start_year=date_query[0],
+                end_year=date_query[1],
+                nan_action=date_query[3],
+            )
         except Exception as e:
-            raise ValueError(f"Error while date selection: {e}") from e 
+            raise ValueError(f"Error while date selection: {e}") from e
         if df.empty:
             print(f"{os.path.basename(file)} empty after date selection")
             return df
@@ -416,116 +589,160 @@ def _read_csv_chunk(params):
         try:
             df = df.query(bvd_query)
         except Exception as e:
-            raise ValueError(f"Error while bvd filtration: {e}") from e    
+            raise ValueError(f"Error while bvd filtration: {e}") from e
         if df.empty:
             print(f"{os.path.basename(file)} empty after bvd selection")
             return df
-    
+
     # Apply function or query to filter df
     if query is not None:
         if isinstance(query, type(lambda: None)):
             try:
                 df = query(df, *query_args) if query_args else query(df)
             except Exception as e:
-                raise ValueError(f"Error curating file with custom function: {e}") from e
-        elif isinstance(query,str):
+                raise ValueError(
+                    f"Error curating file with custom function: {e}"
+                ) from e
+        elif isinstance(query, str):
             try:
                 df = df.query(query)
             except Exception as e:
                 raise ValueError(f"Error curating file with pd.query(): {e}") from e
         if df.empty:
             print(f"{os.path.basename(file)} empty after query filtering")
-    return df   
-  
-def _load_csv_table(file:str,select_cols = None, date_query:list | None = None, bvd_query:str | None = None, query = None, query_args:list | None = None,num_workers:int = -1):
+    return df
+
+
+def _load_csv_table(
+    file: str,
+    select_cols=None,
+    date_query: list | None = None,
+    bvd_query: str | None = None,
+    query=None,
+    query_args: list | None = None,
+    num_workers: int = -1,
+):
     if date_query is None:
         date_query = [None, None, None, "remove"]
 
-
     def check_cols(file, select_cols):
-
         col_index = None
         # Read a small chunk to get column names if needed
         header_chunk = pd.read_csv(file, nrows=0)  # Read only header
         available_cols = header_chunk.columns.tolist()
-        
+
         if select_cols is None:
             select_cols = available_cols
 
         if not set(select_cols).issubset(available_cols):
             missing_cols = set(select_cols) - set(available_cols)
             raise ValueError(f"Columns not found in file: {missing_cols}")
-        
+
         # Find indices of select_cols
         col_index = [available_cols.index(col) for col in select_cols]
         select_cols = [available_cols[i] for i in col_index]
 
-        return select_cols,col_index
-
+        return select_cols, col_index
 
     if num_workers < 1:
-        num_workers =int(psutil.virtual_memory().total/ (1024 ** 3)/12)
+        num_workers = int(psutil.virtual_memory().total / (1024**3) / 12)
 
     # check if the requested columns exist
-    select_cols,col_index = check_cols(file,select_cols)
+    select_cols, col_index = check_cols(file, select_cols)
 
     # Step 1: Determine the total number of rows using subprocess
-    if sys.platform.startswith('linux') or sys.platform == 'darwin':
-            safe_file_path = shlex.quote(file)
-            num_lines = int(subprocess.check_output(f"wc -l {safe_file_path}", shell=True).split()[0]) - 1
-    elif sys.platform == 'win32':
-            def count_lines_chunk(file_path):
-                # Open the file in binary mode for faster reading
-                with open(file_path, 'rb') as f:
-                    # Use os.read to read large chunks of the file at once (64KB in this case)
-                    buffer_size = 1024 * 64  # 64 KB
+    if sys.platform.startswith("linux") or sys.platform == "darwin":
+        safe_file_path = shlex.quote(file)
+        num_lines = (
+            int(
+                subprocess.check_output(f"wc -l {safe_file_path}", shell=True).split()[
+                    0
+                ]
+            )
+            - 1
+        )
+    elif sys.platform == "win32":
+
+        def count_lines_chunk(file_path):
+            # Open the file in binary mode for faster reading
+            with open(file_path, "rb") as f:
+                # Use os.read to read large chunks of the file at once (64KB in this case)
+                buffer_size = 1024 * 64  # 64 KB
+                read_chunk = f.read(buffer_size)
+                count = 0
+                while read_chunk:
+                    # Count the number of newlines in each chunk
+                    count += read_chunk.count(b"\n")
                     read_chunk = f.read(buffer_size)
-                    count = 0
-                    while read_chunk:
-                        # Count the number of newlines in each chunk
-                        count += read_chunk.count(b'\n')
-                        read_chunk = f.read(buffer_size)
-                return count
-            
-            num_lines = count_lines_chunk(file) - 1 
-        
+            return count
+
+        num_lines = count_lines_chunk(file) - 1
+
     # Step 2: Calculate the chunk size to create 64 chunks
     chunk_size = num_lines // num_workers
 
     # Step 3: Prepare the params_list
-    params_list = [(file, i, chunk_size, select_cols, col_index, date_query, bvd_query, query, query_args) for i in range(num_workers)]
+    params_list = [
+        (
+            file,
+            i,
+            chunk_size,
+            select_cols,
+            col_index,
+            date_query,
+            bvd_query,
+            query,
+            query_args,
+        )
+        for i in range(num_workers)
+    ]
 
     # Step 4: Use _run_parallel to read the DataFrame in parallel
-    chunks = _run_parallel(_read_csv_chunk, params_list, n_total=num_workers, num_workers=num_workers, pool_method='process', msg='Reading chunks')
+    chunks = _run_parallel(
+        _read_csv_chunk,
+        params_list,
+        n_total=num_workers,
+        num_workers=num_workers,
+        pool_method="process",
+        msg="Reading chunks",
+    )
 
     # Step 5: Concatenate all chunks into a single DataFrame
     df = pd.concat(chunks, ignore_index=True)
 
     return df
 
-def _save_to(df, filename, format):
-    
-    if df is None or (isinstance(df, (pd.DataFrame, pl.DataFrame)) and (df.empty if isinstance(df, pd.DataFrame) else df.is_empty())):
+
+def _save_to(df, filename, format: SaveFormat | bool = None):
+    if format is False:
+        format = None
+
+    if df is None or (
+        isinstance(df, (pd.DataFrame, pl.DataFrame))
+        and (df.empty if isinstance(df, pd.DataFrame) else df.is_empty())
+    ):
         print("df is empty and cannot be saved")
         return
 
     def check_format(file_type):
-        allowed_values = {False, 'xlsx', 'csv'}
+        allowed_values = {None, "xlsx", "csv"}
         if file_type not in allowed_values:
-            print(f"Invalid file_type: {file_type}. Allowed values are False, 'xlsx', or 'csv'.")
+            print(
+                f"Invalid file_type: {file_type}. Allowed values are None, 'xlsx', or 'csv'."
+            )
 
     check_format(format)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    if format == 'xlsx':
+    if format == "xlsx":
         filename = f"{filename}_{timestamp}.xlsx"
         if isinstance(df, pd.DataFrame):
             df.to_excel(filename, index=False)
         else:  # Convert Polars to Pandas before saving
             df.to_pandas().to_excel(filename, index=False)
-    
-    elif format == 'csv':
+
+    elif format == "csv":
         filename = f"{filename}_{timestamp}.csv"
         if isinstance(df, pd.DataFrame):
             df.to_csv(filename, index=False)
@@ -537,17 +754,20 @@ def _save_to(df, filename, format):
     if filename is not None:
         print(f"Results have been saved to '{filename}'")
 
+
 def _check_list_format(values, *args):
     # Convert the input value to a list if it's a string
     if isinstance(values, str):
         values = [values]
-    elif isinstance(values, list): 
+    elif values is None:
+        values = []
+    elif isinstance(values, list):
         # Check if all elements in the list are strings
         if not all(isinstance(value, str) for value in values):
             raise ValueError("Not all inputs to the list are in str format")
-    elif values is not None:
+    else:
         raise ValueError("Input list is in the wrong format.")
-    
+
     # Check additional arguments
     for arg in args:
         if arg is not None:
@@ -562,12 +782,21 @@ def _check_list_format(values, *args):
                     if item not in values:
                         values.append(item)
             else:
-                raise ValueError("Additional arguments must be either None, a string, or a list of strings")
-    
+                raise ValueError(
+                    "Additional arguments must be either None, a string, or a list of strings"
+                )
+
     # Retain unique values before returning
     return list(set(values))
 
-def _date_pd(df, date_col = None,  start_year:int = None, end_year:int = None,nan_action:str= 'remove'):
+
+def _date_pd(
+    df,
+    date_col=None,
+    start_year: int = None,
+    end_year: int = None,
+    nan_action: str = "remove",
+):
     """
     Filter DataFrame based on a date column and optional start/end years.
 
@@ -580,49 +809,58 @@ def _date_pd(df, date_col = None,  start_year:int = None, end_year:int = None,na
     Returns:
     pd.DataFrame: Filtered DataFrame based on the date and optional year filters.
     """
-     
+
     pd.options.mode.copy_on_write = True
-    
+
     if date_col is None:
-        columns_to_check = ['closing_date', 'information_date']
+        columns_to_check = ["closing_date", "information_date"]
     else:
         columns_to_check = [date_col]
 
     date_col = next((col for col in columns_to_check if col in df.columns), None)
-    
+
     if not date_col:
-        print('No valid date columns found')
+        print("No valid date columns found")
         return df
 
     # Separate rows with NaNs in the date column
-    if nan_action == 'keep':
+    if nan_action == "keep":
         nan_rows = df[df[date_col].isna()]
     df = df.dropna(subset=[date_col])
-                           
+
     try:
-        df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
+        df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
     except ValueError as e:
         print(f"{e}")
-        return df 
-    
-    date_filter = (df[date_col].dt.year >= start_year) & (df[date_col].dt.year <= end_year)
-    # FIX ME [!!] make into pandas query! 
+        return df
 
-    if date_filter.any():  
+    date_filter = (df[date_col].dt.year >= start_year) & (
+        df[date_col].dt.year <= end_year
+    )
+    # FIX ME [!!] make into pandas query!
+
+    if date_filter.any():
         df = df.loc[date_filter]
     else:
-        df = pd.DataFrame() 
+        df = pd.DataFrame()
 
     # Add back the NaN rows
-    if nan_action == 'keep':
+    if nan_action == "keep":
         if not nan_rows.empty:
             df = pd.concat([df, nan_rows], sort=False)
             df = df.sort_index()
-   
+
     return df
 
+
 # FIX ME - Not working
-def _date_pl(df, date_col=None, start_year:int=None, end_year:int=None, nan_action:str='remove'):
+def _date_pl(
+    df,
+    date_col=None,
+    start_year: int = None,
+    end_year: int = None,
+    nan_action: str = "remove",
+):
     """
     Filter DataFrame based on a date column and optional start/end years.
 
@@ -637,23 +875,23 @@ def _date_pl(df, date_col=None, start_year:int=None, end_year:int=None, nan_acti
     """
 
     if date_col is None:
-        columns_to_check = ['closing_date', 'information_date']
+        columns_to_check = ["closing_date", "information_date"]
     else:
         columns_to_check = [date_col]
 
     date_col = next((col for col in columns_to_check if col in df.columns), None)
-    
+
     if not date_col:
-        print('No valid date columns found')
+        print("No valid date columns found")
         return df
-    
+
     # Separate rows with null values in the date column (Polars uses is_null to check for NaNs)
-    if nan_action == 'keep':
+    if nan_action == "keep":
         nan_rows = df.filter(pl.col(date_col).is_null())
-    
+
     # Remove rows with null values in the date column (if nan_action is 'remove')
     df = df.filter(pl.col(date_col).is_not_null())
-    
+
     # Get the first row efficiently
     first_row = df.select(date_col).fetch(1)
 
@@ -666,32 +904,34 @@ def _date_pl(df, date_col=None, start_year:int=None, end_year:int=None, nan_acti
     # Check the type and cast if necessary
     if first_element is not None and not isinstance(first_element, str):
         df = df.with_columns(pl.col(date_col).cast(pl.Utf8))
-        
+
     # Apply the conversion to the date column lazily
     df = df.with_columns(
-        #pl.col(date_col).str.strptime(pl.Datetime, format="%Y-%m-%d") 
+        # pl.col(date_col).str.strptime(pl.Datetime, format="%Y-%m-%d")
         pl.col(date_col).str.to_datetime(exact=False, strict=False).alias(date_col)
     )
 
     # Apply the date filtering for year range (inclusive)
     if start_year is not None and end_year is not None:
         df = df.filter(
-            (pl.col(date_col).dt.year() >= start_year) & (pl.col(date_col).dt.year() <= end_year)
+            (pl.col(date_col).dt.year() >= start_year)
+            & (pl.col(date_col).dt.year() <= end_year)
         )
     elif start_year is not None:
         df = df.filter(pl.col(date_col).dt.year() >= start_year)
     elif end_year is not None:
         df = df.filter(pl.col(date_col).dt.year() <= end_year)
-    
+
     # Add back the NaN rows if 'keep' action is specified
-    if nan_action == 'keep' and nan_rows is not None:
+    if nan_action == "keep" and nan_rows is not None:
         df = df.vstack(nan_rows)
-    
+
     return df
 
-def _construct_query(bvd_cols,bvd_list,search_type):
+
+def _construct_query(bvd_cols, bvd_list, search_type):
     conditions = []
-    if isinstance(bvd_cols,str):
+    if isinstance(bvd_cols, str):
         bvd_cols = [bvd_cols]
 
     for bvd_col in bvd_cols:
@@ -700,15 +940,16 @@ def _construct_query(bvd_cols,bvd_list,search_type):
                 condition = f"{bvd_col}.str.startswith('{substring}', na=False)"
                 conditions.append(condition)
         else:
-            condition  = f"{bvd_col} in {bvd_list}" 
+            condition = f"{bvd_col} in {bvd_list}"
             conditions.append(condition)
     query = " | ".join(conditions)  # Combine conditions using OR (|)
     return query
-   
+
+
 def _letters_only_regex(text):
     """Converts the title to lowercase and removes non-alphanumeric characters."""
-    if isinstance(text,str):
-        return re.sub(r'[^a-zA-Z0-9]', '', text.lower())
+    if isinstance(text, str):
+        return re.sub(r"[^a-zA-Z0-9]", "", text.lower())
     else:
         return text
 
@@ -717,16 +958,20 @@ def _fuzzy_match(args):
     """
     Worker function to perform fuzzy matching for each batch of names.
     """
-    name_batch, choices, cut_off, df, match_column, return_column, choice_to_index = args
+    name_batch, choices, cut_off, df, match_column, return_column, choice_to_index = (
+        args
+    )
     results = []
-    
+
     for name in name_batch:
         # First, check if an exact match exists in the choices
         if name in choice_to_index:
             match_index = choice_to_index[name]
             match_value = df.iloc[match_index][match_column]
             return_value = df.iloc[match_index][return_column]
-            results.append((name, name, 100, match_value, return_value))  # Exact match with score 100
+            results.append(
+                (name, name, 100, match_value, return_value)
+            )  # Exact match with score 100
         else:
             # Perform fuzzy matching if no exact match is found
             match_obj = process.extractOne(name, choices, score_cutoff=cut_off)
@@ -737,26 +982,37 @@ def _fuzzy_match(args):
                 results.append((name, match, score, match_value, return_value))
             else:
                 results.append((name, None, 0, None, None))
-    
+
     return results
 
-def fuzzy_query(df: pd.DataFrame, names: list, match_column: str = None, return_column: str = None, cut_off: int = 50, remove_str: list = None, num_workers: int = None):
+
+def fuzzy_query(
+    df: pd.DataFrame,
+    names: list,
+    match_column: str = None,
+    return_column: str = None,
+    cut_off: int = 50,
+    remove_str: list = None,
+    num_workers: int = None,
+):
     """
     Perform fuzzy string matching with a list of input strings against a specific column in a DataFrame.
     """
 
     def remove_suffixes(choices, suffixes):
         for i, choice in enumerate(choices):
-            choice_lower = choice.lower()  # convert to lowercase for case-insensitive comparison
+            choice_lower = (
+                choice.lower()
+            )  # convert to lowercase for case-insensitive comparison
             for suffix in suffixes:
                 if choice_lower.endswith(suffix.lower()):
                     # Remove the suffix from the end of the string
-                    choices[i] = choice_lower[:-len(suffix)].strip()
+                    choices[i] = choice_lower[: -len(suffix)].strip()
         return choices
 
     def remove_substrings(choices, substrings):
         for substring in substrings:
-            choices = [choice.replace(substring.lower(), '') for choice in choices]
+            choices = [choice.replace(substring.lower(), "") for choice in choices]
         return choices
 
     choices = [choice.lower() for choice in df[match_column].tolist()]
@@ -782,9 +1038,14 @@ def fuzzy_query(df: pd.DataFrame, names: list, match_column: str = None, return_
     if num_workers > 1:
         # Split names into batches according to the number of workers
         batch_size = ceil(len(names) / num_workers)
-        name_batches = [names[i:i + batch_size] for i in range(0, len(names), batch_size)]
+        name_batches = [
+            names[i : i + batch_size] for i in range(0, len(names), batch_size)
+        ]
 
-        args_list = [(batch, choices, cut_off, df, match_column, return_column, choice_to_index) for batch in name_batches]
+        args_list = [
+            (batch, choices, cut_off, df, match_column, return_column, choice_to_index)
+            for batch in name_batches
+        ]
 
         with Pool(processes=num_workers) as pool:
             results = pool.map(_fuzzy_match, args_list)
@@ -792,20 +1053,44 @@ def fuzzy_query(df: pd.DataFrame, names: list, match_column: str = None, return_
                 matches.extend(result_batch)
     else:
         # If single worker, process in a simple loop
-        matches.extend(_fuzzy_match((names, choices, cut_off, df, match_column, return_column, choice_to_index)))
+        matches.extend(
+            _fuzzy_match(
+                (
+                    names,
+                    choices,
+                    cut_off,
+                    df,
+                    match_column,
+                    return_column,
+                    choice_to_index,
+                )
+            )
+        )
 
     # Create the result DataFrame
-    result_df = pd.DataFrame(matches, columns=['Search_string', 'BestMatch', 'Score', match_column, return_column])
+    result_df = pd.DataFrame(
+        matches,
+        columns=["Search_string", "BestMatch", "Score", match_column, return_column],
+    )
 
     return result_df
 
-# FIX ME
-def fuzzy_match_pl(names: list,file_list:list=None, match_column: str = None, return_column: str = None, cut_off: int = 0.50, remove_str: list = None):
-    try:
 
+# FIX ME
+def fuzzy_match_pl(
+    names: list,
+    file_list: list = None,
+    match_column: str = None,
+    return_column: str = None,
+    cut_off: int = 0.50,
+    remove_str: list = None,
+):
+    try:
         df_lazy = _read_pl(file_list)
 
-        df_lazy = df_lazy.with_columns(pl.col(match_column).alias('BestMatch').str.to_lowercase())
+        df_lazy = df_lazy.with_columns(
+            pl.col(match_column).alias("BestMatch").str.to_lowercase()
+        )
 
         names_lower = [s.lower() for s in names]
 
@@ -813,24 +1098,25 @@ def fuzzy_match_pl(names: list,file_list:list=None, match_column: str = None, re
         if remove_str:
             # Filter out rows where match_column ends with any of the substrings in remove_str
             for substr in remove_str:
+                df_lazy = df_lazy.with_columns(
+                    pl.col("BestMatch").str.replace_all(substr, "").alias("BestMatch")
+                )
+                # df_lazy = df_lazy.filter(~pl.col('BestMatch').str.ends_with(substr))
 
-                df_lazy = df_lazy.with_columns(pl.col('BestMatch').str.replace_all(substr, '').alias('BestMatch'))
-                #df_lazy = df_lazy.filter(~pl.col('BestMatch').str.ends_with(substr))
-                
                 # Remove the suffix from each string if it ends with the specified suffix
-                #names_lower = [s[:-len(substr)] if s.endswith(substr) else s for s in names_lower]
-                names_lower = [name.replace(substr, '') for name in names_lower]
-        
+                # names_lower = [s[:-len(substr)] if s.endswith(substr) else s for s in names_lower]
+                names_lower = [name.replace(substr, "") for name in names_lower]
+
         # Filter rows where match_column values are in names
-        df_matches = df_lazy.filter(pl.col('BestMatch').is_in(names_lower))
+        df_matches = df_lazy.filter(pl.col("BestMatch").is_in(names_lower))
 
-         # Add a new column 'score' with a constant value of 100
-        df_matches = df_matches.with_columns(pl.lit(1.0000).alias('Score'))
+        # Add a new column 'score' with a constant value of 100
+        df_matches = df_matches.with_columns(pl.lit(1.0000).alias("Score"))
 
-        df_matches = df_matches.with_columns(pl.col('BestMatch').alias('Search_string'))
+        df_matches = df_matches.with_columns(pl.col("BestMatch").alias("Search_string"))
 
         # Select only the match_column and return_column
-        select_cols = [pl.col(['Search_string', 'BestMatch', 'Score'])]
+        select_cols = [pl.col(["Search_string", "BestMatch", "Score"])]
 
         if match_column:
             select_cols.append(pl.col(match_column))
@@ -843,37 +1129,36 @@ def fuzzy_match_pl(names: list,file_list:list=None, match_column: str = None, re
         df_matches = df_matches.collect()
 
         # Convert df_matches 'Search_string' column to a set
-        df_matches_set = set(df_matches['BestMatch'])
+        df_matches_set = set(df_matches["BestMatch"])
 
         # Find names not in df_matches
         names_fuzzy = [name for name in names_lower if name not in df_matches_set]
 
-        df_names_fuzzy = pl.DataFrame({'Search_string': names_fuzzy})
-       
+        df_names_fuzzy = pl.DataFrame({"Search_string": names_fuzzy})
+
         names_lazy = df_names_fuzzy.lazy()
 
         # Filter rows where 'Search_string' values are NOT in names
-        df_fuzzy = df_lazy.filter(~pl.col('BestMatch').is_in(names_lower))
-     
+        df_fuzzy = df_lazy.filter(~pl.col("BestMatch").is_in(names_lower))
+
         # Perform a cross join and calculate similarity scores
         df_fuzzy = df_fuzzy.join_where(
             names_lazy,
             pl.lit(True),  # Always true to generate all combinations
-            #how="cross"
-        ).with_columns(pds.str_fuzz('Search_string', 'BestMatch').alias("Score"))
-  
+            # how="cross"
+        ).with_columns(pds.str_fuzz("Search_string", "BestMatch").alias("Score"))
+
         # Filter rows where the 'fuzz' score is greater than or equal to 90
         df_fuzzy = df_fuzzy.filter(pl.col("Score") >= cut_off)
-        
+
         df_fuzzy = df_fuzzy.select(select_cols).collect()
 
         result_df = pl.concat([df_matches, df_fuzzy])
 
-        return result_df 
+        return result_df
 
     except Exception as e:
         raise RuntimeError(f"Error processing files: {file_list}") from e
-
 
 
 # FIX ME
@@ -891,9 +1176,11 @@ def _bvd_changes_ray_not_working(initial_ids, df, num_workers=-1):
     - newest_ids (dict): Mapping of each ID to its newest ID.
     - df (DataFrame): Filtered DataFrame with an additional 'newest_id' column.
     """
+    _require_ray()
+
     if num_workers < 1:
         num_workers = max(1, os.cpu_count() - 2)
-    
+
     ray.init(num_cpus=num_workers)
 
     new_ids = set(initial_ids)
@@ -909,15 +1196,15 @@ def _bvd_changes_ray_not_working(initial_ids, df, num_workers=-1):
             current_ids = new_ids - current_ids
 
         # Filter for old_id and new_id matches
-        old_matches = df[df['old_id'].isin(current_ids)]
-        new_matches = df[df['new_id'].isin(current_ids)]
+        old_matches = df[df["old_id"].isin(current_ids)]
+        new_matches = df[df["new_id"].isin(current_ids)]
 
         if old_matches.empty and new_matches.empty:
             break
 
         # Extract unique old_id and new_id values
-        old_id = set(old_matches['old_id'].unique())
-        new_id = set(new_matches['new_id'].unique())
+        old_id = set(old_matches["old_id"].unique())
+        new_id = set(new_matches["new_id"].unique())
 
         # Determine new IDs not already in new_ids
         new_old_ids = old_id - new_ids
@@ -926,35 +1213,33 @@ def _bvd_changes_ray_not_working(initial_ids, df, num_workers=-1):
         # Check if new IDs were found
         found_new = bool(new_old_ids or new_new_ids)
 
-         # Update new_ids set
+        # Update new_ids set
         new_ids.update(new_old_ids)
         new_ids.update(new_new_ids)
 
         # Update newest_ids mapping
-        newest_ids.update(old_matches.set_index('old_id')['new_id'].to_dict())
-        newest_ids.update(old_matches.set_index('new_id')['new_id'].to_dict())
-
-      
-
+        newest_ids.update(old_matches.set_index("old_id")["new_id"].to_dict())
+        newest_ids.update(old_matches.set_index("new_id")["new_id"].to_dict())
 
     # Re-filter data based on new_ids
-    df = df[(df['old_id'].isin(new_ids)) | (df['new_id'].isin(new_ids))]
+    df = df[(df["old_id"].isin(new_ids)) | (df["new_id"].isin(new_ids))]
 
     # Map newest IDs using dictionary lookup
-    df['newest_id'] = df.apply(
-        lambda row: newest_ids.get(row['old_id'], newest_ids.get(row['new_id'])),
-        axis=1
+    df["newest_id"] = df.apply(
+        lambda row: newest_ids.get(row["old_id"], newest_ids.get(row["new_id"])), axis=1
     )
 
     ray.shutdown()
     return new_ids, newest_ids, df
 
-def _bvd_changes_ray(initial_ids, df,num_workers:int=-1):
+
+def _bvd_changes_ray(initial_ids, df, num_workers: int = -1):
+    _require_ray()
 
     if not num_workers or num_workers < 0:
-            num_workers = max(1, cpu_count() - 2)
-    ray.init(num_cpus=num_workers) 
-    
+        num_workers = max(1, cpu_count() - 2)
+    ray.init(num_cpus=num_workers)
+
     initial_ids = set(initial_ids)
     new_ids = initial_ids
     newest_ids = {id: id for id in new_ids}
@@ -970,13 +1255,13 @@ def _bvd_changes_ray(initial_ids, df,num_workers:int=-1):
             current_ids = new_ids - current_ids
 
         # Use pandas isin to check for matching old_id and new_id in a vectorized way
-        old_matches = df[df['old_id'].isin(current_ids)]
-        new_matches = df[df['new_id'].isin(current_ids)]
+        old_matches = df[df["old_id"].isin(current_ids)]
+        new_matches = df[df["new_id"].isin(current_ids)]
 
         # Process old_id matches to find corresponding new_ids
         for _, row in old_matches.iterrows():
-            new_id = row['new_id']
-            old_id = row['old_id']
+            new_id = row["new_id"]
+            old_id = row["old_id"]
             if new_id not in new_ids:
                 new_ids.add(new_id)
                 found_new = True
@@ -986,8 +1271,8 @@ def _bvd_changes_ray(initial_ids, df,num_workers:int=-1):
 
         # Process new_id matches to find corresponding old_ids
         for _, row in new_matches.iterrows():
-            old_id = row['old_id']
-            new_id = row['new_id']
+            old_id = row["old_id"]
+            new_id = row["new_id"]
             if old_id not in new_ids:
                 new_ids.add(old_id)
                 found_new = True
@@ -995,14 +1280,14 @@ def _bvd_changes_ray(initial_ids, df,num_workers:int=-1):
                 newest_ids[old_id] = newest_ids[new_id]
 
     # Filter the DataFrame based on new_ids
-    df = df[df['old_id'].isin(new_ids) | df['new_id'].isin(new_ids)]
+    df = df[df["old_id"].isin(new_ids) | df["new_id"].isin(new_ids)]
 
     # Map newest IDs to the filtered DataFrame
-    df.loc[:, 'newest_id'] = df.apply(
-        lambda row: newest_ids.get(row['old_id'], newest_ids.get(row['new_id'])), axis=1
+    df.loc[:, "newest_id"] = df.apply(
+        lambda row: newest_ids.get(row["old_id"], newest_ids.get(row["new_id"])), axis=1
     )
     ray.shutdown()
-    
+
     print(f"Bvd_id changes were found at {no_iter} steps")
 
     if initial_ids == new_ids:
@@ -1010,62 +1295,66 @@ def _bvd_changes_ray(initial_ids, df,num_workers:int=-1):
 
     return new_ids, newest_ids, df
 
-def _read_pd(file,select_cols):
+
+def _read_pd(file, select_cols):
     """Load multiple files lazily based on extension."""
-    
+
     def read_avro(file):
         df = []
-        with open(file, 'rb') as avro_file:
+        with open(file, "rb") as avro_file:
             avro_reader = fastavro.reader(avro_file)
             for record in avro_reader:
                 df.append(record)
         df = pd.DataFrame(df)
 
-        return df 
-     
+        return df
+
     read_functions = {
-        'csv': pd.read_csv,
-        'xlsx': pd.read_excel,
-        'parquet': pd.read_parquet,
-        'orc': pd.read_orc,
-        'avro': read_avro,
+        "csv": pd.read_csv,
+        "xlsx": pd.read_excel,
+        "parquet": pd.read_parquet,
+        "orc": pd.read_orc,
+        "avro": read_avro,
     }
-        
+
     file_ext = file.lower().split(".")[-1]
 
     if file_ext not in read_functions:
         raise ValueError(f"Unsupported file format: {file_ext}")
-    
+
     read_function = read_functions[file_ext]
 
     if select_cols is None:
         df = read_function(file)
-    else:  
-        if file_ext in ['csv','xlsx']:
-            df = read_function(file, usecols = select_cols)
-        elif file_ext in ['parquet','orc']:
-            df = read_function(file, columns = select_cols)
+    else:
+        if file_ext in ["csv", "xlsx"]:
+            df = read_function(file, usecols=select_cols)
+        elif file_ext in ["parquet", "orc"]:
+            df = read_function(file, columns=select_cols)
     return df
+
 
 def _read_pl(files):
     """Load multiple files lazily based on extension."""
-    
+
     # Read Avro function
     def read_avro(files):
         df_list = []
         for file in files:
-            with open(file, 'rb') as avro_file:
+            with open(file, "rb") as avro_file:
                 avro_reader = fastavro.reader(avro_file)
                 df_list.extend(avro_reader)  # Collect all records
         return pl.LazyFrame(df_list)  # Convert to LazyFrame
 
     read_functions = {
         "csv": lambda files: pl.scan_csv(files),
-        "xlsx": lambda files: pl.read_excel(files[0]).lazy(),  # Only supports single files
+        "xlsx": lambda files: pl.read_excel(
+            files[0]
+        ).lazy(),  # Only supports single files
         "parquet": lambda files: pl.scan_parquet(files),
         "avro": read_avro,
     }
-        
+
     first_file = files[0]
     file_ext = first_file.lower().split(".")[-1]
 

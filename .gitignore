@@ -1,2 +1,21 @@
-
+.env
 *.pem
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Test and lint caches
+.pytest_cache/
+.ruff_cache/
+
+# Local environments
+.venv/
+venv/
+
+# Build artifacts
+build/
+dist/
+dist_pypi/
+*.egg-info/
