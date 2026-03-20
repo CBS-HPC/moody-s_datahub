@@ -61,3 +61,6 @@ interact with the package through `moodys_datahub.Sftp` or
         show_source: false
         show_root_heading: true
         heading_level: 2
+        inherited_members: true
+        members: true
+        members_order: source
