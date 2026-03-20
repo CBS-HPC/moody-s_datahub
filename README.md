@@ -5,6 +5,38 @@ Moody's DataHub exports over SFTP. It is designed for large table exports and
 supports parallel download and processing workflows for CSV, Parquet, ORC, and
 Avro datasets.
 
+## Main functionality
+
+The package is built around the `Sftp` class and supports the main DataHub
+workflow end to end:
+
+- connect to a Moody's DataHub SFTP server or a local export repository
+- inspect available data products and tables
+- select a product, table, and output columns
+- filter by exact BvD ID lists, country-code prefixes, and time periods
+- download missing files to a local cache
+- process large exports with either the pandas pipeline or the faster Polars
+  pipeline for exact-match workloads
+- run helper workflows such as fuzzy company-name matching, BvD change tracking,
+  and Orbis-to-DataHub column mapping
+
+## Typical workflow
+
+```python
+from moodys_datahub import Sftp
+
+SFTP = Sftp(privatekey="user_provided-ssh-key.pem")
+SFTP.set_data_product = "Firmographics (Monthly)"
+SFTP.set_table = "bvd_id_and_name"
+SFTP.select_cols = ["bvd_id_number", "name"]
+SFTP.bvd_list = ["DK28505116", "SE5567031702"]
+
+df, files = SFTP.polars_all()
+```
+
+Use `process_all()` for the pandas-based workflow and `polars_all()` when you
+want the faster exact-match path for large BvD ID filters.
+
 ## Installation
 
 ### Install from PyPI

@@ -1,40 +1,77 @@
 title: Moody's Datahub
 # Moody's Datahub
 
-## Introduction
+`moodys_datahub` is a Python package for selecting, downloading, and processing
+Moody's DataHub exports over SFTP. It is designed for large table exports and
+supports parallel download and processing workflows for CSV, Parquet, ORC, and
+Avro datasets.
 
-This page introduces the "moodys_datahub" Python package, designed to facilitate access to Moody's Datahub "Data Products" exported via SFTP. 
+## Main functionality
 
-The package offers a suite of functions for selecting, downloading, and curating "Data Products" in a highly parallelized manner, optimizing the use of compute power available on cloud or HPC systems.
+The package is built around the `Sftp` class and supports the main DataHub
+workflow end to end:
 
-## SFTP server Access
+- connect to a Moody's DataHub SFTP server or a local export repository
+- inspect available data products and tables
+- select a product, table, and output columns
+- filter by exact BvD ID lists, country-code prefixes, and time periods
+- download missing files to a local cache
+- process large exports with either the pandas pipeline or the faster Polars
+  pipeline for exact-match workloads
+- run helper workflows such as fuzzy company-name matching, BvD change tracking,
+  and Orbis-to-DataHub column mapping
 
-To CBS associates should contact [CBS staff](mailto:rdm@cbs.dk) to provide a personal "privatkey" (.pem) that is used to estabilish connection to the available "CBS server".
+## Typical workflow
 
-To access other SFTP servers the user also needs additional information regarding "hostname" and "username". 
+```python
+from moodys_datahub import Sftp
 
-When connecting to an SFTP server, the package detects all export folders and attempts to match them to specific "Data Products" based on their "Table" titles. However, some "Data Products" have identical table names, making automatic differentiation impossible. In such cases, the user will be prompted to manually match the export folder with the correct "Data Product."
+SFTP = Sftp(privatekey="user_provided-ssh-key.pem")
+SFTP.set_data_product = "Firmographics (Monthly)"
+SFTP.set_table = "bvd_id_and_name"
+SFTP.select_cols = ["bvd_id_number", "name"]
+SFTP.bvd_list = ["DK28505116", "SE5567031702"]
 
-## Format recommandation
+df, files = SFTP.polars_all()
+```
 
-Moody's Datahub provides several export formats (".csv", ".parquet", ".orc", and ".avro"). The moodys_datahub Python package supports all these formats, but the preferred format is ".parquet" due to its high compression, columnar storage format, and the fact that each table is partitioned into many small files, offering significant performance benefits.
+Use `process_all()` for the pandas-based workflow and `polars_all()` when you
+want the faster exact-match path for large BvD ID filters.
 
-Using .csv is not recommended because of its lack of compression and partitioning, which results in some tables being single files exceeding 300 GB in size.
+## SFTP Access
+
+CBS users should contact [CBS staff](mailto:rdm@cbs.dk) to obtain a personal
+private key used to authenticate against the CBS SFTP server.
+
+For non-CBS SFTP servers, you also need the server `hostname`, `username`, and
+the corresponding authentication credentials.
+
+When connecting to an SFTP server, the package detects export folders and tries
+to match them to DataHub products automatically. If multiple products share the
+same table name, manual selection is required.
+
+## Format recommendation
+
+Parquet is the recommended export format. It offers the best performance for
+large tables because it is compressed, columnar, and typically split into many
+smaller file parts.
+
+CSV is supported, but it is often the slowest option and can produce extremely
+large single files.
 
 
-## System Reccomendation
+## System recommendation
 
-Given the large size of most data tables, it is highly recommended that users utilize more powerful machines available through cloud or HPC systems. Based on user experience, a "rule of thumb" has been established: each "worker" (which processes one "subfile" at a time) should have approximately 12 GB of memory available.
+Large DataHub tables benefit from high-memory machines. A practical rule of
+thumb in this package is roughly 12 GB of memory per worker.
 
-For CBS Associates, it is highly recommended to use [UCloud](https://cbs-hpc.github.io/HPC_Facilities/UCloud/) and run the application on a "u1-standard" machine with 64 cores, 384 GB of RAM, and a high-speed internet connection.
+For CBS users, [UCloud](https://cbs-hpc.github.io/HPC_Facilities/UCloud/) with
+many cores, high memory, and strong network throughput is recommended for large
+exports.
 
 
 ## Getting Started
 
-Below you will find links to a "How to Get Started" tutorial (which can also be downloaded as a Jupyter notebook), the moodys_datahub Git repository, and the "API Reference" page.
-
 - [How to get started](/moody-s_datahub/mkdocs/how_to_get_started/)
-
-- [Git Repository: moody-s_datahub](https://github.com/CBS-HPC/moody-s_datahub)
-
-- [API Reference](/moody-s_datahub/mkdocs/reference/)
+- [Git repository: moody-s_datahub](https://github.com/CBS-HPC/moody-s_datahub)
+- [API reference](/moody-s_datahub/mkdocs/reference/)
