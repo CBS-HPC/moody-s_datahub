@@ -1,3 +1,5 @@
+import asyncio
+
 import pandas as pd
 import pytest
 
@@ -492,3 +494,129 @@ def test_pool_method_falls_back_to_spawn_without_fork(monkeypatch, capsys):
     output = capsys.readouterr().out
     assert "not supported" in output
     assert '"spawn" is chosen' in output
+
+
+def test_table_overview_reads_local_repo_exports(tmp_path):
+    export_dir = tmp_path / "Prod One_exported 2024-02-03_04-05-06"
+    export_dir.mkdir()
+    (export_dir / "company_data.csv").write_text("value\n1\n", encoding="utf-8")
+    nested_table = export_dir / "ownership_data"
+    nested_table.mkdir()
+
+    conn = object.__new__(_Connection)
+    conn._local_repo = str(tmp_path)
+    conn._local_path = None
+
+    df, to_delete = conn._table_overview()
+
+    assert to_delete == []
+    assert set(df["Table"]) == {"company_data", "ownership_data"}
+    assert set(df["Data Product"]) == {"Prod One"}
+    assert set(df["Export"]) == {str(export_dir)}
+    assert set(df["Top-level Directory"]) == {export_dir.name}
+    assert set(df["Timestamp"]) == {"2024-02-03 04:05:06"}
+
+
+def test_recursive_collect_recurses_over_nested_sftp_paths(monkeypatch):
+    class FakeAttr:
+        def __init__(self, filename):
+            self.filename = filename
+
+    class FakeSftp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def listdir_attr(self, path):
+            mapping = {
+                "root": [FakeAttr("file.csv"), FakeAttr("sub"), FakeAttr("notes.txt")],
+                "root/sub": [FakeAttr("nested.parquet")],
+            }
+            return mapping[path]
+
+        def isdir(self, path):
+            return path == "root/sub"
+
+    conn = object.__new__(_Connection)
+    monkeypatch.setattr(_Connection, "_connect", lambda self: FakeSftp())
+
+    files = conn._recursive_collect("root")
+
+    assert files == ["root/file.csv", "root/sub/nested.parquet", "root/notes.txt"]
+
+
+def test_remove_exports_batches_parallel_delete_calls(monkeypatch):
+    conn = object.__new__(_Connection)
+    calls = []
+
+    def fake_run_parallel(fnc, params_list, n_total, msg):
+        calls.append(
+            {
+                "fnc": fnc.__name__,
+                "params_list": params_list,
+                "n_total": n_total,
+                "msg": msg,
+            }
+        )
+        if msg == "Collecting files to delete":
+            return [["a.csv", "b.csv", "c.csv"]]
+        return []
+
+    monkeypatch.setattr("moodys_datahub.connection._run_parallel", fake_run_parallel)
+
+    conn._remove_exports(["export_a"], num_workers=2)
+
+    assert calls[0] == {
+        "fnc": "_recursive_collect",
+        "params_list": ["export_a"],
+        "n_total": 1,
+        "msg": "Collecting files to delete",
+    }
+    assert calls[1]["fnc"] == "_delete_files"
+    assert calls[1]["msg"] == "Deleting files"
+    assert calls[1]["params_list"] == [["a.csv", "b.csv"], ["c.csv"]]
+    assert calls[2] == {
+        "fnc": "_delete_folders",
+        "params_list": ["export_a"],
+        "n_total": 1,
+        "msg": "Deleting folders",
+    }
+
+
+def test_specify_data_products_updates_unknown_exports(monkeypatch, tmp_path):
+    class FakeDropdown:
+        def __init__(self, values, col_names, title):
+            self.values = values
+            self.col_names = col_names
+            self.title = title
+
+        async def display_widgets(self):
+            return ["Resolved Product"]
+
+    conn = object.__new__(_Connection)
+    conn._tables_available = pd.DataFrame(
+        {
+            "Data Product": ["Multiple_Options: ['Resolved Product', 'Fallback']"],
+            "Table": ["table_a"],
+            "Top-level Directory": ["dir_a"],
+            "Base Directory": ["base/dir_a"],
+            "Timestamp": ["2024-01-01 00:00:00"],
+            "Export": ["export_a"],
+        }
+    )
+    conn._tables_backup = conn._tables_available.copy()
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("moodys_datahub.connection._Multi_dropdown", FakeDropdown)
+    monkeypatch.setattr(
+        "moodys_datahub.connection.asyncio.ensure_future",
+        lambda coro: asyncio.run(coro),
+    )
+
+    conn._specify_data_products()
+
+    assert conn._tables_available["Data Product"].tolist() == ["Resolved Product"]
+    saved_templates = list(tmp_path.glob("*_data_products.csv"))
+    assert len(saved_templates) == 1
