@@ -601,6 +601,13 @@ def test_download_all_marks_finished_when_files_are_already_local(monkeypatch, c
     assert "already downloaded" in capsys.readouterr().out
 
 
+def test_download_finished_property_exposes_download_state():
+    proc = _make_dummy_process()
+    proc._download_finished = False
+
+    assert proc.download_finished is False
+
+
 def test_search_company_names_prefers_polars_without_pandas_fallback(monkeypatch):
     class FakeSearch:
         def _object_defaults(self):

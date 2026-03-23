@@ -85,6 +85,11 @@ class _Connection:
         """Return why the most recent processing call chose its backend."""
         return self._last_process_reason
 
+    @property
+    def download_finished(self):
+        """Return the most recent download state."""
+        return self._download_finished
+
     def tables_available(
         self,
         product_overview=None,

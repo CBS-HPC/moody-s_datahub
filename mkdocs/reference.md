@@ -36,6 +36,8 @@ interact with the package through `moodys_datahub.Sftp` or
 - `pandas_all()`: force the pandas processing pipeline explicitly.
 - `polars_all()`: run the native Polars processing pipeline and return Polars.
 - `download_all()`: download missing files to the local cache.
+- `download_finished`: inspect the current download state without relying on the
+  internal `_download_finished` attribute.
 - `last_process_engine` / `last_process_reason`: inspect which backend was used
   most recently and why.
 

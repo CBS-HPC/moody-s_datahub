@@ -251,7 +251,8 @@ df_sample = SFTP.process_one(save_to = 'csv',files = SFTP.remote_files[0], n_row
 
 If working on a slower connection it may be benificial to start downloading all remote files before processing them.
 
-When the downloading process has been started "SFTP._download_finished" will change from a "None" to "False and then "True" upon download completion.
+When the downloading process has been started, `SFTP.download_finished` changes
+from `None` to `False` and then to `True` upon download completion.
 
 The function is executed asyncionsly and the user can proceed working in the jupyter notebook while it is running.
 
@@ -269,9 +270,10 @@ SFTP.download_all(num_workers = 12)
 
 All files can be processed using the function below. 
 
-- If "SFTP._download_finished" is "None" the function also download the files. 
+- If `SFTP.download_finished` is `None`, the function also downloads the files.
 
-- If "SFTP._download_finished" is "False" it will wait upon the download process has been completed and "SFTP._download_finished" is set to "True". 
+- If `SFTP.download_finished` is `False`, it waits until the download process has
+  completed and `SFTP.download_finished` becomes `True`.
 
 
 ```python
