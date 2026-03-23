@@ -1,3 +1,5 @@
+import asyncio
+
 import pandas as pd
 import polars as pl
 import pytest
@@ -21,6 +23,7 @@ def _make_dummy_process():
     proc.concat_files = True
     proc.output_format = None
     proc.file_size_mb = 100
+    proc.delete_files = False
     proc._set_data_product = "Dummy Product"
     proc._set_table = "dummy_table"
     proc._last_process_engine = None
@@ -241,6 +244,158 @@ def test_search_dictionary_letters_only_returns_original_rows():
 
     assert result["Definition"].tolist() == ["Total Assets"]
     assert result["Column"].tolist() == ["total_assets"]
+
+
+def test_define_options_applies_widget_config(monkeypatch, capsys):
+    class FakeOptions:
+        def __init__(self, config):
+            self.config = config
+
+        async def display_widgets(self):
+            return {
+                "delete_files": True,
+                "concat_files": False,
+                "output_format": [".csv", None],
+                "file_size_mb": 250,
+            }
+
+    proc = _make_dummy_process()
+
+    monkeypatch.setattr("moodys_datahub.process._SelectOptions", FakeOptions)
+    monkeypatch.setattr(
+        "moodys_datahub.process.asyncio.ensure_future",
+        lambda coro: asyncio.run(coro),
+    )
+
+    proc.define_options()
+
+    assert proc.delete_files is True
+    assert proc.concat_files is False
+    assert proc.output_format == [".csv"]
+    assert proc.file_size_mb == 250
+    assert "The following options were selected" in capsys.readouterr().out
+
+
+def test_select_columns_uses_widget_selection_and_merges_required_columns(monkeypatch):
+    class FakeSelectMultiple:
+        def __init__(self, values, col_name, title):
+            self.values = values
+            self.col_name = col_name
+            self.title = title
+
+        async def display_widgets(self):
+            return [self.values[1]]
+
+    proc = _make_dummy_process()
+    proc._bvd_list = [["BVD1"], "bvd_id_number", "bvd query"]
+    proc._time_period = [2020, 2021, "closing_date", "remove"]
+
+    monkeypatch.setattr("moodys_datahub.process._SelectMultiple", FakeSelectMultiple)
+    monkeypatch.setattr(
+        "moodys_datahub.process.asyncio.ensure_future",
+        lambda coro: asyncio.run(coro),
+    )
+    monkeypatch.setattr(
+        DummyProcess,
+        "search_dictionary",
+        lambda self, **kwargs: pd.DataFrame(
+            {
+                "Column": ["name", "value"],
+                "Definition": ["Company Name", "Value"],
+            }
+        ),
+    )
+
+    proc.select_columns()
+
+    assert set(proc._select_cols) == {"value", "bvd_id_number", "closing_date"}
+
+
+def test_search_dictionary_prints_query_and_saves(monkeypatch, capsys):
+    proc = _make_dummy_process()
+    proc._table_dictionary = pd.DataFrame(
+        {
+            "Data Product": ["Dummy Product"],
+            "Table": ["dummy_table"],
+            "Column": ["name"],
+            "Definition": ["Company Name"],
+        }
+    )
+    saved = {}
+
+    monkeypatch.setattr(
+        "moodys_datahub.process._save_to",
+        lambda df, name, save_to: saved.update(
+            {"rows": len(df), "name": name, "save_to": save_to}
+        ),
+    )
+
+    result = proc.search_dictionary(
+        search_word="name",
+        search_cols={
+            "Data Product": False,
+            "Table": False,
+            "Column": True,
+            "Definition": False,
+        },
+        save_to="csv",
+    )
+
+    assert result["Column"].tolist() == ["name"]
+    assert saved == {"rows": 1, "name": "dict_search", "save_to": "csv"}
+    assert "The following query was executed" in capsys.readouterr().out
+
+
+def test_table_dates_prints_on_unknown_data_product(monkeypatch, capsys):
+    proc = _make_dummy_process()
+    proc._table_dates = pd.DataFrame(
+        {
+            "Data Product": ["Dummy Product"],
+            "Table": ["dummy_table"],
+            "Column": ["closing_date"],
+        }
+    )
+
+    result = proc.table_dates(data_product="Missing Product")
+
+    assert result.empty
+    assert "No such Data Product was found" in capsys.readouterr().out
+
+
+def test_table_dates_saves_results(monkeypatch):
+    proc = _make_dummy_process()
+    proc._table_dates = pd.DataFrame(
+        {
+            "Data Product": ["Dummy Product"],
+            "Table": ["dummy_table"],
+            "Column": ["closing_date"],
+        }
+    )
+    saved = {}
+
+    monkeypatch.setattr(
+        "moodys_datahub.process._save_to",
+        lambda df, name, save_to: saved.update(
+            {"rows": len(df), "name": name, "save_to": save_to}
+        ),
+    )
+
+    result = proc.table_dates(save_to="xlsx")
+
+    assert result["Column"].tolist() == ["closing_date"]
+    assert saved == {"rows": 1, "name": "date_cols_search", "save_to": "xlsx"}
+
+
+def test_search_country_codes_reports_no_match_columns(capsys):
+    proc = _make_dummy_process()
+
+    result = proc.search_country_codes(
+        search_word="ZZZ",
+        search_cols={"Country": False, "Code": True},
+    )
+
+    assert result.empty
+    assert "No such 'search word' was detected across columns" in capsys.readouterr().out
 
 
 def test_choose_process_engine_detects_mixed_formats():
