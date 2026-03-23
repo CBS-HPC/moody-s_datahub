@@ -10,9 +10,11 @@ from moodys_datahub.utils import (
     _check_list_format,
     _construct_query,
     _date_pd,
+    _fuzzy_match,
     _letters_only_regex,
     _load_pl,
     fuzzy_match_pl,
+    fuzzy_query,
 )
 
 
@@ -47,6 +49,100 @@ def _make_dummy_process():
 def test_letters_only_regex():
     assert _letters_only_regex("Abc-123!") == "abc123"
     assert _letters_only_regex(None) is None
+
+
+def test_fuzzy_match_handles_exact_fuzzy_and_no_match():
+    df = pd.DataFrame(
+        {
+            "name": ["acme", "beta"],
+            "bvd_id": ["BVD1", "BVD2"],
+        }
+    )
+    choices = df["name"].tolist()
+    choice_to_index = {choice: idx for idx, choice in enumerate(choices)}
+
+    results = _fuzzy_match(
+        (
+            ["acme", "betta", "unknown"],
+            choices,
+            80,
+            df,
+            "name",
+            "bvd_id",
+            choice_to_index,
+        )
+    )
+
+    assert results == [
+        ("acme", "acme", 100, "acme", "BVD1"),
+        ("betta", "beta", 88.88888888888889, "beta", "BVD2"),
+        ("unknown", None, 0, None, None),
+    ]
+
+
+def test_fuzzy_query_remove_str_creates_exact_match_without_pool():
+    df = pd.DataFrame(
+        {
+            "company_name": ["Acme A/S", "Beta ApS"],
+            "bvd_id": ["BVD1", "BVD2"],
+        }
+    )
+
+    out = fuzzy_query(
+        df=df,
+        names=["Acme"],
+        match_column="company_name",
+        return_column="bvd_id",
+        remove_str=["A/S"],
+        num_workers=1,
+    )
+
+    assert out.to_dict("records") == [
+        {
+            "Search_string": "acme",
+            "BestMatch": "acme",
+            "Score": 100,
+            "company_name": "Acme A/S",
+            "bvd_id": "BVD1",
+        }
+    ]
+
+
+def test_fuzzy_query_clamps_auto_workers_and_uses_pool(monkeypatch):
+    df = pd.DataFrame(
+        {
+            "company_name": ["Acme", "Beta"],
+            "bvd_id": ["BVD1", "BVD2"],
+        }
+    )
+    pool_calls = {}
+
+    class FakePool:
+        def __init__(self, processes):
+            pool_calls["processes"] = processes
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def map(self, func, args_list):
+            pool_calls["batch_sizes"] = [len(args[0]) for args in args_list]
+            return [func(args) for args in args_list]
+
+    monkeypatch.setattr("moodys_datahub.utils.cpu_count", lambda: 6)
+    monkeypatch.setattr("moodys_datahub.utils.Pool", FakePool)
+
+    out = fuzzy_query(
+        df=df,
+        names=["Acme", "Beta"],
+        match_column="company_name",
+        return_column="bvd_id",
+    )
+
+    assert pool_calls == {"processes": 2, "batch_sizes": [1, 1]}
+    assert out["bvd_id"].tolist() == ["BVD1", "BVD2"]
 
 
 def test_construct_query_exact():
