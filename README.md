@@ -54,8 +54,10 @@ Use `select_data()` when you want the interactive widget-based flow in notebook
 environments. Use `set_data_product` and `set_table` when you want a fully
 scripted workflow.
 
-Use `process_all()` for the pandas-based workflow and `polars_all()` when you
-want the faster exact-match path for large BvD ID filters.
+Use `process_all()` when you want automatic backend selection with a pandas
+return type. Use `polars_all()` when you want to force the Polars path
+explicitly. After processing, inspect `SFTP.last_process_engine` and
+`SFTP.last_process_reason` to see which backend was used and why.
 
 ## Installation
 

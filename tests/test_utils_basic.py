@@ -189,8 +189,8 @@ def test_process_all_auto_prefers_polars_and_returns_pandas(monkeypatch):
     assert df["value"].tolist() == [10]
     assert file_names == ["polars.csv"]
     assert proc.dfs.equals(df)
-    assert proc._last_process_engine == "polars"
-    assert proc._last_process_reason == "compatible"
+    assert proc.last_process_engine == "polars"
+    assert proc.last_process_reason == "compatible"
 
 
 def test_process_all_auto_routes_string_query_to_pandas(monkeypatch):
@@ -217,8 +217,8 @@ def test_process_all_auto_routes_string_query_to_pandas(monkeypatch):
     assert df["value"].tolist() == [1, 2]
     assert file_names == ["pandas.csv"]
     assert proc.dfs.equals(df)
-    assert proc._last_process_engine == "pandas"
-    assert proc._last_process_reason == "string_query"
+    assert proc.last_process_engine == "pandas"
+    assert proc.last_process_reason == "string_query"
 
 
 def test_process_all_explicit_polars_still_returns_pandas(monkeypatch):
@@ -235,8 +235,8 @@ def test_process_all_explicit_polars_still_returns_pandas(monkeypatch):
     assert df["value"].tolist() == [7]
     assert file_names == ["polars.csv"]
     assert proc.dfs.equals(df)
-    assert proc._last_process_engine == "polars"
-    assert proc._last_process_reason == "explicit"
+    assert proc.last_process_engine == "polars"
+    assert proc.last_process_reason == "explicit"
 
 
 def test_bvd_changes_ray_resolves_terminal_newest_id_across_chain():
@@ -385,6 +385,8 @@ def test_process_one_uses_polars_row_limit_for_single_compatible_file(monkeypatc
 
     def fake_polars_all(*args, **kwargs):
         assert kwargs["row_limit"] == 2
+        proc._last_process_engine = "polars"
+        proc._last_process_reason = "direct"
         return pl.DataFrame({"value": [1, 2]}), ["polars.csv"]
 
     def fail_process_all(*args, **kwargs):  # pragma: no cover - should not be hit
@@ -397,6 +399,7 @@ def test_process_one_uses_polars_row_limit_for_single_compatible_file(monkeypatc
 
     assert isinstance(df, pd.DataFrame)
     assert df["value"].tolist() == [1, 2]
+    assert proc.last_process_engine == "polars"
 
 
 def test_process_one_falls_back_to_process_all_for_pandas_only_workloads(monkeypatch):
@@ -404,6 +407,8 @@ def test_process_one_falls_back_to_process_all_for_pandas_only_workloads(monkeyp
     proc.query = "value > 1"
 
     def fake_process_all(*args, **kwargs):
+        proc._last_process_engine = "pandas"
+        proc._last_process_reason = "string_query"
         return pd.DataFrame({"value": [1, 2, 3]}), ["pandas.csv"]
 
     def fail_polars_all(*args, **kwargs):  # pragma: no cover - should not be hit
@@ -416,3 +421,4 @@ def test_process_one_falls_back_to_process_all_for_pandas_only_workloads(monkeyp
 
     assert isinstance(df, pd.DataFrame)
     assert df["value"].tolist() == [1, 2]
+    assert proc.last_process_engine == "pandas"

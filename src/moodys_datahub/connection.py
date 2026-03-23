@@ -75,6 +75,16 @@ class _Connection:
         print(f'"{method}" is chosen as worker pool method')
         self._pool_method = method
 
+    @property
+    def last_process_engine(self):
+        """Return the backend used by the most recent processing call."""
+        return self._last_process_engine
+
+    @property
+    def last_process_reason(self):
+        """Return why the most recent processing call chose its backend."""
+        return self._last_process_reason
+
     def tables_available(
         self,
         product_overview=None,

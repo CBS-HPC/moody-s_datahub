@@ -639,7 +639,11 @@ class _Process(_Selection):
         return df
 
     def process_one(self, save_to: SaveFormat = None, files=None, n_rows: int = 1000):
-        """Process files and return up to `n_rows` rows, optionally saving the sample."""
+        """Process files and return up to `n_rows` rows, optionally saving the sample.
+
+        For a single Polars-compatible file, the row limit is pushed down before
+        collection to avoid materializing the full filtered result.
+        """
 
         if files is None:
             if self._set_data_product is None or self._set_table is None:
@@ -970,6 +974,8 @@ class _Process(_Selection):
 
         `engine="auto"` prefers the Polars backend for supported workloads and
         falls back to pandas for features that still depend on pandas semantics.
+        The selected backend and routing reason are stored on
+        `last_process_engine` and `last_process_reason`.
         """
 
         files = self.remote_files if files is None else files

@@ -229,6 +229,11 @@ Before running the selected filters on all files (SFTP.remote_files) is can be a
 
 **It should be noted that the sub-file that is used below will not contain rows that a relevant for the defined filters.**
 
+`process_one()` uses the same backend-selection rules as `process_all()`. For a
+single Polars-compatible file it pushes the row limit down before collecting the
+sample. After any processing call you can inspect `SFTP.last_process_engine` and
+`SFTP.last_process_reason` to see which backend was used and why.
+
 
 ```python
 df_sample = SFTP.process_one()
