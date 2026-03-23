@@ -23,6 +23,12 @@ class DummyProcess(_Process):
 def _make_dummy_process():
     proc = object.__new__(DummyProcess)
     proc.remote_files = ["sample.csv"]
+    proc._local_path = None
+    proc._local_files = []
+    proc._remote_path = None
+    proc._remote_files = ["sample.csv"]
+    proc._local_repo = None
+    proc._time_stamp = None
     proc._time_period = [None, None, None, "remove"]
     proc._bvd_list = [None, None, None]
     proc.query = None
@@ -463,6 +469,65 @@ def test_validate_args_passes_generation_flag_to_check_args(monkeypatch):
 def test_set_workers_casts_values_and_falls_back_for_one():
     assert set_workers(4.0, 2) == 4
     assert set_workers(1, 3) == 3
+
+
+def test_check_args_rejects_empty_file_list():
+    proc = _make_dummy_process()
+    proc.local_files = []
+    proc.remote_files = []
+
+    with pytest.raises(ValueError, match="'files' is a empty list"):
+        proc._check_args([])
+
+
+def test_check_args_requires_table_before_deriving_local_path():
+    proc = _make_dummy_process()
+    proc.local_files = []
+    proc.remote_files = ["remote.csv"]
+    proc._local_path = None
+    proc._remote_path = "remote/base"
+    proc._set_table = None
+
+    with pytest.raises(ValueError, match="Table is not set"):
+        proc._check_args(["remote.csv"])
+
+
+def test_check_args_creates_destination_directory_for_split_outputs(tmp_path):
+    proc = _make_dummy_process()
+    proc.concat_files = False
+    existing_file = tmp_path / "sample.csv"
+    existing_file.write_text("value\n1\n", encoding="utf-8")
+
+    destination = tmp_path / "output_dir"
+    files, out_destination = proc._check_args([str(existing_file)], str(destination))
+
+    assert files == [str(existing_file)]
+    assert out_destination == str(destination)
+    assert destination.exists()
+
+
+def test_check_download_marks_finished_when_files_are_ready(monkeypatch):
+    proc = _make_dummy_process()
+    proc._download_finished = False
+    proc._remote_files = ["sample.csv"]
+    monkeypatch.setattr(DummyProcess, "local_files", property(lambda self: ["sample.csv"]))
+
+    assert proc._check_download(["sample.csv"]) is True
+    assert proc.download_finished is True
+
+
+def test_check_download_times_out_when_local_files_never_appear(monkeypatch, capsys):
+    proc = _make_dummy_process()
+    proc._download_finished = False
+    proc._remote_files = ["sample.csv"]
+    monkeypatch.setattr(DummyProcess, "local_files", property(lambda self: []))
+
+    timeline = iter([0.0, 5.1])
+    monkeypatch.setattr("moodys_datahub.process.time.sleep", lambda _: None)
+    monkeypatch.setattr("moodys_datahub.process.time.time", lambda: next(timeline))
+
+    assert proc._check_download(["sample.csv"]) is False
+    assert "timeout period" in capsys.readouterr().out
 
 
 def test_bvd_changes_ray_resolves_terminal_newest_id_across_chain():
