@@ -648,7 +648,25 @@ class _Process(_Selection):
         elif isinstance(files, int):
             files = [files]
 
-        df, _ = self.process_all(files=files, num_workers=len(files))
+        pandas_bvd_query, polars_bvd_query = self._normalize_bvd_queries()
+        chosen_engine, _ = self._choose_process_engine(
+            files=files,
+            query=self.query,
+            raw_bvd_query=None,
+            polars_bvd_query=polars_bvd_query,
+        )
+
+        if n_rows > 0 and len(files) == 1 and chosen_engine == "polars":
+            df, _ = self.polars_all(files=files, num_workers=1, row_limit=n_rows)
+            if isinstance(df, pl.DataFrame):
+                df = df.to_pandas()
+            self.dfs = df
+        else:
+            df, _ = self.process_all(
+                files=files,
+                num_workers=len(files),
+                bvd_query=pandas_bvd_query,
+            )
 
         if df.empty:
             print("No rows were retained")
@@ -1038,6 +1056,7 @@ class _Process(_Selection):
         bvd_query: list | tuple | None = None,
         query=None,
         query_args: list = None,
+        row_limit: int | None = None,
     ):
         """Process files with the polars-based pipeline.
 
@@ -1085,6 +1104,7 @@ class _Process(_Selection):
                 bvd_query,
                 query,
                 query_args,
+                row_limit=row_limit,
             )
 
             # Set num_workers
@@ -1328,6 +1348,7 @@ class _Process(_Selection):
         query=None,
         query_args: list = None,
         num_workers: int = -1,
+        row_limit: int | None = None,
     ):
         if date_query is None:
             date_query = [None, None, None, "remove"]
@@ -1351,6 +1372,7 @@ class _Process(_Selection):
             bvd_query=bvd_query,
             query=query,
             query_args=query_args,
+            row_limit=row_limit,
         )
 
         return df

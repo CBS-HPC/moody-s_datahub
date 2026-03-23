@@ -28,6 +28,8 @@ def _make_dummy_process():
     proc.concat_files = True
     proc.output_format = None
     proc.file_size_mb = 100
+    proc._set_data_product = "Dummy Product"
+    proc._set_table = "dummy_table"
     return proc
 
 
@@ -244,57 +246,6 @@ def test_bvd_changes_ray_resolves_terminal_newest_id_across_chain():
     assert filtered_df["newest_id"].tolist() == ["C", "C"]
 
 
-def test_bvd_changes_ray_finds_ancestors_when_starting_from_newest_id():
-    df = pd.DataFrame(
-        {
-            "old_id": ["A", "B"],
-            "new_id": ["B", "C"],
-            "change_date": ["2020-01-01", "2021-01-01"],
-        }
-    )
-
-    new_ids, newest_ids, filtered_df = _bvd_changes_ray(["C"], df)
-
-    assert new_ids == {"A", "B", "C"}
-    assert newest_ids == {"A": "C", "B": "C", "C": "C"}
-    assert filtered_df["newest_id"].tolist() == ["C", "C"]
-
-
-def test_bvd_changes_ray_prefers_latest_forward_change_date():
-    df = pd.DataFrame(
-        {
-            "old_id": ["A", "A"],
-            "new_id": ["B", "C"],
-            "change_date": ["2020-01-01", "2021-01-01"],
-        }
-    )
-
-    new_ids, newest_ids, filtered_df = _bvd_changes_ray(["A"], df)
-
-    assert new_ids == {"A", "B", "C"}
-    assert newest_ids["A"] == "C"
-    assert filtered_df.loc[filtered_df["old_id"] == "A", "newest_id"].tolist() == [
-        "C",
-        "C",
-    ]
-
-
-def test_bvd_changes_ray_resolves_terminal_newest_id_across_chain():
-    df = pd.DataFrame(
-        {
-            "old_id": ["A", "B"],
-            "new_id": ["B", "C"],
-            "change_date": ["2020-01-01", "2021-01-01"],
-        }
-    )
-
-    new_ids, newest_ids, filtered_df = _bvd_changes_ray(["A"], df)
-
-    assert new_ids == {"A", "B", "C"}
-    assert newest_ids == {"A": "C", "B": "C", "C": "C"}
-    assert filtered_df["newest_id"].tolist() == ["C", "C"]
-
-
 def test_bvd_changes_ray_finds_reverse_links_and_keeps_terminal_mapping():
     df = pd.DataFrame(
         {
@@ -341,3 +292,41 @@ def test_bvd_changes_ray_returns_empty_filtered_df_when_no_changes_found():
     assert new_ids == {"Z"}
     assert newest_ids == {"Z": "Z"}
     assert filtered_df.empty
+
+
+def test_process_one_uses_polars_row_limit_for_single_compatible_file(monkeypatch):
+    proc = _make_dummy_process()
+
+    def fake_polars_all(*args, **kwargs):
+        assert kwargs["row_limit"] == 2
+        return pl.DataFrame({"value": [1, 2]}), ["polars.csv"]
+
+    def fail_process_all(*args, **kwargs):  # pragma: no cover - should not be hit
+        raise AssertionError("process_all() should not be used for the Polars fast path")
+
+    monkeypatch.setattr(DummyProcess, "polars_all", fake_polars_all)
+    monkeypatch.setattr(DummyProcess, "process_all", fail_process_all)
+
+    df = proc.process_one(n_rows=2)
+
+    assert isinstance(df, pd.DataFrame)
+    assert df["value"].tolist() == [1, 2]
+
+
+def test_process_one_falls_back_to_process_all_for_pandas_only_workloads(monkeypatch):
+    proc = _make_dummy_process()
+    proc.query = "value > 1"
+
+    def fake_process_all(*args, **kwargs):
+        return pd.DataFrame({"value": [1, 2, 3]}), ["pandas.csv"]
+
+    def fail_polars_all(*args, **kwargs):  # pragma: no cover - should not be hit
+        raise AssertionError("polars_all() should not be used for pandas-only workloads")
+
+    monkeypatch.setattr(DummyProcess, "process_all", fake_process_all)
+    monkeypatch.setattr(DummyProcess, "polars_all", fail_polars_all)
+
+    df = proc.process_one(n_rows=2)
+
+    assert isinstance(df, pd.DataFrame)
+    assert df["value"].tolist() == [1, 2]

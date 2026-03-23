@@ -468,6 +468,7 @@ def _load_pl(
     bvd_query=None,
     query=None,
     query_args=None,
+    row_limit: int | None = None,
 ):
     if date_query is None:
         date_query = [None, None, None, "remove"]
@@ -603,6 +604,9 @@ def _load_pl(
 
         if output_cols is not None:
             df_lazy = df_lazy.select(output_cols)
+
+        if row_limit is not None and row_limit >= 0:
+            df_lazy = df_lazy.limit(int(row_limit))
 
         # Collect the results (triggering execution)
         df = df_lazy.collect()
