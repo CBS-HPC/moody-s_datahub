@@ -33,8 +33,8 @@ interact with the package through `moodys_datahub.Sftp` or
 - `process_one()`: load a sample from one or more files.
 - `process_all()`: run the auto-selecting processing pipeline and always return
   pandas.
-- `polars_all()`: run the Polars-based processing pipeline for exact-match
-  workloads.
+- `pandas_all()`: force the pandas processing pipeline explicitly.
+- `polars_all()`: run the native Polars processing pipeline and return Polars.
 - `download_all()`: download missing files to the local cache.
 - `last_process_engine` / `last_process_reason`: inspect which backend was used
   most recently and why.
@@ -55,6 +55,8 @@ interact with the package through `moodys_datahub.Sftp` or
   decision on `last_process_engine` and `last_process_reason`.
 - `polars_all()` supports exact and prefix BvD filtering, multi-column BvD
   matching, and year-based filtering for `time_period`.
+- `process_all()` falls back to pandas for string queries, pandas-only callables,
+  `concat_files=False`, custom batching, and unsupported file formats.
 
 ## Generated reference
 

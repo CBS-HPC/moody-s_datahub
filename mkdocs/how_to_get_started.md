@@ -234,6 +234,12 @@ single Polars-compatible file it pushes the row limit down before collecting the
 sample. After any processing call you can inspect `SFTP.last_process_engine` and
 `SFTP.last_process_reason` to see which backend was used and why.
 
+Use `SFTP.process_all()` when you want automatic backend selection with a pandas
+return type. Use `SFTP.pandas_all()` when you need pandas query semantics
+explicitly. Use `SFTP.polars_all()` when you want the native Polars path for
+exact BvD matching, prefix BvD matching, multi-column BvD filtering, or
+year-based `time_period` filters.
+
 
 ```python
 df_sample = SFTP.process_one()

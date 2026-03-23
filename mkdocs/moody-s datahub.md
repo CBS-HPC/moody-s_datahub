@@ -16,8 +16,8 @@ workflow end to end:
 - select a product, table, and output columns
 - filter by exact BvD ID lists, country-code prefixes, and time periods
 - download missing files to a local cache
-- process large exports with either the pandas pipeline or the faster Polars
-  pipeline for exact-match workloads
+- process large exports with an explicit pandas pipeline, an explicit Polars
+  pipeline, or an auto-selecting wrapper that returns pandas
 - run helper workflows such as fuzzy company-name matching, BvD change tracking,
   and Orbis-to-DataHub column mapping
 
@@ -55,8 +55,11 @@ Use `select_data()` when you want the interactive widget-based flow in notebook
 environments. Use `set_data_product` and `set_table` when you want a fully
 scripted workflow.
 
-Use `process_all()` for the pandas-based workflow and `polars_all()` when you
-want the faster exact-match path for large BvD ID filters.
+Use `process_all()` when you want automatic backend selection with a pandas
+return type. Use `pandas_all()` when you need pandas-only query semantics
+explicitly, and `polars_all()` when you want the native Polars path and return
+type. The Polars path supports exact and prefix BvD filtering, multi-column BvD
+matching, and year-based `time_period` filtering.
 
 ## SFTP Access
 
