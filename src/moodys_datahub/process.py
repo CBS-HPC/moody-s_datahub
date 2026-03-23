@@ -1164,7 +1164,6 @@ class _Process(_Selection):
         _, _ = self._check_args(files)
 
         self._download_finished = None
-        self.delete_files = False
 
         missing_files = [
             file for file in files if not os.path.exists(self._file_exist(file)[0])
@@ -1172,12 +1171,7 @@ class _Process(_Selection):
 
         if missing_files:
             print(f"Downloading {len(missing_files)} of {len(files)} files ")
-
-            current_value = self.concat_files
-
-            self.concat_files = False
             if async_mode:
-                # process = Process(target=self.process_all, kwargs={'files':missing_files,'num_workers': num_workers, 'pool_method': pool_method,'n_batches':1})
                 process = Process(
                     target=_run_parallel,
                     kwargs={
@@ -1190,11 +1184,8 @@ class _Process(_Selection):
                     },
                 )
                 process.start()
-                self.concat_files = current_value
                 self._download_finished = False
             else:
-                # self.process_all(files = missing_files, num_workers = num_workers, pool_method = pool_method, n_batches =  1,select_cols=None)
-
                 _run_parallel(
                     fnc=self._get_file,
                     params_list=[(file) for file in missing_files],
@@ -1203,10 +1194,10 @@ class _Process(_Selection):
                     pool_method=pool_method,
                     msg="Downloading",
                 )
-
-            self.concat_files = current_value
+                self._download_finished = True
         else:
-            print("Are files are already downloaded")
+            print("All files are already downloaded")
+            self._download_finished = True
 
     def _file_exist(self, file: str):
         base_path = os.getcwd()
@@ -1221,7 +1212,6 @@ class _Process(_Selection):
             )
 
         if os.path.exists(file):
-            self.delete_files = False
             flag = True
         else:
             file = str(Path(self._local_path) / os.path.basename(file))

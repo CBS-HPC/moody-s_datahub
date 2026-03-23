@@ -507,6 +507,100 @@ def test_process_one_falls_back_to_process_all_for_pandas_only_workloads(monkeyp
     assert proc.last_process_engine == "pandas"
 
 
+def test_file_exist_preserves_delete_files_for_existing_local_file(tmp_path):
+    proc = _make_dummy_process()
+    proc.delete_files = True
+    proc._max_path_length = 10_000
+    proc._local_path = str(tmp_path)
+
+    local_file = tmp_path / "existing.csv"
+    local_file.write_text("value\n1\n", encoding="utf-8")
+
+    resolved_file, flag = proc._file_exist(str(local_file))
+
+    assert resolved_file == str(local_file)
+    assert flag is True
+    assert proc.delete_files is True
+
+
+def test_download_all_sync_preserves_flags_and_marks_finished(monkeypatch):
+    proc = _make_dummy_process()
+    proc._set_data_product = "Dummy Product"
+    proc._set_table = "dummy_table"
+    proc.remote_files = ["remote.csv"]
+    proc.delete_files = True
+    proc.concat_files = True
+
+    monkeypatch.setattr("moodys_datahub.process.os.fork", lambda: None, raising=False)
+    monkeypatch.setattr(DummyProcess, "_check_args", lambda self, files: (files, None))
+    monkeypatch.setattr(DummyProcess, "_file_exist", lambda self, file: (file, False))
+
+    calls = {}
+
+    def fake_run_parallel(**kwargs):
+        calls["kwargs"] = kwargs
+        return []
+
+    monkeypatch.setattr("moodys_datahub.process._run_parallel", fake_run_parallel)
+
+    proc.download_all(async_mode=False, num_workers=1)
+
+    assert calls["kwargs"]["msg"] == "Downloading"
+    assert proc.delete_files is True
+    assert proc.concat_files is True
+    assert proc._download_finished is True
+
+
+def test_download_all_async_preserves_flags_and_marks_in_progress(monkeypatch):
+    proc = _make_dummy_process()
+    proc._set_data_product = "Dummy Product"
+    proc._set_table = "dummy_table"
+    proc.remote_files = ["remote.csv"]
+    proc.delete_files = True
+    proc.concat_files = False
+
+    monkeypatch.setattr("moodys_datahub.process.os.fork", lambda: None, raising=False)
+    monkeypatch.setattr(DummyProcess, "_check_args", lambda self, files: (files, None))
+    monkeypatch.setattr(DummyProcess, "_file_exist", lambda self, file: (file, False))
+
+    started = {"value": False}
+
+    class FakeProcess:
+        def __init__(self, target=None, kwargs=None):
+            self.target = target
+            self.kwargs = kwargs
+
+        def start(self):
+            started["value"] = True
+
+    monkeypatch.setattr("moodys_datahub.process.Process", FakeProcess)
+
+    proc.download_all(async_mode=True, num_workers=1)
+
+    assert started["value"] is True
+    assert proc.delete_files is True
+    assert proc.concat_files is False
+    assert proc._download_finished is False
+
+
+def test_download_all_marks_finished_when_files_are_already_local(monkeypatch, capsys):
+    proc = _make_dummy_process()
+    proc._set_data_product = "Dummy Product"
+    proc._set_table = "dummy_table"
+    proc.remote_files = ["already.csv"]
+    proc._download_finished = None
+
+    monkeypatch.setattr("moodys_datahub.process.os.fork", lambda: None, raising=False)
+    monkeypatch.setattr(DummyProcess, "_check_args", lambda self, files: (files, None))
+    monkeypatch.setattr(DummyProcess, "_file_exist", lambda self, file: (file, True))
+    monkeypatch.setattr("moodys_datahub.process.os.path.exists", lambda path: True)
+
+    proc.download_all(async_mode=False, num_workers=1)
+
+    assert proc._download_finished is True
+    assert "already downloaded" in capsys.readouterr().out
+
+
 def test_search_company_names_prefers_polars_without_pandas_fallback(monkeypatch):
     class FakeSearch:
         def _object_defaults(self):
