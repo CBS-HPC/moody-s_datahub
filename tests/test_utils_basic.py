@@ -31,6 +31,8 @@ def _make_dummy_process():
     proc.file_size_mb = 100
     proc._set_data_product = "Dummy Product"
     proc._set_table = "dummy_table"
+    proc._last_process_engine = None
+    proc._last_process_reason = None
     return proc
 
 
@@ -187,6 +189,8 @@ def test_process_all_auto_prefers_polars_and_returns_pandas(monkeypatch):
     assert df["value"].tolist() == [10]
     assert file_names == ["polars.csv"]
     assert proc.dfs.equals(df)
+    assert proc._last_process_engine == "polars"
+    assert proc._last_process_reason == "compatible"
 
 
 def test_process_all_auto_routes_string_query_to_pandas(monkeypatch):
@@ -213,6 +217,8 @@ def test_process_all_auto_routes_string_query_to_pandas(monkeypatch):
     assert df["value"].tolist() == [1, 2]
     assert file_names == ["pandas.csv"]
     assert proc.dfs.equals(df)
+    assert proc._last_process_engine == "pandas"
+    assert proc._last_process_reason == "string_query"
 
 
 def test_process_all_explicit_polars_still_returns_pandas(monkeypatch):
@@ -229,6 +235,8 @@ def test_process_all_explicit_polars_still_returns_pandas(monkeypatch):
     assert df["value"].tolist() == [7]
     assert file_names == ["polars.csv"]
     assert proc.dfs.equals(df)
+    assert proc._last_process_engine == "polars"
+    assert proc._last_process_reason == "explicit"
 
 
 def test_bvd_changes_ray_resolves_terminal_newest_id_across_chain():

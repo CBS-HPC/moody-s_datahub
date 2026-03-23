@@ -52,6 +52,8 @@ class _Connection:
         self.file_size_mb: int = 500
         self.delete_files: bool = False
         self.concat_files: bool = True
+        self._last_process_engine: str = None
+        self._last_process_reason: str = None
 
     # pool method
     @property
@@ -530,3 +532,5 @@ class _Connection:
         self._time_stamp: str = None
         self._set_table: str = None
         self._download_finished = None
+        self._last_process_engine = None
+        self._last_process_reason = None

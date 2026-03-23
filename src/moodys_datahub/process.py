@@ -749,6 +749,10 @@ class _Process(_Selection):
         }
         return descriptions.get(reason, reason)
 
+    def _record_process_backend(self, engine: str, reason: str):
+        self._last_process_engine = engine
+        self._last_process_reason = reason
+
     def _choose_process_engine(
         self,
         files,
@@ -821,6 +825,7 @@ class _Process(_Selection):
             ValueError: Invalid arguments or file-selection state.
             TimeoutError: Downloads are still in progress beyond timeout.
         """
+        self._record_process_backend("pandas", "direct")
 
         def batch_processing(n_batches: int = None):
             def batch_list(input_list, batch_size):
@@ -980,7 +985,7 @@ class _Process(_Selection):
             raise ValueError("engine must be 'auto', 'pandas', or 'polars'.")
 
         if engine == "pandas":
-            return self.pandas_all(
+            result = self.pandas_all(
                 files=files,
                 destination=destination,
                 num_workers=num_workers,
@@ -992,6 +997,8 @@ class _Process(_Selection):
                 query_args=query_args,
                 pool_method=pool_method,
             )
+            self._record_process_backend("pandas", "explicit")
+            return result
 
         chosen_engine, reason = self._choose_process_engine(
             files=files,
@@ -1016,7 +1023,7 @@ class _Process(_Selection):
                     + ". Use engine='polars' or a pandas-compatible query."
                 )
 
-            return self.pandas_all(
+            result = self.pandas_all(
                 files=files,
                 destination=destination,
                 num_workers=num_workers,
@@ -1028,6 +1035,8 @@ class _Process(_Selection):
                 query_args=query_args,
                 pool_method=pool_method,
             )
+            self._record_process_backend("pandas", reason)
+            return result
 
         df, file_names = self.polars_all(
             files=files,
@@ -1044,6 +1053,9 @@ class _Process(_Selection):
             df = df.to_pandas()
 
         self.dfs = df
+        self._record_process_backend(
+            "polars", "explicit" if engine == "polars" else reason
+        )
         return df, file_names
 
     def polars_all(
@@ -1067,6 +1079,7 @@ class _Process(_Selection):
             ValueError: Invalid arguments or file-selection state.
             TimeoutError: Downloads are still in progress beyond timeout.
         """
+        self._record_process_backend("polars", "direct")
         files = self.remote_files if files is None else files
         if isinstance(files, (str, os.PathLike)):
             files = [files]
