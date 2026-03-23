@@ -1,4 +1,5 @@
 import pandas as pd
+import polars as pl
 import pytest
 
 from moodys_datahub.process import _Process
@@ -24,6 +25,12 @@ def _make_dummy_process():
     proc._set_table = "dummy_table"
     proc._last_process_engine = None
     proc._last_process_reason = None
+    proc._local_path = None
+    proc._local_files = []
+    proc._remote_path = "remote/base"
+    proc._remote_files = ["sample.csv"]
+    proc._max_path_length = 10000
+    proc.delete_files = False
     proc._tables_backup = pd.DataFrame({"Data Product": ["Dummy Product"]})
     proc._table_dictionary = None
     proc._table_dates = None
@@ -327,3 +334,172 @@ def test_orbis_to_moodys_maps_known_headings_and_reports_unknown(tmp_path, monke
 
     assert found["heading"].tolist() == ["Name"]
     assert not_found == ["Unknown Heading"]
+
+
+def test_get_file_downloads_remote_file_and_applies_timestamp(monkeypatch, tmp_path):
+    class FakeStat:
+        st_mtime = 123
+
+    class FakeSftp:
+        def __init__(self):
+            self.downloads = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, remote_file, local_file):
+            self.downloads.append((remote_file, local_file))
+            pd.DataFrame({"value": [1]}).to_csv(local_file, index=False)
+
+        def stat(self, remote_file):
+            return FakeStat()
+
+    fake_sftp = FakeSftp()
+    proc = _make_dummy_process()
+    proc._local_path = str(tmp_path)
+    proc._remote_path = "remote/base"
+    touched = {}
+
+    monkeypatch.setattr(DummyProcess, "_connect", lambda self: fake_sftp)
+    monkeypatch.setattr(
+        "moodys_datahub.process.os.utime",
+        lambda path, times: touched.update({"path": path, "times": times}),
+    )
+
+    local_file, flag = proc._get_file("sample.csv")
+
+    assert flag is False
+    assert local_file == str(tmp_path / "sample.csv")
+    assert fake_sftp.downloads == [("remote/base/sample.csv", str(tmp_path / "sample.csv"))]
+    assert touched == {"path": str(tmp_path / "sample.csv"), "times": (123, 123)}
+
+
+def test_curate_file_saves_split_outputs_and_deletes_new_files(monkeypatch, tmp_path):
+    proc = _make_dummy_process()
+    proc.concat_files = False
+    proc.output_format = [".csv"]
+    proc.delete_files = True
+
+    local_file = tmp_path / "sample.csv"
+    local_file.write_text("value\n1\n", encoding="utf-8")
+    destination = tmp_path / "processed"
+    saved = {}
+    removed = {}
+
+    monkeypatch.setattr(
+        "moodys_datahub.process._load_csv_table",
+        lambda **kwargs: pd.DataFrame({"value": [1]}),
+    )
+    monkeypatch.setattr(
+        "moodys_datahub.process._save_files_pd",
+        lambda df, file_name, output_format: saved.update(
+            {"df": df.copy(), "file_name": file_name, "output_format": output_format}
+        )
+        or "saved.csv",
+    )
+    monkeypatch.setattr(
+        "moodys_datahub.process.os.remove",
+        lambda path: removed.update({"path": path}),
+    )
+
+    df, file_name = proc._curate_file(
+        flag=False,
+        destination=str(destination),
+        local_file=str(local_file),
+        select_cols=["value"],
+    )
+
+    assert df is None
+    assert file_name == "saved.csv"
+    assert saved["df"]["value"].tolist() == [1]
+    assert saved["file_name"] == str(destination / "sample")
+    assert saved["output_format"] == [".csv"]
+    assert removed == {"path": str(local_file)}
+
+
+def test_process_sequential_collects_dataframes_filenames_and_flags(monkeypatch):
+    proc = _make_dummy_process()
+
+    def fake_get_file(self, file):
+        if file == "broken.csv":
+            raise ValueError("cannot read")
+        return f"/tmp/{file}", file == "existing.csv"
+
+    def fake_curate_file(self, **kwargs):
+        local_file = kwargs["local_file"]
+        if local_file.endswith("new.csv"):
+            return pd.DataFrame({"value": [1]}), None
+        return None, "saved.csv"
+
+    monkeypatch.setattr(DummyProcess, "_get_file", fake_get_file)
+    monkeypatch.setattr(DummyProcess, "_curate_file", fake_curate_file)
+
+    dfs, file_names, flags = proc._process_sequential(
+        ["new.csv", "existing.csv", "broken.csv"]
+    )
+
+    assert len(dfs) == 1
+    assert dfs[0]["value"].tolist() == [1]
+    assert file_names == ["saved.csv"]
+    assert flags == [False, True]
+
+
+def test_process_parallel_curates_single_input(monkeypatch):
+    proc = _make_dummy_process()
+
+    monkeypatch.setattr(
+        DummyProcess, "_get_file", lambda self, file: ("/tmp/sample.csv", True)
+    )
+    monkeypatch.setattr(
+        DummyProcess,
+        "_curate_file",
+        lambda self, **kwargs: (None, "saved.csv"),
+    )
+
+    result = proc._process_parallel(
+        ["sample.csv", "dest", ["value"], [None, None, None, "remove"], None, None, None]
+    )
+
+    assert result == [None, "saved.csv", True]
+
+
+def test_process_polars_downloads_and_loads_existing_local_files(monkeypatch, tmp_path):
+    proc = _make_dummy_process()
+    first = tmp_path / "first.csv"
+    second = tmp_path / "second.csv"
+    first.write_text("value\n1\n", encoding="utf-8")
+    second.write_text("value\n2\n", encoding="utf-8")
+    calls = {}
+
+    monkeypatch.setattr(
+        DummyProcess,
+        "download_all",
+        lambda self, **kwargs: calls.update({"download": kwargs}),
+    )
+    monkeypatch.setattr(
+        DummyProcess,
+        "_file_exist",
+        lambda self, file: (
+            str(first) if file == "first.csv" else str(second),
+            True,
+        ),
+    )
+    monkeypatch.setattr(
+        "moodys_datahub.process._load_pl",
+        lambda **kwargs: calls.update({"load": kwargs}) or pl.DataFrame({"value": [1, 2]}),
+    )
+
+    result = proc._process_polars(
+        files=["first.csv", "second.csv"],
+        select_cols=["value"],
+        row_limit=1,
+    )
+
+    assert result["value"].to_list() == [1, 2]
+    assert calls["download"]["async_mode"] is False
+    assert calls["load"]["file_list"] == [str(first), str(second)]
+    assert calls["load"]["select_cols"] == ["value"]
+    assert calls["load"]["row_limit"] == 1
