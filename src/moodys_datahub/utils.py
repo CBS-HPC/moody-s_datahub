@@ -4,6 +4,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from math import ceil
@@ -1284,66 +1285,108 @@ def _bvd_changes_ray_not_working(initial_ids, df, num_workers=-1):
 
 
 def _bvd_changes_ray(initial_ids, df, num_workers: int = -1):
-    _require_ray()
+    """Resolve connected BvD ID lineage and map each ID to its terminal newest ID.
 
-    if not num_workers or num_workers < 0:
-        num_workers = max(1, cpu_count() - 2)
-    ray.init(num_cpus=num_workers)
+    The `num_workers` argument is retained for API compatibility but is no longer used.
+    """
 
-    initial_ids = set(initial_ids)
-    new_ids = initial_ids
-    newest_ids = {id: id for id in new_ids}
-    current_ids = set()  # Keep track of processed IDs
-    found_new = True
-    no_iter = 1
-    while found_new:
-        found_new = False
+    initial_ids = {bvd_id for bvd_id in set(initial_ids) if pd.notna(bvd_id)}
+    if not initial_ids:
+        return set(), {}, df.iloc[0:0].copy()
 
-        if not current_ids:
-            current_ids = new_ids.copy()
+    graph_df = df[["old_id", "new_id"]].copy()
+    if "change_date" in df.columns:
+        graph_df.loc[:, "_change_date"] = pd.to_datetime(
+            df["change_date"], errors="coerce"
+        )
+    else:
+        graph_df.loc[:, "_change_date"] = pd.NaT
+
+    graph_df = graph_df.dropna(subset=["old_id", "new_id"])
+
+    neighbors = defaultdict(set)
+    edge_dates = {}
+
+    for old_id, new_id, change_date in graph_df.itertuples(index=False):
+        neighbors[old_id].add(new_id)
+        neighbors[new_id].add(old_id)
+
+        edge_key = (old_id, new_id)
+        previous_date = edge_dates.get(edge_key)
+        if previous_date is None or (
+            pd.notna(change_date)
+            and (pd.isna(previous_date) or change_date > previous_date)
+        ):
+            edge_dates[edge_key] = change_date
+
+    discovered_ids = set(initial_ids)
+    queue = deque(initial_ids)
+
+    while queue:
+        current_id = queue.popleft()
+        for neighbor in neighbors.get(current_id, ()):
+            if neighbor not in discovered_ids:
+                discovered_ids.add(neighbor)
+                queue.append(neighbor)
+
+    outgoing_edges = defaultdict(list)
+    for (old_id, new_id), change_date in edge_dates.items():
+        if old_id in discovered_ids and new_id in discovered_ids:
+            outgoing_edges[old_id].append((change_date, new_id))
+
+    def _edge_sort_key(item):
+        change_date, new_id = item
+        has_date = 1 if pd.notna(change_date) else 0
+        normalized_date = change_date if pd.notna(change_date) else pd.Timestamp.min
+        return (has_date, normalized_date, str(new_id))
+
+    for old_id in outgoing_edges:
+        outgoing_edges[old_id].sort(key=_edge_sort_key, reverse=True)
+
+    newest_ids = {}
+    visiting = set()
+
+    def resolve_newest_id(current_id):
+        if current_id in newest_ids:
+            return newest_ids[current_id]
+
+        if current_id in visiting:
+            return current_id
+
+        visiting.add(current_id)
+        next_ids = [new_id for _, new_id in outgoing_edges.get(current_id, [])]
+
+        if not next_ids:
+            resolved_id = current_id
         else:
-            current_ids = new_ids - current_ids
+            resolved_id = resolve_newest_id(next_ids[0])
 
-        # Use pandas isin to check for matching old_id and new_id in a vectorized way
-        old_matches = df[df["old_id"].isin(current_ids)]
-        new_matches = df[df["new_id"].isin(current_ids)]
+        visiting.remove(current_id)
+        newest_ids[current_id] = resolved_id
+        return resolved_id
 
-        # Process old_id matches to find corresponding new_ids
-        for _, row in old_matches.iterrows():
-            new_id = row["new_id"]
-            old_id = row["old_id"]
-            if new_id not in new_ids:
-                new_ids.add(new_id)
-                found_new = True
-                no_iter += 1
-                newest_ids[old_id] = new_id
-                newest_ids[new_id] = new_id
+    for bvd_id in discovered_ids:
+        resolve_newest_id(bvd_id)
 
-        # Process new_id matches to find corresponding old_ids
-        for _, row in new_matches.iterrows():
-            old_id = row["old_id"]
-            new_id = row["new_id"]
-            if old_id not in new_ids:
-                new_ids.add(old_id)
-                found_new = True
-                no_iter += 1
-                newest_ids[old_id] = newest_ids[new_id]
+    filtered_df = df[
+        df["old_id"].isin(discovered_ids) | df["new_id"].isin(discovered_ids)
+    ].copy()
 
-    # Filter the DataFrame based on new_ids
-    df = df[df["old_id"].isin(new_ids) | df["new_id"].isin(new_ids)]
+    if not filtered_df.empty:
+        filtered_df.loc[:, "newest_id"] = filtered_df.apply(
+            lambda row: newest_ids.get(
+                row["old_id"], newest_ids.get(row["new_id"])
+            ),
+            axis=1,
+        )
 
-    # Map newest IDs to the filtered DataFrame
-    df.loc[:, "newest_id"] = df.apply(
-        lambda row: newest_ids.get(row["old_id"], newest_ids.get(row["new_id"])), axis=1
-    )
-    ray.shutdown()
-
+    no_iter = 1 + max(0, len(discovered_ids) - len(initial_ids))
     print(f"Bvd_id changes were found at {no_iter} steps")
 
-    if initial_ids == new_ids:
+    if initial_ids == discovered_ids:
         print("No changes were found for the provided bvd_ids")
 
-    return new_ids, newest_ids, df
+    return discovered_ids, newest_ids, filtered_df
 
 
 def _read_pd(file, select_cols):

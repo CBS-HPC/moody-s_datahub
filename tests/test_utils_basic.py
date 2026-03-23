@@ -4,6 +4,7 @@ import pytest
 
 from moodys_datahub.process import _Process
 from moodys_datahub.utils import (
+    _bvd_changes_ray,
     _check_list_format,
     _construct_query,
     _date_pd,
@@ -225,3 +226,118 @@ def test_process_all_explicit_polars_still_returns_pandas(monkeypatch):
     assert df["value"].tolist() == [7]
     assert file_names == ["polars.csv"]
     assert proc.dfs.equals(df)
+
+
+def test_bvd_changes_ray_resolves_terminal_newest_id_across_chain():
+    df = pd.DataFrame(
+        {
+            "old_id": ["A", "B"],
+            "new_id": ["B", "C"],
+            "change_date": ["2020-01-01", "2021-01-01"],
+        }
+    )
+
+    new_ids, newest_ids, filtered_df = _bvd_changes_ray(["A"], df)
+
+    assert new_ids == {"A", "B", "C"}
+    assert newest_ids == {"A": "C", "B": "C", "C": "C"}
+    assert filtered_df["newest_id"].tolist() == ["C", "C"]
+
+
+def test_bvd_changes_ray_finds_ancestors_when_starting_from_newest_id():
+    df = pd.DataFrame(
+        {
+            "old_id": ["A", "B"],
+            "new_id": ["B", "C"],
+            "change_date": ["2020-01-01", "2021-01-01"],
+        }
+    )
+
+    new_ids, newest_ids, filtered_df = _bvd_changes_ray(["C"], df)
+
+    assert new_ids == {"A", "B", "C"}
+    assert newest_ids == {"A": "C", "B": "C", "C": "C"}
+    assert filtered_df["newest_id"].tolist() == ["C", "C"]
+
+
+def test_bvd_changes_ray_prefers_latest_forward_change_date():
+    df = pd.DataFrame(
+        {
+            "old_id": ["A", "A"],
+            "new_id": ["B", "C"],
+            "change_date": ["2020-01-01", "2021-01-01"],
+        }
+    )
+
+    new_ids, newest_ids, filtered_df = _bvd_changes_ray(["A"], df)
+
+    assert new_ids == {"A", "B", "C"}
+    assert newest_ids["A"] == "C"
+    assert filtered_df.loc[filtered_df["old_id"] == "A", "newest_id"].tolist() == [
+        "C",
+        "C",
+    ]
+
+
+def test_bvd_changes_ray_resolves_terminal_newest_id_across_chain():
+    df = pd.DataFrame(
+        {
+            "old_id": ["A", "B"],
+            "new_id": ["B", "C"],
+            "change_date": ["2020-01-01", "2021-01-01"],
+        }
+    )
+
+    new_ids, newest_ids, filtered_df = _bvd_changes_ray(["A"], df)
+
+    assert new_ids == {"A", "B", "C"}
+    assert newest_ids == {"A": "C", "B": "C", "C": "C"}
+    assert filtered_df["newest_id"].tolist() == ["C", "C"]
+
+
+def test_bvd_changes_ray_finds_reverse_links_and_keeps_terminal_mapping():
+    df = pd.DataFrame(
+        {
+            "old_id": ["A", "B"],
+            "new_id": ["B", "C"],
+            "change_date": ["2020-01-01", "2021-01-01"],
+        }
+    )
+
+    new_ids, newest_ids, filtered_df = _bvd_changes_ray(["C"], df)
+
+    assert new_ids == {"A", "B", "C"}
+    assert newest_ids == {"A": "C", "B": "C", "C": "C"}
+    assert filtered_df["newest_id"].tolist() == ["C", "C"]
+
+
+def test_bvd_changes_ray_prefers_latest_change_date_when_old_id_branches():
+    df = pd.DataFrame(
+        {
+            "old_id": ["A", "A"],
+            "new_id": ["B", "C"],
+            "change_date": ["2020-01-01", "2021-01-01"],
+        }
+    )
+
+    new_ids, newest_ids, filtered_df = _bvd_changes_ray(["A"], df)
+
+    assert new_ids == {"A", "B", "C"}
+    assert newest_ids["A"] == "C"
+    assert filtered_df["newest_id"].tolist() == ["C", "C"]
+
+
+def test_bvd_changes_ray_returns_empty_filtered_df_when_no_changes_found():
+    df = pd.DataFrame(
+        {
+            "old_id": ["A"],
+            "new_id": ["B"],
+            "change_date": ["2020-01-01"],
+        }
+    )
+
+    new_ids, newest_ids, filtered_df = _bvd_changes_ray(["Z"], df)
+
+    assert new_ids == {"Z"}
+    assert newest_ids == {"Z": "Z"}
+    assert filtered_df.empty

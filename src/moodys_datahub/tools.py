@@ -211,7 +211,7 @@ class Sftp(_Process):
         SFTP.output_format = None
         SFTP.query = fuzzy_query
         SFTP.query_args = [names, "name", "bvd_id_number", cut_off, company_suffixes, 1]
-        df, _ = SFTP.process_all(num_workers=num_workers)
+        df, _ = SFTP.process_all(num_workers=num_workers, engine="auto")
 
         # Finder de bedste matches på tværs af "file parts"
         max_scores = df.groupby("Search_string", as_index=False)["Score"].max()
@@ -385,7 +385,7 @@ class Sftp(_Process):
         SFTP.set_table = "bvd_id_changes_full"
         SFTP._select_cols = ["old_id", "new_id", "change_date"]
         SFTP.output_format = None
-        df, _ = SFTP.process_all(num_workers=num_workers)
+        df, _ = SFTP.process_all(num_workers=num_workers, engine="auto")
 
         new_ids, newest_ids, filtered_df = _bvd_changes_ray(bvd_list, df, num_workers)
 
