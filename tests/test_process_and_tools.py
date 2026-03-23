@@ -746,3 +746,130 @@ def test_process_polars_downloads_and_loads_existing_local_files(monkeypatch, tm
     assert calls["load"]["file_list"] == [str(first), str(second)]
     assert calls["load"]["select_cols"] == ["value"]
     assert calls["load"]["row_limit"] == 1
+
+
+def test_pandas_all_rejects_polars_expression_query():
+    proc = _make_dummy_process()
+
+    with pytest.raises(ValueError, match="Polars expressions are not supported"):
+        proc.pandas_all(query=pl.col("value") > 1)
+
+
+def test_pandas_all_raises_timeout_when_downloads_are_incomplete(monkeypatch):
+    proc = _make_dummy_process()
+
+    monkeypatch.setattr(DummyProcess, "_check_download", lambda self, files: False)
+
+    with pytest.raises(TimeoutError, match="Files have not finished downloading"):
+        proc.pandas_all(files=["sample.csv"])
+
+
+def test_pandas_all_parallel_batches_and_saves(monkeypatch):
+    proc = _make_dummy_process()
+    proc.concat_files = True
+    proc.output_format = [".csv"]
+    run_calls = []
+
+    monkeypatch.setattr(DummyProcess, "_check_download", lambda self, files: True)
+    monkeypatch.setattr(
+        DummyProcess,
+        "_validate_args",
+        lambda self, **kwargs: (kwargs["select_cols"], kwargs["files"], kwargs["destination"]),
+    )
+    monkeypatch.setattr("moodys_datahub.process.set_workers", lambda num_workers, default: 2)
+
+    def fake_run_parallel(**kwargs):
+        run_calls.append(kwargs)
+        first_file = kwargs["params_list"][0][0]
+        if first_file == "a.csv":
+            return [
+                [pd.DataFrame({"value": [1]}), ["saved_a.csv"], False],
+                [pd.DataFrame({"value": [2]}), ["saved_b.csv"], True],
+            ]
+        return [[pd.DataFrame({"value": [3]}), None, False]]
+
+    monkeypatch.setattr("moodys_datahub.process._run_parallel", fake_run_parallel)
+    monkeypatch.setattr(
+        "moodys_datahub.process._save_chunks",
+        lambda **kwargs: (pd.DataFrame({"value": [1, 2, 3]}), ["joined.csv"]),
+    )
+
+    df, file_names = proc.pandas_all(files=["a.csv", "b.csv", "c.csv"], num_workers=2)
+
+    assert len(run_calls) == 2
+    assert df["value"].tolist() == [1, 2, 3]
+    assert file_names == ["joined.csv"]
+    assert proc.last_process_engine == "pandas"
+    assert proc.last_process_reason == "direct"
+
+
+def test_pandas_all_sequential_concat_false_concatenates_frames(monkeypatch):
+    proc = _make_dummy_process()
+    proc.concat_files = False
+
+    monkeypatch.setattr(DummyProcess, "_check_download", lambda self, files: True)
+    monkeypatch.setattr(
+        DummyProcess,
+        "_validate_args",
+        lambda self, **kwargs: (kwargs["select_cols"], kwargs["files"], kwargs["destination"]),
+    )
+    monkeypatch.setattr("moodys_datahub.process.set_workers", lambda num_workers, default: 1)
+    monkeypatch.setattr(
+        DummyProcess,
+        "_process_sequential",
+        lambda self, *args: (
+            [pd.DataFrame({"value": [1]}), pd.DataFrame({"value": [2]})],
+            ["saved.csv"],
+            [False, False],
+        ),
+    )
+
+    df, file_names = proc.pandas_all(files=["a.csv"], num_workers=1)
+
+    assert df["value"].tolist() == [1, 2]
+    assert file_names == ["saved.csv"]
+
+
+def test_polars_all_saves_results_and_restores_concat_files(monkeypatch):
+    proc = _make_dummy_process()
+    proc.concat_files = False
+    proc.output_format = [".parquet"]
+    proc.file_size_mb = 200
+
+    monkeypatch.setattr(DummyProcess, "_check_download", lambda self, files: True)
+    monkeypatch.setattr(
+        DummyProcess,
+        "_validate_args",
+        lambda self, **kwargs: (kwargs["select_cols"], kwargs["files"], kwargs["destination"]),
+    )
+    monkeypatch.setattr(
+        DummyProcess,
+        "_process_polars",
+        lambda self, *args, **kwargs: pl.DataFrame({"value": [1, 2]}),
+    )
+    monkeypatch.setattr("moodys_datahub.process.set_workers", lambda num_workers, default: 2)
+    monkeypatch.setattr(
+        "moodys_datahub.process._save_chunks",
+        lambda **kwargs: (kwargs["dfs"], ["polars.parquet"]),
+    )
+
+    df, file_names = proc.polars_all(files=["sample.csv"], num_workers=2)
+
+    assert isinstance(df, pl.DataFrame)
+    assert df["value"].to_list() == [1, 2]
+    assert file_names == ["polars.parquet"]
+    assert proc.concat_files is False
+    assert proc.last_process_engine == "polars"
+    assert proc.last_process_reason == "direct"
+
+
+def test_polars_all_restores_concat_files_on_timeout(monkeypatch):
+    proc = _make_dummy_process()
+    proc.concat_files = False
+
+    monkeypatch.setattr(DummyProcess, "_check_download", lambda self, files: False)
+
+    with pytest.raises(TimeoutError, match="Files have not finished downloading"):
+        proc.polars_all(files=["sample.csv"])
+
+    assert proc.concat_files is False
