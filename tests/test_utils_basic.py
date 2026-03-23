@@ -241,6 +241,71 @@ def test_process_all_explicit_polars_still_returns_pandas(monkeypatch):
     assert proc.last_process_reason == "explicit"
 
 
+def test_process_all_auto_routes_unmarked_callable_to_pandas(monkeypatch):
+    proc = _make_dummy_process()
+    calls = {"pandas": 0, "polars": 0}
+
+    def fake_pandas_all(*args, **kwargs):
+        calls["pandas"] += 1
+        return pd.DataFrame({"value": [5]}), ["pandas.csv"]
+
+    def fake_polars_all(*args, **kwargs):
+        calls["polars"] += 1
+        return pl.DataFrame({"value": [5]}), ["polars.csv"]
+
+    monkeypatch.setattr(DummyProcess, "pandas_all", fake_pandas_all)
+    monkeypatch.setattr(DummyProcess, "polars_all", fake_polars_all)
+
+    df, file_names = proc.process_all(engine="auto", query=lambda df: df)
+
+    assert calls == {"pandas": 1, "polars": 0}
+    assert isinstance(df, pd.DataFrame)
+    assert file_names == ["pandas.csv"]
+    assert proc.last_process_engine == "pandas"
+    assert proc.last_process_reason == "callable_query"
+
+
+def test_process_all_auto_routes_concat_files_false_to_pandas(monkeypatch):
+    proc = _make_dummy_process()
+    proc.concat_files = False
+    calls = {"pandas": 0, "polars": 0}
+
+    def fake_pandas_all(*args, **kwargs):
+        calls["pandas"] += 1
+        return pd.DataFrame({"value": [9]}), ["pandas.csv"]
+
+    def fake_polars_all(*args, **kwargs):
+        calls["polars"] += 1
+        return pl.DataFrame({"value": [9]}), ["polars.csv"]
+
+    monkeypatch.setattr(DummyProcess, "pandas_all", fake_pandas_all)
+    monkeypatch.setattr(DummyProcess, "polars_all", fake_polars_all)
+
+    df, file_names = proc.process_all(engine="auto")
+
+    assert calls == {"pandas": 1, "polars": 0}
+    assert isinstance(df, pd.DataFrame)
+    assert file_names == ["pandas.csv"]
+    assert proc.last_process_reason == "concat_files_false"
+
+
+def test_process_all_auto_rejects_polars_expr_when_only_pandas_can_run():
+    proc = _make_dummy_process()
+    proc.concat_files = False
+
+    with pytest.raises(ValueError, match="cannot fall back to pandas"):
+        proc.process_all(engine="auto", query=pl.col("value") > 1)
+
+
+def test_process_all_explicit_polars_rejects_pandas_only_workloads():
+    proc = _make_dummy_process()
+
+    with pytest.raises(
+        ValueError, match="cannot use the Polars backend: string queries require"
+    ):
+        proc.process_all(engine="polars", query="value > 1")
+
+
 def test_bvd_changes_ray_resolves_terminal_newest_id_across_chain():
     df = pd.DataFrame(
         {
