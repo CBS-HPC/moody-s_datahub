@@ -358,6 +358,28 @@ def test_fuzzy_match_pl_returns_best_fuzzy_match_and_no_match_rows():
     assert no_match_rows["bvd_id_number"].tolist() == [None]
 
 
+def test_fuzzy_match_pl_widens_candidates_when_blocked_prefix_misses():
+    df = pl.DataFrame(
+        {
+            "name": ["Acme Limited", "Zebra Services"],
+            "bvd_id_number": ["BVD1", "BVD2"],
+        }
+    )
+
+    result = fuzzy_match_pl(
+        names=["zcme limited"],
+        df=df,
+        match_column="name",
+        return_column="bvd_id_number",
+        cut_off=80,
+        num_workers=1,
+    )
+
+    assert result["BestMatch"].tolist() == ["acme limited"]
+    assert result["bvd_id_number"].tolist() == ["BVD1"]
+    assert result["Score"].iloc[0] >= 80
+
+
 def test_process_one_uses_polars_row_limit_for_single_compatible_file(monkeypatch):
     proc = _make_dummy_process()
 

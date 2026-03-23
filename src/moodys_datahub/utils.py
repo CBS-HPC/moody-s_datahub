@@ -1214,23 +1214,99 @@ def fuzzy_match_pl(
             prefix3_map[record["_prefix3"]].append(record)
             prefix1_map[record["_prefix1"]].append(record)
 
-        def select_candidates(search_string):
-            prefix3 = block_key(search_string, 3)
-            prefix1 = block_key(search_string, 1)
-            candidates = list(prefix3_map.get(prefix3, []))
-            if not candidates:
-                candidates = list(prefix1_map.get(prefix1, []))
-            if not candidates:
-                return candidate_records
+        def dedupe_candidates(candidates):
+            seen = set()
+            unique_candidates = []
+            for candidate in candidates:
+                key = candidate["BestMatch"]
+                if key not in seen:
+                    seen.add(key)
+                    unique_candidates.append(candidate)
+            return unique_candidates
 
+        def filter_by_length(candidates, search_string):
             name_length = len(search_string)
             max_delta = max(3, min(10, int(ceil(name_length / 3))))
-            length_filtered = [
+            filtered = [
                 candidate
                 for candidate in candidates
                 if abs(candidate["_name_len"] - name_length) <= max_delta
             ]
-            return length_filtered or candidates
+            return filtered or candidates
+
+        def candidate_tiers(search_string):
+            prefix3 = block_key(search_string, 3)
+            prefix1 = block_key(search_string, 1)
+            tiers = []
+
+            prefix3_candidates = dedupe_candidates(prefix3_map.get(prefix3, []))
+            prefix1_candidates = dedupe_candidates(prefix1_map.get(prefix1, []))
+
+            if prefix3_candidates:
+                tiers.append(filter_by_length(prefix3_candidates, search_string))
+
+            if prefix1_candidates:
+                filtered_prefix1 = filter_by_length(prefix1_candidates, search_string)
+                if not tiers or filtered_prefix1 != tiers[-1]:
+                    tiers.append(filtered_prefix1)
+
+            all_length_candidates = filter_by_length(candidate_records, search_string)
+            if not tiers or all_length_candidates != tiers[-1]:
+                tiers.append(all_length_candidates)
+
+            if tiers[-1] != candidate_records:
+                tiers.append(candidate_records)
+
+            return tiers
+
+        def score_candidate_set(search_string, candidates):
+            choices = [candidate["BestMatch"] for candidate in candidates]
+
+            if len(choices) > 2000:
+                best_match = process.extractOne(
+                    search_string, choices, score_cutoff=cut_off
+                )
+                if best_match is None:
+                    return []
+
+                _, best_score, candidate_idx = best_match
+                candidate = candidates[candidate_idx]
+                return [
+                    (
+                        search_string,
+                        candidate["BestMatch"],
+                        float(best_score),
+                        candidate[match_column],
+                        candidate[return_column],
+                    )
+                ]
+
+            matches = process.extract(
+                search_string,
+                choices,
+                score_cutoff=cut_off,
+                limit=len(choices),
+            )
+
+            if not matches:
+                return []
+
+            best_score = matches[0][1]
+            best_candidates = [
+                candidates[candidate_idx]
+                for _, score, candidate_idx in matches
+                if score == best_score
+            ]
+            return [
+                (
+                    search_string,
+                    candidate["BestMatch"],
+                    float(best_score),
+                    candidate[match_column],
+                    candidate[return_column],
+                )
+                for candidate in best_candidates
+            ]
 
         def score_search_strings(search_batch):
             result_rows = []
@@ -1248,57 +1324,17 @@ def fuzzy_match_pl(
                     )
                     continue
 
-                candidates = select_candidates(search_string)
-                choices = [candidate["BestMatch"] for candidate in candidates]
+                matched_rows = []
+                for candidates in candidate_tiers(search_string):
+                    matched_rows = score_candidate_set(search_string, candidates)
+                    if matched_rows:
+                        break
 
-                if len(choices) > 2000:
-                    best_match = process.extractOne(
-                        search_string, choices, score_cutoff=cut_off
-                    )
-                    if best_match is None:
-                        result_rows.append((search_string, None, 0.0, None, None))
-                        continue
-
-                    choice_value, best_score, candidate_idx = best_match
-                    candidate = candidates[candidate_idx]
-                    result_rows.append(
-                        (
-                            search_string,
-                            candidate["BestMatch"],
-                            float(best_score),
-                            candidate[match_column],
-                            candidate[return_column],
-                        )
-                    )
-                    continue
-
-                matches = process.extract(
-                    search_string,
-                    choices,
-                    score_cutoff=cut_off,
-                    limit=len(choices),
-                )
-
-                if not matches:
+                if not matched_rows:
                     result_rows.append((search_string, None, 0.0, None, None))
                     continue
 
-                best_score = matches[0][1]
-                best_candidates = [
-                    candidates[candidate_idx]
-                    for _, score, candidate_idx in matches
-                    if score == best_score
-                ]
-                for candidate in best_candidates:
-                    result_rows.append(
-                        (
-                            search_string,
-                            candidate["BestMatch"],
-                            float(best_score),
-                            candidate[match_column],
-                            candidate[return_column],
-                        )
-                    )
+                result_rows.extend(matched_rows)
 
             return result_rows
 
