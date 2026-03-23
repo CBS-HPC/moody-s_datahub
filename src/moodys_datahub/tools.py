@@ -6,6 +6,7 @@ from datetime import datetime
 from multiprocessing import cpu_count
 
 import pandas as pd
+import polars as pl
 import pyarrow.parquet as pq
 
 from .load_data import _table_dictionary
@@ -212,16 +213,13 @@ class Sftp(_Process):
         SFTP.output_format = None
         try:
             df_polars, _ = SFTP.polars_all(num_workers=num_workers)
-            df = fuzzy_match_pl(
-                names=names,
-                df=df_polars,
-                match_column="name",
-                return_column="bvd_id_number",
-                cut_off=cut_off,
-                remove_str=company_suffixes,
-                num_workers=num_workers,
-            )
-        except Exception as exc:
+        except (
+            ImportError,
+            OSError,
+            TimeoutError,
+            ValueError,
+            pl.exceptions.PolarsError,
+        ) as exc:
             print(f"Falling back to pandas fuzzy matching: {exc}")
             SFTP.query = fuzzy_query
             SFTP.query_args = [
@@ -233,6 +231,16 @@ class Sftp(_Process):
                 1,
             ]
             df, _ = SFTP.process_all(num_workers=num_workers, engine="pandas")
+        else:
+            df = fuzzy_match_pl(
+                names=names,
+                df=df_polars,
+                match_column="name",
+                return_column="bvd_id_number",
+                cut_off=cut_off,
+                remove_str=company_suffixes,
+                num_workers=num_workers,
+            )
 
         # Finder de bedste matches på tværs af "file parts"
         max_scores = df.groupby("Search_string", as_index=False)["Score"].max()

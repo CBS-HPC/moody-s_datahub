@@ -3,6 +3,7 @@ import polars as pl
 import pytest
 
 from moodys_datahub.process import _Process
+from moodys_datahub.tools import Sftp
 from moodys_datahub.utils import (
     _bvd_changes_ray,
     _check_list_format,
@@ -422,3 +423,105 @@ def test_process_one_falls_back_to_process_all_for_pandas_only_workloads(monkeyp
     assert isinstance(df, pd.DataFrame)
     assert df["value"].tolist() == [1, 2]
     assert proc.last_process_engine == "pandas"
+
+
+def test_search_company_names_prefers_polars_without_pandas_fallback(monkeypatch):
+    class FakeSearch:
+        def _object_defaults(self):
+            pass
+
+        def polars_all(self, num_workers):
+            return pl.DataFrame({"name": ["Acme Ltd"], "bvd_id_number": ["BVD1"]}), [
+                "firmographics.parquet"
+            ]
+
+        def process_all(self, *args, **kwargs):  # pragma: no cover - should not be hit
+            raise AssertionError("pandas fallback should not be used")
+
+    fake_search = FakeSearch()
+
+    monkeypatch.setattr("moodys_datahub.tools.copy.deepcopy", lambda obj: fake_search)
+    monkeypatch.setattr(pd.DataFrame, "to_csv", lambda self, *args, **kwargs: None)
+    monkeypatch.setattr(
+        "moodys_datahub.tools.fuzzy_match_pl",
+        lambda **kwargs: pd.DataFrame(
+            {
+                "Search_string": ["acme"],
+                "BestMatch": ["acme ltd"],
+                "Score": [100.0],
+                "name": ["Acme Ltd"],
+                "bvd_id_number": ["BVD1"],
+            }
+        ),
+    )
+
+    result = Sftp.search_company_names(object(), names=["Acme"], num_workers=1)
+
+    assert result["bvd_id_number"].tolist() == ["BVD1"]
+    assert fake_search.set_data_product == "Firmographics (Monthly)"
+    assert fake_search.set_table == "bvd_id_and_name"
+
+
+def test_search_company_names_falls_back_to_pandas_on_polars_load_error(monkeypatch):
+    class FakeSearch:
+        def _object_defaults(self):
+            pass
+
+        def polars_all(self, num_workers):
+            raise ValueError("broken polars load")
+
+        def process_all(self, *args, **kwargs):
+            assert kwargs["engine"] == "pandas"
+            return (
+                pd.DataFrame(
+                    {
+                        "Search_string": ["acme"],
+                        "BestMatch": ["acme ltd"],
+                        "Score": [95.0],
+                        "name": ["Acme Ltd"],
+                        "bvd_id_number": ["BVD1"],
+                    }
+                ),
+                ["firmographics.csv"],
+            )
+
+    fake_search = FakeSearch()
+
+    monkeypatch.setattr("moodys_datahub.tools.copy.deepcopy", lambda obj: fake_search)
+    monkeypatch.setattr(pd.DataFrame, "to_csv", lambda self, *args, **kwargs: None)
+    monkeypatch.setattr(
+        "moodys_datahub.tools.fuzzy_match_pl",
+        lambda **kwargs: (_ for _ in ()).throw(
+            AssertionError("fuzzy_match_pl should not be called after a load failure")
+        ),
+    )
+
+    result = Sftp.search_company_names(object(), names=["Acme"], num_workers=1)
+
+    assert result["bvd_id_number"].tolist() == ["BVD1"]
+
+
+def test_search_company_names_propagates_polars_matcher_errors(monkeypatch):
+    class FakeSearch:
+        def _object_defaults(self):
+            pass
+
+        def polars_all(self, num_workers):
+            return pl.DataFrame({"name": ["Acme Ltd"], "bvd_id_number": ["BVD1"]}), [
+                "firmographics.parquet"
+            ]
+
+        def process_all(self, *args, **kwargs):  # pragma: no cover - should not be hit
+            raise AssertionError("pandas fallback should not be used")
+
+    fake_search = FakeSearch()
+
+    monkeypatch.setattr("moodys_datahub.tools.copy.deepcopy", lambda obj: fake_search)
+    monkeypatch.setattr(pd.DataFrame, "to_csv", lambda self, *args, **kwargs: None)
+    monkeypatch.setattr(
+        "moodys_datahub.tools.fuzzy_match_pl",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("matcher failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="matcher failed"):
+        Sftp.search_company_names(object(), names=["Acme"], num_workers=1)
