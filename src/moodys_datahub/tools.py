@@ -529,6 +529,8 @@ class Sftp(_Process):
                 else:
                     if letters_only:
                         result_df = df_backup.loc[result_df.index]
+                    else:
+                        result_df = result_df.copy()
                     result_df["search_word"] = word
                     results.append(result_df)
 
