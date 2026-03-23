@@ -55,6 +55,7 @@ def year_distribution(df=None):
 
 
 def national_identifer(obj, national_ids: list = None, num_workers: int = -1):
+    """Return matching rows for the provided national IDs."""
     new_obj = obj.copy_obj()
     new_obj.set_data_product = "Key Financials (Monthly)"
     new_obj.set_table = "key_financials_eur"
@@ -65,7 +66,7 @@ def national_identifer(obj, national_ids: list = None, num_workers: int = -1):
     )
 
     # Execute
-    df = new_obj.process_all(
+    df, _ = new_obj.process_all(
         num_workers=num_workers,
         select_cols=select_cols,
         query=query,

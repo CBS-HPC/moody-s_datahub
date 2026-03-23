@@ -2,6 +2,7 @@ import pandas as pd
 import polars as pl
 import pytest
 
+from moodys_datahub.extra import national_identifer
 from moodys_datahub.process import _Process
 from moodys_datahub.tools import Sftp
 from moodys_datahub.utils import (
@@ -525,3 +526,102 @@ def test_search_company_names_propagates_polars_matcher_errors(monkeypatch):
 
     with pytest.raises(RuntimeError, match="matcher failed"):
         Sftp.search_company_names(object(), names=["Acme"], num_workers=1)
+
+
+def test_national_identifer_returns_dataframe_and_uses_polars_query():
+    class FakeSearch:
+        def __init__(self):
+            self.set_data_product = None
+            self.set_table = None
+
+        def process_all(self, *args, **kwargs):
+            assert kwargs["select_cols"] == ["bvd_id_number", "national_id_number"]
+            assert isinstance(kwargs["query"], pl.Expr)
+            return (
+                pd.DataFrame(
+                    {
+                        "bvd_id_number": ["BVD1"],
+                        "national_id_number": ["123"],
+                    }
+                ),
+                ["national.csv"],
+            )
+
+    class FakeObj:
+        def __init__(self):
+            self.search = FakeSearch()
+
+        def copy_obj(self):
+            return self.search
+
+    result = national_identifer(FakeObj(), national_ids=[123], num_workers=1)
+
+    assert isinstance(result, pd.DataFrame)
+    assert result["bvd_id_number"].tolist() == ["BVD1"]
+
+
+def test_batch_bvd_search_uses_structured_exact_bvd_query(monkeypatch, tmp_path):
+    products_path = tmp_path / "products.xlsx"
+    bvd_numbers_path = tmp_path / "bvd_numbers.txt"
+
+    pd.DataFrame(
+        {
+            "Data Product": ["Firmographics (Monthly)"],
+            "Table": ["bvd_id_and_name"],
+            "Column": ["bvd_id_number, guo_bvd_id_number"],
+            "Run": [True],
+        }
+    ).to_excel(products_path, index=False)
+    pd.DataFrame(["DK1", "SE2"]).to_csv(
+        bvd_numbers_path, index=False, header=False
+    )
+
+    class FakeSearch:
+        def __init__(self):
+            self._set_data_product = None
+            self._set_table = None
+            self.calls = []
+
+        def _object_defaults(self):
+            pass
+
+        @property
+        def set_data_product(self):
+            return self._set_data_product
+
+        @set_data_product.setter
+        def set_data_product(self, value):
+            self._set_data_product = value
+
+        @property
+        def set_table(self):
+            return self._set_table
+
+        @set_table.setter
+        def set_table(self, value):
+            self._set_table = value
+
+        def get_column_names(self):
+            return ["bvd_id_number", "guo_bvd_id_number", "name"]
+
+        def process_all(self, *args, **kwargs):
+            self.calls.append(kwargs)
+            return pd.DataFrame({"value": [1]}), ["batch.csv"]
+
+    fake_search = FakeSearch()
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("moodys_datahub.tools.copy.deepcopy", lambda obj: fake_search)
+
+    Sftp.batch_bvd_search(
+        object(),
+        products=str(products_path),
+        bvd_numbers=str(bvd_numbers_path),
+    )
+
+    assert len(fake_search.calls) == 1
+    assert fake_search.calls[0]["bvd_query"] == [
+        ["DK1", "SE2"],
+        ["bvd_id_number", "guo_bvd_id_number"],
+        "exact",
+    ]
