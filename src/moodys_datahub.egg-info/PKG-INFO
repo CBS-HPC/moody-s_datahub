@@ -31,12 +31,10 @@ Requires-Dist: openpyxl
 Requires-Dist: pandas
 Requires-Dist: paramiko==3.5.1
 Requires-Dist: polars
-Requires-Dist: polars-ds
 Requires-Dist: psutil
 Requires-Dist: pyarrow
 Requires-Dist: pysftp
 Requires-Dist: rapidfuzz
-Requires-Dist: ray; python_version < "3.13"
 Requires-Dist: tqdm
 Provides-Extra: dev
 Requires-Dist: build; extra == "dev"
@@ -62,8 +60,8 @@ workflow end to end:
 - select a product, table, and output columns
 - filter by exact BvD ID lists, country-code prefixes, and time periods
 - download missing files to a local cache
-- process large exports with either the pandas pipeline or the faster Polars
-  pipeline for exact-match workloads
+- process large exports with an explicit pandas pipeline, an explicit Polars
+  pipeline, or an auto-selecting wrapper that returns pandas
 - run helper workflows such as fuzzy company-name matching, BvD change tracking,
   and Orbis-to-DataHub column mapping
 
@@ -101,8 +99,13 @@ Use `select_data()` when you want the interactive widget-based flow in notebook
 environments. Use `set_data_product` and `set_table` when you want a fully
 scripted workflow.
 
-Use `process_all()` for the pandas-based workflow and `polars_all()` when you
-want the faster exact-match path for large BvD ID filters.
+Use `process_all()` when you want automatic backend selection with a pandas
+return type. Use `pandas_all()` when you need pandas-only query semantics
+explicitly, and `polars_all()` when you want the native Polars path and return
+type. The Polars path supports exact and prefix BvD filters, multi-column BvD
+matching, and year-based `time_period` filtering. After processing, inspect
+`SFTP.last_process_engine` and `SFTP.last_process_reason` to see which backend
+was used and why.
 
 ## Installation
 
@@ -129,9 +132,6 @@ pip install dist/moodys_datahub-1.0.0-py3-none-any.whl
 - Python 3.9+
 - Access to a Moody's DataHub SFTP export
 - For CBS users: a personal private key (`.pem`) issued for the CBS SFTP setup
-
-Python 3.13 is supported for core package installation, but workflows that rely
-on `ray` remain unavailable there until upstream support is available.
 
 ## SFTP Access
 

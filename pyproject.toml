@@ -36,12 +36,10 @@ dependencies = [
     "pandas",
     "paramiko==3.5.1",
     "polars",
-    "polars-ds",
     "psutil",
     "pyarrow",
     "pysftp",
     "rapidfuzz",
-    "ray; python_version < '3.13'",
     "tqdm",
 ]
 

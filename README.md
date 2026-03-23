@@ -88,9 +88,6 @@ pip install dist/moodys_datahub-1.0.0-py3-none-any.whl
 - Access to a Moody's DataHub SFTP export
 - For CBS users: a personal private key (`.pem`) issued for the CBS SFTP setup
 
-Python 3.13 is supported for core package installation, but workflows that rely
-on `ray` remain unavailable there until upstream support is available.
-
 ## SFTP Access
 
 CBS users should contact CBS staff to obtain a personal private key used to

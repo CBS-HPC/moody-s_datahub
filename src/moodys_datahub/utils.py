@@ -20,20 +20,6 @@ import pyarrow
 from rapidfuzz import process
 from tqdm import tqdm
 
-try:
-    import ray
-except ImportError:  # pragma: no cover - depends on interpreter/dependency resolution
-    ray = None
-
-
-def _require_ray():
-    if ray is None:
-        raise ImportError(
-            "ray is required for BvD change tracking. "
-            "Install it in a supported Python version (currently <3.13)."
-        )
-
-
 SaveFormat = Literal["xlsx", "csv"] | None
 
 
