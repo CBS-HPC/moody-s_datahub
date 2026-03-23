@@ -2,10 +2,16 @@ from pathlib import Path
 
 import pandas as pd
 import polars as pl
+import pytest
+from pyarrow.lib import ArrowInvalid
 
 from moodys_datahub.utils import (
     _create_chunks,
+    _date_pl,
+    _load_csv_table,
+    _load_pd,
     _process_chunk,
+    _read_csv_chunk,
     _read_pd,
     _read_pl,
     _save_chunks,
@@ -160,3 +166,140 @@ def test_read_pd_and_read_pl_support_csv_and_reject_unknown_formats(tmp_path):
         _read_pl([str(unknown_path)])
     except ValueError as exc:
         assert "Unsupported file format" in str(exc)
+
+
+def test_date_pl_filters_years_and_keeps_null_rows():
+    lazy = pl.DataFrame(
+        {
+            "closing_date": ["2019-01-01 00:00:00", "2020-06-01 00:00:00", None],
+            "value": [1, 2, 3],
+        }
+    ).lazy()
+
+    result = _date_pl(
+        lazy,
+        date_col="closing_date",
+        start_year=2020,
+        end_year=2020,
+        nan_action="keep",
+    ).collect()
+
+    assert result["value"].to_list() == [2, 3]
+
+
+def test_load_pd_applies_date_bvd_and_query_filters(tmp_path):
+    file_path = tmp_path / "sample.parquet"
+    pd.DataFrame(
+        {
+            "bvd_id": ["A1", "B2", "C3"],
+            "closing_date": ["2019-01-01", "2020-06-01", "2020-07-01"],
+            "value": [1, 2, 3],
+        }
+    ).to_parquet(file_path, index=False)
+
+    result = _load_pd(
+        str(file_path),
+        select_cols=["bvd_id", "closing_date", "value"],
+        date_query=[2020, 2020, "closing_date", "remove"],
+        bvd_query="bvd_id in ['B2', 'C3']",
+        query="value > 2",
+    )
+
+    assert result["bvd_id"].tolist() == ["C3"]
+
+
+def test_load_pd_removes_folder_on_arrow_invalid(monkeypatch, tmp_path):
+    data_dir = tmp_path / "broken_dir"
+    data_dir.mkdir()
+    file_path = data_dir / "broken.parquet"
+    file_path.write_text("broken", encoding="utf-8")
+    removed = {}
+
+    monkeypatch.setattr(
+        "moodys_datahub.utils._read_pd",
+        lambda file, select_cols: (_ for _ in ()).throw(ArrowInvalid("bad parquet")),
+    )
+    monkeypatch.setattr(
+        "moodys_datahub.utils.shutil.rmtree",
+        lambda path: removed.update({"path": path}),
+    )
+
+    with pytest.raises(ValueError, match="folder and sub files"):
+        _load_pd(str(file_path))
+
+    assert removed == {"path": str(data_dir)}
+
+
+def test_read_csv_chunk_applies_selection_and_filters(tmp_path):
+    file_path = tmp_path / "chunk.csv"
+    pd.DataFrame(
+        {
+            "bvd_id": ["A1", "B2", "C3"],
+            "closing_date": ["2019-01-01", "2020-06-01", None],
+            "value": [1, 2, 3],
+        }
+    ).to_csv(file_path, index=False)
+
+    result = _read_csv_chunk(
+        (
+            str(file_path),
+            0,
+            10,
+            ["bvd_id", "closing_date", "value"],
+            [0, 1, 2],
+            [2020, 2020, "closing_date", "keep"],
+            "bvd_id in ['B2', 'C3']",
+            "value >= 2",
+            None,
+        )
+    )
+
+    assert result["bvd_id"].tolist() == ["B2", "C3"]
+    assert result["value"].tolist() == [2, 3]
+
+
+def test_load_csv_table_validates_columns_and_uses_parallel_reader(monkeypatch, tmp_path):
+    file_path = tmp_path / "table.csv"
+    pd.DataFrame(
+        {
+            "bvd_id": ["A1", "B2", "C3", "D4"],
+            "value": [1, 2, 3, 4],
+        }
+    ).to_csv(file_path, index=False)
+    captured = {}
+
+    def fake_run_parallel(fnc, params_list, n_total, num_workers, pool_method, msg):
+        captured.update(
+            {
+                "n_total": n_total,
+                "num_workers": num_workers,
+                "pool_method": pool_method,
+                "msg": msg,
+                "params_len": len(params_list),
+            }
+        )
+        return [
+            pd.DataFrame({"bvd_id": ["A1", "B2"], "value": [1, 2]}),
+            pd.DataFrame({"bvd_id": ["C3", "D4"], "value": [3, 4]}),
+        ]
+
+    monkeypatch.setattr("moodys_datahub.utils._run_parallel", fake_run_parallel)
+
+    result = _load_csv_table(str(file_path), select_cols=["bvd_id", "value"], num_workers=2)
+
+    assert result["bvd_id"].tolist() == ["A1", "B2", "C3", "D4"]
+    assert captured == {
+        "n_total": 2,
+        "num_workers": 2,
+        "pool_method": "process",
+        "msg": "Reading chunks",
+        "params_len": 2,
+    }
+
+
+def test_load_csv_table_raises_for_missing_columns(tmp_path):
+    file_path = tmp_path / "table.csv"
+    pd.DataFrame({"bvd_id": ["A1"], "value": [1]}).to_csv(file_path, index=False)
+
+    with pytest.raises(ValueError, match="Columns not found in file"):
+        _load_csv_table(str(file_path), select_cols=["missing"], num_workers=1)
