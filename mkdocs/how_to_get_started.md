@@ -28,6 +28,9 @@ Install the package "moodys_datahub-1.0.0-py3-none-any.whl":
 !pip install moodys_datahub-1.0.0-py3-none-any.whl
 ```
 
+The package pins `paramiko==3.5.1` because the current `pysftp` dependency is
+not compatible with newer Paramiko releases.
+
 ## Usage
 
 

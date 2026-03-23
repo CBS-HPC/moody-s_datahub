@@ -82,6 +82,10 @@ python -m build
 pip install dist/moodys_datahub-1.0.0-py3-none-any.whl
 ```
 
+The package pins `paramiko==3.5.1` because the current `pysftp` dependency is
+not compatible with newer Paramiko releases. If you install from source, keep
+that pin intact unless the SFTP backend is migrated away from `pysftp`.
+
 ## Requirements
 
 - Python 3.9+
