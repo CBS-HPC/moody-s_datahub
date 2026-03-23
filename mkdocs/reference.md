@@ -1,69 +1,34 @@
 title: Reference
 
-# API Reference
+# Reference
 
-`moodys_datahub` exposes one stable high-level entry point: `Sftp`.
+This page is kept for compatibility with existing links.
 
-The implementation is split across internal mixin classes, but users should
-interact with the package through `moodys_datahub.Sftp` or
-`moodys_datahub.tools.Sftp`.
+For the maintained API documentation, see `api_reference.md`.
 
 ## Public API overview
 
-### Session setup
+`moodys_datahub` exposes one stable public entry point: `Sftp`.
 
-- `Sftp(...)`: create a session against an SFTP server or a local export
-  repository.
-- `tables_available()`: inspect the available products and tables.
-- `set_data_product` / `set_table`: set the active product and table directly.
-- `select_data()`: open the interactive selector in notebook environments.
+- session setup: `Sftp(...)`, `tables_available()`, `set_data_product`,
+  `set_table`, `select_data()`
+- filtering: `select_cols`, `select_columns()`, `bvd_list`, `time_period`
+- processing: `process_one()`, `process_all()`, `pandas_all()`, `polars_all()`,
+  `download_all()`
+- diagnostics: `download_finished`, `last_process_engine`,
+  `last_process_reason`
+- helper workflows: `search_company_names()`, `search_bvd_changes()`,
+  `batch_bvd_search()`, `orbis_to_moodys()`
 
-### Filtering and metadata
+## Current backend behavior
 
-- `select_columns()`: open the interactive column selector.
-- `select_cols`: set selected columns directly.
-- `bvd_list`: define an exact BvD ID list or a country-prefix search.
-- `time_period`: define a year-based filter.
-- `search_dictionary()`: search the packaged table dictionary.
-- `table_dates()`: inspect date-like columns for the active table.
-- `search_country_codes()`: search country-code metadata.
-
-### Processing
-
-- `process_one()`: load a sample from one or more files.
-- `process_all()`: run the auto-selecting processing pipeline and always return
-  pandas.
-- `pandas_all()`: force the pandas processing pipeline explicitly.
-- `polars_all()`: run the native Polars processing pipeline and return Polars.
-- `download_all()`: download missing files to the local cache.
-- `download_finished`: inspect the current download state without relying on the
-  internal `_download_finished` attribute.
-- `last_process_engine` / `last_process_reason`: inspect which backend was used
-  most recently and why.
-
-### Higher-level helpers
-
-- `search_company_names()`: fuzzy-match company names across a selected table.
-- `search_bvd_changes()`: resolve BvD ID lineage.
-- `batch_bvd_search()`: run batch searches from workbook/text inputs.
-- `orbis_to_moodys()`: map Orbis-style headings to DataHub columns.
-
-## Current behavior notes
-
-- `process_all()` and `polars_all()` return `(df, file_names)` and raise
-  exceptions on failure instead of returning `None`.
-- `save_to` is now documented as `None | "csv" | "xlsx"`.
-- `process_all()` prefers Polars when the workload is compatible and records the
-  decision on `last_process_engine` and `last_process_reason`.
-- `polars_all()` supports exact and prefix BvD filtering, multi-column BvD
-  matching, and year-based filtering for `time_period`.
-- `process_all()` falls back to pandas for string queries, pandas-only callables,
-  `concat_files=False`, custom batching, and unsupported file formats.
-- `last_process_reason` currently reports values such as `compatible`,
-  `explicit`, `string_query`, `callable_query`, `pool_method`, `n_batches`, and
-  `concat_files_false`.
-- The current release pins `paramiko==3.5.1` because the SFTP backend still
-  depends on `pysftp`, which is not compatible with newer Paramiko versions.
+- `process_all()` always returns pandas and may use Polars internally when the
+  workload is compatible.
+- `pandas_all()` is the explicit pandas backend.
+- `polars_all()` is the explicit native Polars backend and supports exact and
+  prefix BvD filtering, multi-column BvD filters, and year-based
+  `time_period` filtering.
+- string queries belong on the pandas path.
 
 ## Generated reference
 

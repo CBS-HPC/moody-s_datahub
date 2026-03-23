@@ -97,4 +97,4 @@ exports.
 
 - [How to get started](/moody-s_datahub/mkdocs/how_to_get_started/)
 - [Git repository: moody-s_datahub](https://github.com/CBS-HPC/moody-s_datahub)
-- [API reference](/moody-s_datahub/mkdocs/reference/)
+- [API reference](/moody-s_datahub/mkdocs/api_reference/)

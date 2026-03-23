@@ -54,20 +54,55 @@ Use `select_data()` when you want the interactive widget-based flow in notebook
 environments. Use `set_data_product` and `set_table` when you want a fully
 scripted workflow.
 
-Use `process_all()` when you want automatic backend selection with a pandas
-return type. Use `pandas_all()` when you need pandas-only query semantics
-explicitly, and `polars_all()` when you want the native Polars path and return
-type. The Polars path supports exact and prefix BvD filters, multi-column BvD
-matching, and year-based `time_period` filtering. After processing, inspect
-`SFTP.last_process_engine` and `SFTP.last_process_reason` to see which backend
-was used and why.
+## Processing backends
 
-`process_all()` currently falls back to pandas when you use:
+Use `process_all()` as the default high-level API. It auto-selects the backend
+and always returns a pandas `DataFrame` together with `file_names`.
+
+Use `pandas_all()` when you need pandas semantics explicitly, especially for
+string queries and pandas-oriented callables.
+
+Use `polars_all()` when you want the native Polars pipeline and native Polars
+return type. The current Polars path supports:
+
+- exact BvD ID filtering
+- prefix or country-code BvD filtering
+- multi-column BvD membership checks
+- year-based `time_period` filtering
+- `pl.Expr` filters
+
+After any `process_all()` call, inspect `SFTP.last_process_engine` and
+`SFTP.last_process_reason` to see which backend was used and why.
+
+`process_all()` routes to pandas when you use:
 - string queries
 - pandas-only callables
 - `concat_files=False`
 - custom `pool_method` or `n_batches`
 - unsupported or mixed file formats
+
+### Backend inspection example
+
+```python
+df, files = SFTP.process_all()
+
+print(SFTP.last_process_engine)  # "polars" or "pandas"
+print(SFTP.last_process_reason)  # e.g. "compatible" or "string_query"
+```
+
+## API highlights
+
+The stable public API is centered on `moodys_datahub.Sftp`:
+
+- session setup: `Sftp(...)`, `tables_available()`, `set_data_product`,
+  `set_table`, `select_data()`
+- filtering: `select_cols`, `select_columns()`, `bvd_list`, `time_period`
+- processing: `process_one()`, `process_all()`, `pandas_all()`, `polars_all()`,
+  `download_all()`
+- diagnostics: `download_finished`, `last_process_engine`,
+  `last_process_reason`
+- helper workflows: `search_company_names()`, `search_bvd_changes()`,
+  `batch_bvd_search()`, `orbis_to_moodys()`
 
 ## Installation
 
@@ -132,5 +167,5 @@ throughput are recommended for large exports.
 
 - [How to get started](https://cbs-hpc.github.io/moody-s_datahub/mkdocs/how_to_get_started/)
 - [Git repository](https://github.com/CBS-HPC/moody-s_datahub)
-- [API reference](https://cbs-hpc.github.io/moody-s_datahub/mkdocs/reference/)
+- [API reference](https://cbs-hpc.github.io/moody-s_datahub/mkdocs/api_reference/)
 
