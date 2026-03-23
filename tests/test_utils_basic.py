@@ -729,6 +729,70 @@ def test_search_company_names_propagates_polars_matcher_errors(monkeypatch):
         Sftp.search_company_names(object(), names=["Acme"], num_workers=1)
 
 
+def test_search_bvd_changes_uses_auto_backend_wrapper(monkeypatch):
+    class FakeSearch:
+        def __init__(self):
+            self._set_data_product = None
+            self._set_table = None
+            self._select_cols = None
+            self.output_format = [".csv"]
+
+        def _object_defaults(self):
+            pass
+
+        @property
+        def set_data_product(self):
+            return self._set_data_product
+
+        @set_data_product.setter
+        def set_data_product(self, value):
+            self._set_data_product = value
+
+        @property
+        def set_table(self):
+            return self._set_table
+
+        @set_table.setter
+        def set_table(self, value):
+            self._set_table = value
+
+        def process_all(self, *args, **kwargs):
+            assert kwargs["engine"] == "auto"
+            return (
+                pd.DataFrame(
+                    {
+                        "old_id": ["A"],
+                        "new_id": ["B"],
+                        "change_date": ["2020-01-01"],
+                    }
+                ),
+                ["changes.csv"],
+            )
+
+    fake_search = FakeSearch()
+    expected_filtered = pd.DataFrame({"old_id": ["A"], "new_id": ["B"]})
+
+    monkeypatch.setattr("moodys_datahub.tools.copy.deepcopy", lambda obj: fake_search)
+    monkeypatch.setattr(
+        "moodys_datahub.tools._bvd_changes_ray",
+        lambda bvd_list, df, num_workers: (
+            {"A", "B"},
+            {"A": "B", "B": "B"},
+            expected_filtered,
+        ),
+    )
+
+    new_ids, newest_ids, filtered_df = Sftp.search_bvd_changes(
+        object(), ["A"], num_workers=1
+    )
+
+    assert new_ids == {"A", "B"}
+    assert newest_ids == {"A": "B", "B": "B"}
+    assert filtered_df.equals(expected_filtered)
+    assert fake_search.set_data_product == "BvD ID Changes"
+    assert fake_search.set_table == "bvd_id_changes_full"
+
+
 def test_national_identifer_returns_dataframe_and_uses_polars_query():
     class FakeSearch:
         def __init__(self):
