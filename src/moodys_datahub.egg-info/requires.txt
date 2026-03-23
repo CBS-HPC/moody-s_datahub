@@ -3,7 +3,7 @@ ipywidgets
 numpy
 openpyxl
 pandas
-paramiko>=3.5.1
+paramiko==3.5.1
 polars
 polars-ds
 psutil
