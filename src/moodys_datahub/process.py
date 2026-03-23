@@ -650,7 +650,7 @@ class _Process(_Selection):
                 self.select_data()
             files = [self.remote_files[0]]
         elif isinstance(files, int):
-            files = [files]
+            files = [self.remote_files[files]]
 
         pandas_bvd_query, polars_bvd_query = self._normalize_bvd_queries()
         chosen_engine, _ = self._choose_process_engine(

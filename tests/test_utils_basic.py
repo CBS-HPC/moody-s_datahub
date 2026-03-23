@@ -485,6 +485,25 @@ def test_process_one_uses_polars_row_limit_for_single_compatible_file(monkeypatc
     assert proc.last_process_engine == "polars"
 
 
+def test_process_one_resolves_integer_file_index_against_remote_files(monkeypatch):
+    proc = _make_dummy_process()
+    proc.remote_files = ["first.csv", "second.csv"]
+
+    def fake_polars_all(*args, **kwargs):
+        assert kwargs["files"] == ["second.csv"]
+        assert kwargs["row_limit"] == 2
+        proc._last_process_engine = "polars"
+        proc._last_process_reason = "direct"
+        return pl.DataFrame({"value": [1, 2]}), ["second.csv"]
+
+    monkeypatch.setattr(DummyProcess, "polars_all", fake_polars_all)
+
+    df = proc.process_one(files=1, n_rows=2)
+
+    assert isinstance(df, pd.DataFrame)
+    assert df["value"].tolist() == [1, 2]
+
+
 def test_process_one_falls_back_to_process_all_for_pandas_only_workloads(monkeypatch):
     proc = _make_dummy_process()
     proc.query = "value > 1"
