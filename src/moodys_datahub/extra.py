@@ -2,6 +2,7 @@ from multiprocessing import Pool, cpu_count
 
 import numpy as np
 import pandas as pd
+import polars as pl
 from rapidfuzz import process
 
 
@@ -58,16 +59,16 @@ def national_identifer(obj, national_ids: list = None, num_workers: int = -1):
     new_obj.set_data_product = "Key Financials (Monthly)"
     new_obj.set_table = "key_financials_eur"
 
-    query_args = national_ids
-    query_str = f"national_id_number in {query_args}"
     select_cols = ["bvd_id_number", "national_id_number"]
+    query = pl.col("national_id_number").cast(pl.Utf8, strict=False).is_in(
+        [str(item) for item in national_ids]
+    )
 
     # Execute
     df = new_obj.process_all(
         num_workers=num_workers,
         select_cols=select_cols,
-        query=query_str,
-        query_args=query_args,
+        query=query,
     )
 
     return df

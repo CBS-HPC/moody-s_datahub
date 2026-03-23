@@ -8,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import polars as pl
 import psutil
 
 from .load_data import _country_codes, _table_dates, _table_dictionary
@@ -659,7 +660,128 @@ class _Process(_Selection):
         _save_to(df, "process_one", save_to)
         return df
 
-    def process_all(
+    def _default_polars_bvd_query(self):
+        if self._bvd_list[0] is None or self._bvd_list[1] is None:
+            return None
+
+        mode = "exact"
+        if isinstance(self._bvd_list[2], str) and ".str.startswith(" in self._bvd_list[2]:
+            mode = "prefix"
+
+        return [self._bvd_list[0], self._bvd_list[1], mode]
+
+    def _normalize_bvd_queries(self, bvd_query=None):
+        if bvd_query is None:
+            return self._bvd_list[2], self._default_polars_bvd_query()
+
+        if isinstance(bvd_query, str):
+            return bvd_query, None
+
+        if not isinstance(bvd_query, (list, tuple)):
+            raise ValueError(
+                "bvd_query must be None, a pandas query string, or [values, columns[, mode]]."
+            )
+
+        if len(bvd_query) == 2:
+            values, columns = bvd_query
+            mode = "exact"
+        elif len(bvd_query) == 3:
+            values, columns, mode = bvd_query
+        else:
+            raise ValueError(
+                "bvd_query must be [values, columns] or [values, columns, mode]."
+            )
+
+        if isinstance(values, str):
+            values = [values]
+        elif isinstance(values, (pd.Series, np.ndarray)):
+            values = values.tolist()
+        elif not isinstance(values, list):
+            values = [values]
+
+        if isinstance(columns, (pd.Series, np.ndarray)):
+            columns = columns.tolist()
+
+        if isinstance(columns, list) and len(columns) == 1:
+            columns = columns[0]
+
+        mode = str(mode).lower()
+        if mode not in ["exact", "prefix"]:
+            raise ValueError("BvD filter mode must be 'exact' or 'prefix'.")
+
+        pandas_bvd_query = _construct_query(columns, values, search_type=mode == "prefix")
+        polars_bvd_query = [values, columns, mode]
+
+        return pandas_bvd_query, polars_bvd_query
+
+    def _describe_polars_limitation(self, reason: str) -> str:
+        if reason.startswith("unsupported_format:"):
+            file_format = reason.split(":", 1)[1]
+            return f"unsupported file format '{file_format}'"
+
+        descriptions = {
+            "string_query": "string queries require pandas query semantics",
+            "string_bvd_query": "string-based bvd_query values cannot be translated safely to Polars",
+            "callable_query": "callable query is not marked as Polars-compatible",
+            "pool_method": "custom pool_method is only supported by the pandas backend",
+            "n_batches": "custom batching is only supported by the pandas backend",
+            "concat_files_false": "concat_files=False is only supported by the pandas backend",
+            "mixed_formats": "mixed file extensions are only supported by the pandas backend",
+            "multi_file_xlsx": "Polars only supports a single XLSX file per call",
+        }
+        return descriptions.get(reason, reason)
+
+    def _choose_process_engine(
+        self,
+        files,
+        query=None,
+        pool_method=None,
+        n_batches: int = None,
+        raw_bvd_query=None,
+        polars_bvd_query=None,
+    ):
+        query_supports_polars = callable(query) and getattr(
+            query, "_supports_polars", False
+        )
+
+        if raw_bvd_query is not None and polars_bvd_query is None:
+            return "pandas", "string_bvd_query"
+
+        if isinstance(query, str):
+            return "pandas", "string_query"
+
+        if callable(query) and not query_supports_polars:
+            return "pandas", "callable_query"
+
+        if pool_method is not None:
+            return "pandas", "pool_method"
+
+        if n_batches is not None:
+            return "pandas", "n_batches"
+
+        if self.concat_files is False:
+            return "pandas", "concat_files_false"
+
+        files = [files] if isinstance(files, (str, os.PathLike)) else files
+        file_extensions = {
+            os.fspath(file).lower().rsplit(".", 1)[-1]
+            for file in files
+            if isinstance(file, (str, os.PathLike)) and "." in os.fspath(file)
+        }
+
+        if len(file_extensions) != 1:
+            return "pandas", "mixed_formats"
+
+        file_extension = next(iter(file_extensions))
+        if file_extension not in {"csv", "parquet", "avro", "xlsx"}:
+            return "pandas", f"unsupported_format:{file_extension}"
+
+        if file_extension == "xlsx" and len(files) > 1:
+            return "pandas", "multi_file_xlsx"
+
+        return "polars", "compatible"
+
+    def pandas_all(
         self,
         files: list = None,
         destination: str = None,
@@ -672,7 +794,7 @@ class _Process(_Selection):
         query_args: list = None,
         pool_method=None,
     ):
-        """Process files with pandas-based readers and optional filters.
+        """Process files with the pandas backend.
 
         Returns:
             Tuple of `(df, file_names)` where `df` is a DataFrame (possibly empty).
@@ -740,12 +862,20 @@ class _Process(_Selection):
 
             return dfs, file_names, flags
 
-        files = files or self.remote_files
-        date_query = date_query or self.time_period
-        bvd_query = bvd_query or self._bvd_list[2]
-        query = query or self.query
-        query_args = query_args or self.query_args
-        select_cols = select_cols or self._select_cols
+        files = self.remote_files if files is None else files
+        if isinstance(files, (str, os.PathLike)):
+            files = [files]
+        date_query = self.time_period if date_query is None else date_query
+        bvd_query = self._bvd_list[2] if bvd_query is None else bvd_query
+        query = self.query if query is None else query
+        query_args = self.query_args if query_args is None else query_args
+        select_cols = self._select_cols if select_cols is None else select_cols
+
+        if isinstance(query, pl.Expr):
+            raise ValueError(
+                "Polars expressions are not supported in pandas_all(). "
+                "Use polars_all() or process_all(engine='polars')."
+            )
 
         # To handle executing when download_all() have not finished!
         if not self._check_download(files):
@@ -799,6 +929,105 @@ class _Process(_Selection):
 
         return self.dfs, file_names
 
+    def process_all(
+        self,
+        files: list = None,
+        destination: str = None,
+        num_workers: int = -1,
+        n_batches: int = None,
+        select_cols: list = None,
+        date_query=None,
+        bvd_query=None,
+        query=None,
+        query_args: list = None,
+        pool_method=None,
+        engine: str = "auto",
+    ):
+        """Process files using pandas or Polars while always returning pandas output.
+
+        `engine="auto"` prefers the Polars backend for supported workloads and
+        falls back to pandas for features that still depend on pandas semantics.
+        """
+
+        files = self.remote_files if files is None else files
+        if isinstance(files, (str, os.PathLike)):
+            files = [files]
+        date_query = self.time_period if date_query is None else date_query
+        query = self.query if query is None else query
+        query_args = self.query_args if query_args is None else query_args
+        select_cols = self._select_cols if select_cols is None else select_cols
+        pandas_bvd_query, polars_bvd_query = self._normalize_bvd_queries(bvd_query)
+
+        if engine not in {"auto", "pandas", "polars"}:
+            raise ValueError("engine must be 'auto', 'pandas', or 'polars'.")
+
+        if engine == "pandas":
+            return self.pandas_all(
+                files=files,
+                destination=destination,
+                num_workers=num_workers,
+                n_batches=n_batches,
+                select_cols=select_cols,
+                date_query=date_query,
+                bvd_query=pandas_bvd_query,
+                query=query,
+                query_args=query_args,
+                pool_method=pool_method,
+            )
+
+        chosen_engine, reason = self._choose_process_engine(
+            files=files,
+            query=query,
+            pool_method=pool_method,
+            n_batches=n_batches,
+            raw_bvd_query=bvd_query,
+            polars_bvd_query=polars_bvd_query,
+        )
+
+        if engine == "polars" and chosen_engine != "polars":
+            raise ValueError(
+                "process_all(engine='polars') cannot use the Polars backend: "
+                + self._describe_polars_limitation(reason)
+            )
+
+        if chosen_engine == "pandas":
+            if engine == "auto" and isinstance(query, pl.Expr):
+                raise ValueError(
+                    "process_all(engine='auto') cannot fall back to pandas because "
+                    + self._describe_polars_limitation(reason)
+                    + ". Use engine='polars' or a pandas-compatible query."
+                )
+
+            return self.pandas_all(
+                files=files,
+                destination=destination,
+                num_workers=num_workers,
+                n_batches=n_batches,
+                select_cols=select_cols,
+                date_query=date_query,
+                bvd_query=pandas_bvd_query,
+                query=query,
+                query_args=query_args,
+                pool_method=pool_method,
+            )
+
+        df, file_names = self.polars_all(
+            files=files,
+            destination=destination,
+            num_workers=num_workers,
+            select_cols=select_cols,
+            date_query=date_query,
+            bvd_query=polars_bvd_query,
+            query=query,
+            query_args=query_args,
+        )
+
+        if isinstance(df, pl.DataFrame):
+            df = df.to_pandas()
+
+        self.dfs = df
+        return df, file_names
+
     def polars_all(
         self,
         files: list = None,
@@ -819,47 +1048,58 @@ class _Process(_Selection):
             ValueError: Invalid arguments or file-selection state.
             TimeoutError: Downloads are still in progress beyond timeout.
         """
+        files = self.remote_files if files is None else files
+        if isinstance(files, (str, os.PathLike)):
+            files = [files]
+        date_query = self.time_period if date_query is None else date_query
+        bvd_query = self._default_polars_bvd_query() if bvd_query is None else bvd_query
+        query = self.query if query is None else query
+        query_args = self.query_args if query_args is None else query_args
+        select_cols = self._select_cols if select_cols is None else select_cols
 
-        files = files or self.remote_files
-        date_query = date_query or self.time_period
-        bvd_query = bvd_query or [self._bvd_list[0], self._bvd_list[1]]
-        query = query or self.query
-        query_args = query_args or self.query_args
-        select_cols = select_cols or self._select_cols
-
+        current_concat_files = self.concat_files
         self.concat_files = True
 
-        # To handle executing when download_all() have not finished!
-        if not self._check_download(files):
-            raise TimeoutError(
-                "Files have not finished downloading within the expected timeout."
+        try:
+            # To handle executing when download_all() have not finished!
+            if not self._check_download(files):
+                raise TimeoutError(
+                    "Files have not finished downloading within the expected timeout."
+                )
+
+            _, files, destination = self._validate_args(
+                files=files,
+                destination=destination,
+                select_cols=select_cols,
+                date_query=date_query,
+                bvd_query=bvd_query,
+                query=query,
             )
 
-        select_cols, files, destination = self._validate_args(
-            files=files,
-            destination=destination,
-            select_cols=select_cols,
-            date_query=date_query,
-            bvd_query=bvd_query,
-            query=query,
-        )
+            print(f"Processing  {len(files)} files using polars")
+            dfs = self._process_polars(
+                files,
+                destination,
+                select_cols,
+                date_query,
+                bvd_query,
+                query,
+                query_args,
+            )
 
-        print(f"Processing  {len(files)} files using polars")
-        dfs = self._process_polars(
-            files, destination, select_cols, date_query, bvd_query, query, query_args
-        )
+            # Set num_workers
+            num_workers = set_workers(num_workers, int(cpu_count() - 2))
 
-        # Set num_workers
-        num_workers = set_workers(num_workers, int(cpu_count() - 2))
-
-        # Concatenate and save
-        self.dfs, file_names = _save_chunks(
-            dfs=dfs,
-            file_name=destination,
-            output_format=self.output_format,
-            file_size=self.file_size_mb,
-            num_workers=num_workers,
-        )
+            # Concatenate and save
+            self.dfs, file_names = _save_chunks(
+                dfs=dfs,
+                file_name=destination,
+                output_format=self.output_format,
+                file_size=self.file_size_mb,
+                num_workers=num_workers,
+            )
+        finally:
+            self.concat_files = current_concat_files
 
         return self.dfs, file_names
 
@@ -1265,8 +1505,14 @@ class _Process(_Selection):
                 select_cols, self._bvd_list[1], self._time_period[2]
             )
 
+        has_select_cols = select_cols is not None and len(select_cols) > 0
+        has_query = query is not None
+        has_date_query = date_query is not None and all(date_query)
+        has_bvd_query = bvd_query is not None
+
         flag = (
-            any([select_cols, query, all(date_query), bvd_query]) and self.output_format
+            any([has_select_cols, has_query, has_date_query, has_bvd_query])
+            and self.output_format
         )
         files, destination = self._check_args(files, destination, flag)
         return select_cols, files, destination

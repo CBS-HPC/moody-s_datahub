@@ -303,19 +303,16 @@ class Sftp(_Process):
 
                 if SFTP._set_table is not None:
                     available_cols = SFTP.get_column_names()
-                    if (
-                        isinstance(column, str) and "," in column
-                    ):  # Check if it's a string and contains a comma
+                    if isinstance(column, str) and "," in column:
                         column = [word.strip() for word in column.split(",")]
-                        SFTP.query = " | ".join(
-                            f"{col} in {bvd_numbers}" for col in column
-                        )
                     else:
-                        SFTP.query = f"{column} in {bvd_numbers}"
                         column = [column]
 
                     if all(col in available_cols for col in column):
-                        SFTP.process_all(destination=file_name)
+                        SFTP.process_all(
+                            destination=file_name,
+                            bvd_query=[bvd_numbers, column, "exact"],
+                        )
                     else:
                         in_complete.append([n, data_product, table, available_cols])
                 else:

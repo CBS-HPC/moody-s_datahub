@@ -477,8 +477,8 @@ def _load_pl(
     - file_list (list): List of file paths.
     - select_cols (list, optional): Columns to select.
     - date_query (list, optional): [start_year, end_year, date_column, nan_action].
-    - bvd_query (tuple, optional): (values_list, column_name or column_names).
-    - query (callable or str, optional): Function or string-based filter query.
+    - bvd_query (tuple, optional): (values_list, column_name or column_names[, mode]).
+    - query (callable or Polars expression, optional): Additional filter query.
     - query_args (tuple, optional): Arguments for function-based query.
 
     Returns:
@@ -486,7 +486,15 @@ def _load_pl(
     """
 
     def _normalize_pl_bvd_query(bvd_query):
-        values, columns = bvd_query
+        if len(bvd_query) == 2:
+            values, columns = bvd_query
+            mode = "exact"
+        elif len(bvd_query) == 3:
+            values, columns, mode = bvd_query
+        else:
+            raise ValueError(
+                "bvd_query must be [values, columns] or [values, columns, mode]."
+            )
 
         if isinstance(values, (pd.Series, np.ndarray)):
             values = values.tolist()
@@ -502,47 +510,106 @@ def _load_pl(
         elif not isinstance(columns, list):
             columns = [columns]
 
-        return values, columns
+        if mode not in ["exact", "prefix"]:
+            raise ValueError("BvD filter mode must be 'exact' or 'prefix'.")
+
+        return values, columns, mode
+
+    def _resolve_required_columns(select_cols, date_query, bvd_query):
+        output_cols = None
+        required_cols = None
+
+        if select_cols is not None:
+            if isinstance(select_cols, str):
+                output_cols = [select_cols]
+            else:
+                output_cols = list(select_cols)
+            required_cols = list(output_cols)
+
+        date_col = None
+        if date_query is not None and all(date_query[:3]):
+            date_col = date_query[2]
+
+        if required_cols is not None and bvd_query is not None:
+            _, bvd_cols, _ = _normalize_pl_bvd_query(bvd_query)
+            required_cols.extend(bvd_cols)
+
+        if required_cols is not None and date_col is not None:
+            required_cols.append(date_col)
+
+        if required_cols is not None:
+            required_cols = list(dict.fromkeys(required_cols))
+
+        return output_cols, required_cols, date_col
+
+    def _apply_pl_bvd_filter(df_lazy, bvd_query):
+        values, columns, mode = _normalize_pl_bvd_query(bvd_query)
+
+        if mode == "exact":
+            filters = [
+                pl.col(column).cast(pl.Utf8, strict=False).is_in(values)
+                for column in columns
+            ]
+        else:
+            filters = [
+                pl.col(column).cast(pl.Utf8, strict=False).str.starts_with(value)
+                for column in columns
+                for value in values
+            ]
+
+        if not filters:
+            return df_lazy
+
+        return df_lazy.filter(pl.any_horizontal(filters))
 
     try:
         # Load files lazily
         df_lazy = _read_pl(file_list)
 
-        # Select specific columns
-        if select_cols is not None:
-            df_lazy = df_lazy.select(select_cols)
+        output_cols, required_cols, date_col = _resolve_required_columns(
+            select_cols=select_cols,
+            date_query=date_query,
+            bvd_query=bvd_query,
+        )
 
-        # Apply date filter if needed
-        if all(date_query[:3]):  # Ensure the first three elements are not None
-            raise ValueError(
-                "Year filter does not work for polars.. please use '.process_all()'"
+        if required_cols is not None:
+            df_lazy = df_lazy.select(required_cols)
+
+        # Apply BVD query filter before date parsing to cut row counts early.
+        if bvd_query is not None:
+            df_lazy = _apply_pl_bvd_filter(df_lazy, bvd_query)
+
+        if all(date_query[:3]):
+            df_lazy = _date_pl(
+                df_lazy,
+                date_col=date_col,
+                start_year=date_query[0],
+                end_year=date_query[1],
+                nan_action=date_query[3],
             )
-
-            # df_lazy = _date_pl(
-            #    df_lazy, date_col=date_query[2], start_year=date_query[0], end_year=date_query[1], nan_action=date_query[3]
-            # )
-
-        # Apply BVD query filter if provided
-        if bvd_query is not None and len(bvd_query) == 2:
-            values, columns = _normalize_pl_bvd_query(bvd_query)
-            filters = [
-                pl.col(column).cast(pl.Utf8, strict=False).is_in(values)
-                for column in columns
-            ]
-            df_lazy = df_lazy.filter(pl.any_horizontal(filters))
 
         # Apply query function or filter
         if query is not None:
-            if isinstance(query, type(lambda: None)):
+            if callable(query):
                 df_lazy = query(df_lazy, *query_args) if query_args else query(df_lazy)
             elif isinstance(query, pl.Expr):
                 df_lazy = df_lazy.filter(query)
+            elif isinstance(query, str):
+                raise ValueError(
+                    "String queries are not supported in polars_all(). "
+                    "Use process_all(), a polars expression, or a callable."
+                )
+
+        if output_cols is not None:
+            df_lazy = df_lazy.select(output_cols)
 
         # Collect the results (triggering execution)
         df = df_lazy.collect()
 
         return df
 
+    except ValueError:
+        raise
     except Exception as e:
         raise RuntimeError(f"Error processing files: {file_list}") from e
 
@@ -853,7 +920,6 @@ def _date_pd(
     return df
 
 
-# FIX ME - Not working
 def _date_pl(
     df,
     date_col=None,
@@ -874,57 +940,41 @@ def _date_pl(
     pl.DataFrame: Filtered DataFrame based on the date and optional year filters.
     """
 
+    available_cols = df.collect_schema().names()
+
     if date_col is None:
         columns_to_check = ["closing_date", "information_date"]
     else:
         columns_to_check = [date_col]
 
-    date_col = next((col for col in columns_to_check if col in df.columns), None)
+    date_col = next((col for col in columns_to_check if col in available_cols), None)
 
     if not date_col:
         print("No valid date columns found")
         return df
 
-    # Separate rows with null values in the date column (Polars uses is_null to check for NaNs)
-    if nan_action == "keep":
-        nan_rows = df.filter(pl.col(date_col).is_null())
-
-    # Remove rows with null values in the date column (if nan_action is 'remove')
-    df = df.filter(pl.col(date_col).is_not_null())
-
-    # Get the first row efficiently
-    first_row = df.select(date_col).fetch(1)
-
-    # Extract the first element
-    if not first_row.is_empty():
-        first_element = first_row[date_col].to_list()[0]
-    else:
-        first_element = None
-
-    # Check the type and cast if necessary
-    if first_element is not None and not isinstance(first_element, str):
-        df = df.with_columns(pl.col(date_col).cast(pl.Utf8))
-
-    # Apply the conversion to the date column lazily
     df = df.with_columns(
-        # pl.col(date_col).str.strptime(pl.Datetime, format="%Y-%m-%d")
-        pl.col(date_col).str.to_datetime(exact=False, strict=False).alias(date_col)
+        pl.col(date_col)
+        .cast(pl.Utf8, strict=False)
+        .str.to_datetime(exact=False, strict=False)
+        .alias(date_col)
     )
 
-    # Apply the date filtering for year range (inclusive)
+    year_filter = pl.lit(True)
     if start_year is not None and end_year is not None:
-        df = df.filter(
-            (pl.col(date_col).dt.year() >= start_year)
-            & (pl.col(date_col).dt.year() <= end_year)
-        )
+        year_filter = year_filter & (pl.col(date_col).dt.year() >= start_year)
+        year_filter = year_filter & (pl.col(date_col).dt.year() <= end_year)
     elif start_year is not None:
-        df = df.filter(pl.col(date_col).dt.year() >= start_year)
+        year_filter = year_filter & (pl.col(date_col).dt.year() >= start_year)
     elif end_year is not None:
-        df = df.filter(pl.col(date_col).dt.year() <= end_year)
+        year_filter = year_filter & (pl.col(date_col).dt.year() <= end_year)
 
-    # Add back the NaN rows if 'keep' action is specified
-    if nan_action == "keep" and nan_rows is not None:
-        df = df.vstack(nan_rows)
+    null_filter = pl.col(date_col).is_null()
+
+    if nan_action == "keep":
+        df = df.filter(null_filter | year_filter)
+    else:
+        df = df.filter(~null_filter & year_filter)
 
     return df
 
