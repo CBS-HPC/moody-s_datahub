@@ -3,7 +3,7 @@ import polars as pl
 import pytest
 
 from moodys_datahub.extra import national_identifer
-from moodys_datahub.process import _Process
+from moodys_datahub.process import _Process, set_workers
 from moodys_datahub.tools import Sftp
 from moodys_datahub.utils import (
     _bvd_changes_ray,
@@ -366,6 +366,103 @@ def test_process_all_explicit_polars_rejects_pandas_only_workloads():
         ValueError, match="cannot use the Polars backend: string queries require"
     ):
         proc.process_all(engine="polars", query="value > 1")
+
+
+def test_default_polars_bvd_query_detects_prefix_mode():
+    proc = _make_dummy_process()
+    proc._bvd_list = [
+        ["DK", "SE"],
+        "bvd_id_number",
+        "bvd_id_number.str.startswith('DK', na=False)",
+    ]
+
+    assert proc._default_polars_bvd_query() == [
+        ["DK", "SE"],
+        "bvd_id_number",
+        "prefix",
+    ]
+
+
+def test_normalize_bvd_queries_builds_exact_queries():
+    proc = _make_dummy_process()
+
+    pandas_query, polars_query = proc._normalize_bvd_queries(
+        [["A1", "B2"], ["primary_bvd", "secondary_bvd"], "exact"]
+    )
+
+    assert pandas_query == "primary_bvd in ['A1', 'B2'] | secondary_bvd in ['A1', 'B2']"
+    assert polars_query == [["A1", "B2"], ["primary_bvd", "secondary_bvd"], "exact"]
+
+
+def test_normalize_bvd_queries_rejects_invalid_mode():
+    proc = _make_dummy_process()
+
+    with pytest.raises(ValueError, match="BvD filter mode must be 'exact' or 'prefix'"):
+        proc._normalize_bvd_queries([["A1"], "bvd_id_number", "invalid"])
+
+
+def test_describe_polars_limitation_formats_unsupported_format():
+    proc = _make_dummy_process()
+
+    assert (
+        proc._describe_polars_limitation("unsupported_format:orc")
+        == "unsupported file format 'orc'"
+    )
+
+
+def test_choose_process_engine_routes_mixed_formats_to_pandas():
+    proc = _make_dummy_process()
+
+    engine, reason = proc._choose_process_engine(
+        files=["one.csv", "two.parquet"],
+        query=None,
+    )
+
+    assert engine == "pandas"
+    assert reason == "mixed_formats"
+
+
+def test_choose_process_engine_routes_multi_file_xlsx_to_pandas():
+    proc = _make_dummy_process()
+
+    engine, reason = proc._choose_process_engine(
+        files=["one.xlsx", "two.xlsx"],
+        query=None,
+    )
+
+    assert engine == "pandas"
+    assert reason == "multi_file_xlsx"
+
+
+def test_validate_args_passes_generation_flag_to_check_args(monkeypatch):
+    proc = _make_dummy_process()
+    proc.output_format = [".csv"]
+    proc._bvd_list = [None, "bvd_id_number", None]
+    proc._time_period = [None, None, None, "remove"]
+    captured = {}
+
+    def fake_check_args(files, destination, flag):
+        captured["files"] = files
+        captured["destination"] = destination
+        captured["flag"] = flag
+        return files, "generated/output"
+
+    monkeypatch.setattr(proc, "_check_args", fake_check_args)
+
+    select_cols, files, destination = proc._validate_args(
+        files=["sample.csv"],
+        select_cols=["value"],
+    )
+
+    assert set(select_cols) == {"value", "bvd_id_number"}
+    assert files == ["sample.csv"]
+    assert destination == "generated/output"
+    assert captured["flag"] == [".csv"]
+
+
+def test_set_workers_casts_values_and_falls_back_for_one():
+    assert set_workers(4.0, 2) == 4
+    assert set_workers(1, 3) == 3
 
 
 def test_bvd_changes_ray_resolves_terminal_newest_id_across_chain():
