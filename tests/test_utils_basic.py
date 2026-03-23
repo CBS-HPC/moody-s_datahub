@@ -10,6 +10,7 @@ from moodys_datahub.utils import (
     _date_pd,
     _letters_only_regex,
     _load_pl,
+    fuzzy_match_pl,
 )
 
 
@@ -292,6 +293,61 @@ def test_bvd_changes_ray_returns_empty_filtered_df_when_no_changes_found():
     assert new_ids == {"Z"}
     assert newest_ids == {"Z": "Z"}
     assert filtered_df.empty
+
+
+def test_fuzzy_match_pl_normalizes_suffixes_for_exact_matches():
+    df = pl.DataFrame(
+        {
+            "name": ["Acme Ltd", "Other Corp"],
+            "bvd_id_number": ["BVD1", "BVD2"],
+        }
+    )
+
+    result = fuzzy_match_pl(
+        names=["ACME LTD"],
+        df=df,
+        match_column="name",
+        return_column="bvd_id_number",
+        remove_str=["ltd"],
+        cut_off=90,
+        num_workers=1,
+    )
+
+    assert result["Search_string"].tolist() == ["acme"]
+    assert result["BestMatch"].tolist() == ["acme"]
+    assert result["Score"].tolist() == [100.0]
+    assert result["name"].tolist() == ["Acme Ltd"]
+    assert result["bvd_id_number"].tolist() == ["BVD1"]
+
+
+def test_fuzzy_match_pl_returns_best_fuzzy_match_and_no_match_rows():
+    df = pl.DataFrame(
+        {
+            "name": ["Acme Limited", "Beta Group"],
+            "bvd_id_number": ["BVD1", "BVD2"],
+        }
+    )
+
+    result = fuzzy_match_pl(
+        names=["acme limted", "unknown entity"],
+        df=df,
+        match_column="name",
+        return_column="bvd_id_number",
+        cut_off=70,
+        num_workers=1,
+    )
+
+    matched_rows = result[result["Search_string"] == "acme limted"]
+    no_match_rows = result[result["Search_string"] == "unknown entity"]
+
+    assert matched_rows["BestMatch"].tolist() == ["acme limited"]
+    assert matched_rows["bvd_id_number"].tolist() == ["BVD1"]
+    assert matched_rows["Score"].iloc[0] >= 70
+
+    assert no_match_rows["BestMatch"].tolist() == [None]
+    assert no_match_rows["Score"].tolist() == [0.0]
+    assert no_match_rows["name"].tolist() == [None]
+    assert no_match_rows["bvd_id_number"].tolist() == [None]
 
 
 def test_process_one_uses_polars_row_limit_for_single_compatible_file(monkeypatch):

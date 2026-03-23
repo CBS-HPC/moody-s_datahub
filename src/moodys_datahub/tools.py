@@ -15,6 +15,7 @@ from .utils import (
     _bvd_changes_ray,
     _letters_only_regex,
     _save_to,
+    fuzzy_match_pl,
     fuzzy_query,
 )
 
@@ -209,9 +210,29 @@ class Sftp(_Process):
         SFTP.set_table = "bvd_id_and_name"
         SFTP._select_cols = ["bvd_id_number", "name"]
         SFTP.output_format = None
-        SFTP.query = fuzzy_query
-        SFTP.query_args = [names, "name", "bvd_id_number", cut_off, company_suffixes, 1]
-        df, _ = SFTP.process_all(num_workers=num_workers, engine="auto")
+        try:
+            df_polars, _ = SFTP.polars_all(num_workers=num_workers)
+            df = fuzzy_match_pl(
+                names=names,
+                df=df_polars,
+                match_column="name",
+                return_column="bvd_id_number",
+                cut_off=cut_off,
+                remove_str=company_suffixes,
+                num_workers=num_workers,
+            )
+        except Exception as exc:
+            print(f"Falling back to pandas fuzzy matching: {exc}")
+            SFTP.query = fuzzy_query
+            SFTP.query_args = [
+                names,
+                "name",
+                "bvd_id_number",
+                cut_off,
+                company_suffixes,
+                1,
+            ]
+            df, _ = SFTP.process_all(num_workers=num_workers, engine="pandas")
 
         # Finder de bedste matches på tværs af "file parts"
         max_scores = df.groupby("Search_string", as_index=False)["Score"].max()

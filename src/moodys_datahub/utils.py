@@ -15,7 +15,6 @@ import fastavro
 import numpy as np
 import pandas as pd
 import polars as pl
-import polars_ds as pds
 import psutil
 import pyarrow
 from rapidfuzz import process
@@ -1131,89 +1130,204 @@ def fuzzy_query(
     return result_df
 
 
-# FIX ME
 def fuzzy_match_pl(
     names: list,
     file_list: list = None,
+    df=None,
     match_column: str = None,
     return_column: str = None,
-    cut_off: int = 0.50,
+    cut_off: int = 50,
     remove_str: list = None,
+    num_workers: int = None,
 ):
-    try:
-        df_lazy = _read_pl(file_list)
+    def normalize_company_name(value):
+        if pd.isna(value):
+            return None
 
-        df_lazy = df_lazy.with_columns(
-            pl.col(match_column).alias("BestMatch").str.to_lowercase()
+        normalized = str(value).lower()
+        original_lower = normalized
+
+        if remove_str:
+            for suffix in remove_str:
+                suffix = str(suffix).lower()
+                if suffix and original_lower.endswith(suffix):
+                    normalized = original_lower[: -len(suffix)].strip()
+
+        return normalized
+
+    def block_key(value, length):
+        if value is None:
+            return ""
+        letters_only = _letters_only_regex(value)
+        return letters_only[:length]
+
+    def prepare_source_frame():
+        if df is not None:
+            source = df
+        elif file_list is not None:
+            source = _read_pl(file_list)
+        else:
+            raise ValueError("Either 'df' or 'file_list' must be provided.")
+
+        if isinstance(source, pl.LazyFrame):
+            source = source.select([match_column, return_column]).collect()
+        elif isinstance(source, pl.DataFrame):
+            source = source.select([match_column, return_column])
+        elif isinstance(source, pd.DataFrame):
+            source = pl.from_pandas(source[[match_column, return_column]].copy())
+        else:
+            raise ValueError("'df' must be a pandas or polars DataFrame.")
+
+        return source.to_pandas()
+
+    try:
+        if not num_workers or num_workers < 0:
+            num_workers = max(1, cpu_count() - 2)
+
+        source_df = prepare_source_frame()
+        source_df = source_df.dropna(subset=[match_column]).reset_index(drop=True)
+        source_df["BestMatch"] = source_df[match_column].map(normalize_company_name)
+        source_df = source_df.dropna(subset=["BestMatch"]).reset_index(drop=True)
+        source_df["_source_idx"] = source_df.index
+        source_df["_prefix3"] = source_df["BestMatch"].map(lambda value: block_key(value, 3))
+        source_df["_prefix1"] = source_df["BestMatch"].map(lambda value: block_key(value, 1))
+        source_df["_name_len"] = source_df["BestMatch"].str.len()
+
+        # Match the pandas exact-match behavior by keeping the last occurrence.
+        source_df = source_df.drop_duplicates(subset=["BestMatch"], keep="last").reset_index(
+            drop=True
         )
 
-        names_lower = [s.lower() for s in names]
+        exact_lookup = {
+            row["BestMatch"]: row
+            for row in source_df[
+                [match_column, return_column, "BestMatch", "_prefix3", "_prefix1", "_name_len"]
+            ].to_dict("records")
+        }
 
-        # Apply remove_str filtering if provided
-        if remove_str:
-            # Filter out rows where match_column ends with any of the substrings in remove_str
-            for substr in remove_str:
-                df_lazy = df_lazy.with_columns(
-                    pl.col("BestMatch").str.replace_all(substr, "").alias("BestMatch")
+        prefix3_map = defaultdict(list)
+        prefix1_map = defaultdict(list)
+        candidate_records = source_df[
+            [match_column, return_column, "BestMatch", "_prefix3", "_prefix1", "_name_len"]
+        ].to_dict("records")
+        for record in candidate_records:
+            prefix3_map[record["_prefix3"]].append(record)
+            prefix1_map[record["_prefix1"]].append(record)
+
+        def select_candidates(search_string):
+            prefix3 = block_key(search_string, 3)
+            prefix1 = block_key(search_string, 1)
+            candidates = list(prefix3_map.get(prefix3, []))
+            if not candidates:
+                candidates = list(prefix1_map.get(prefix1, []))
+            if not candidates:
+                return candidate_records
+
+            name_length = len(search_string)
+            max_delta = max(3, min(10, int(ceil(name_length / 3))))
+            length_filtered = [
+                candidate
+                for candidate in candidates
+                if abs(candidate["_name_len"] - name_length) <= max_delta
+            ]
+            return length_filtered or candidates
+
+        def score_search_strings(search_batch):
+            result_rows = []
+            for search_string in search_batch:
+                exact_match = exact_lookup.get(search_string)
+                if exact_match is not None:
+                    result_rows.append(
+                        (
+                            search_string,
+                            search_string,
+                            100.0,
+                            exact_match[match_column],
+                            exact_match[return_column],
+                        )
+                    )
+                    continue
+
+                candidates = select_candidates(search_string)
+                choices = [candidate["BestMatch"] for candidate in candidates]
+
+                if len(choices) > 2000:
+                    best_match = process.extractOne(
+                        search_string, choices, score_cutoff=cut_off
+                    )
+                    if best_match is None:
+                        result_rows.append((search_string, None, 0.0, None, None))
+                        continue
+
+                    choice_value, best_score, candidate_idx = best_match
+                    candidate = candidates[candidate_idx]
+                    result_rows.append(
+                        (
+                            search_string,
+                            candidate["BestMatch"],
+                            float(best_score),
+                            candidate[match_column],
+                            candidate[return_column],
+                        )
+                    )
+                    continue
+
+                matches = process.extract(
+                    search_string,
+                    choices,
+                    score_cutoff=cut_off,
+                    limit=len(choices),
                 )
-                # df_lazy = df_lazy.filter(~pl.col('BestMatch').str.ends_with(substr))
 
-                # Remove the suffix from each string if it ends with the specified suffix
-                # names_lower = [s[:-len(substr)] if s.endswith(substr) else s for s in names_lower]
-                names_lower = [name.replace(substr, "") for name in names_lower]
+                if not matches:
+                    result_rows.append((search_string, None, 0.0, None, None))
+                    continue
 
-        # Filter rows where match_column values are in names
-        df_matches = df_lazy.filter(pl.col("BestMatch").is_in(names_lower))
+                best_score = matches[0][1]
+                best_candidates = [
+                    candidates[candidate_idx]
+                    for _, score, candidate_idx in matches
+                    if score == best_score
+                ]
+                for candidate in best_candidates:
+                    result_rows.append(
+                        (
+                            search_string,
+                            candidate["BestMatch"],
+                            float(best_score),
+                            candidate[match_column],
+                            candidate[return_column],
+                        )
+                    )
 
-        # Add a new column 'score' with a constant value of 100
-        df_matches = df_matches.with_columns(pl.lit(1.0000).alias("Score"))
+            return result_rows
 
-        df_matches = df_matches.with_columns(pl.col("BestMatch").alias("Search_string"))
+        search_names = [normalize_company_name(name) for name in names]
+        search_names = [name for name in search_names if name is not None]
 
-        # Select only the match_column and return_column
-        select_cols = [pl.col(["Search_string", "BestMatch", "Score"])]
+        if len(search_names) < num_workers:
+            num_workers = len(search_names) or 1
 
-        if match_column:
-            select_cols.append(pl.col(match_column))
-        if return_column:
-            select_cols.append(pl.col(return_column))
+        if num_workers > 1 and len(search_names) > 1:
+            batch_size = ceil(len(search_names) / num_workers)
+            search_batches = [
+                search_names[i : i + batch_size]
+                for i in range(0, len(search_names), batch_size)
+            ]
+            matches = []
+            with ThreadPoolExecutor(max_workers=num_workers) as pool:
+                for batch_matches in pool.map(score_search_strings, search_batches):
+                    matches.extend(batch_matches)
+        else:
+            matches = score_search_strings(search_names)
 
-        df_matches = df_matches.select(select_cols)
-
-        # Collect the results
-        df_matches = df_matches.collect()
-
-        # Convert df_matches 'Search_string' column to a set
-        df_matches_set = set(df_matches["BestMatch"])
-
-        # Find names not in df_matches
-        names_fuzzy = [name for name in names_lower if name not in df_matches_set]
-
-        df_names_fuzzy = pl.DataFrame({"Search_string": names_fuzzy})
-
-        names_lazy = df_names_fuzzy.lazy()
-
-        # Filter rows where 'Search_string' values are NOT in names
-        df_fuzzy = df_lazy.filter(~pl.col("BestMatch").is_in(names_lower))
-
-        # Perform a cross join and calculate similarity scores
-        df_fuzzy = df_fuzzy.join_where(
-            names_lazy,
-            pl.lit(True),  # Always true to generate all combinations
-            # how="cross"
-        ).with_columns(pds.str_fuzz("Search_string", "BestMatch").alias("Score"))
-
-        # Filter rows where the 'fuzz' score is greater than or equal to 90
-        df_fuzzy = df_fuzzy.filter(pl.col("Score") >= cut_off)
-
-        df_fuzzy = df_fuzzy.select(select_cols).collect()
-
-        result_df = pl.concat([df_matches, df_fuzzy])
-
-        return result_df
+        return pd.DataFrame(
+            matches,
+            columns=["Search_string", "BestMatch", "Score", match_column, return_column],
+        )
 
     except Exception as e:
-        raise RuntimeError(f"Error processing files: {file_list}") from e
+        raise RuntimeError(f"Error processing fuzzy company matching: {file_list}") from e
 
 
 # FIX ME
