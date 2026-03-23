@@ -268,3 +268,98 @@ def test_pool_method_rejects_invalid_value():
 
     with pytest.raises(ValueError, match="Invalid worker pool method"):
         conn.pool_method = "invalid"
+
+
+def test_set_data_product_exact_match_updates_timestamp_and_filters_tables(monkeypatch):
+    proc = _make_metadata_process()
+    proc._set_data_product = None
+
+    monkeypatch.setattr(DummyProcess, "_object_defaults", lambda self: None)
+
+    proc.set_data_product = "Prod"
+
+    assert proc.set_data_product == "Prod"
+    assert proc._time_stamp == "2024-01-01"
+    assert proc._tables_available["Data Product"].tolist() == ["Prod"]
+
+
+def test_set_data_product_partial_match_reports_multiple_matches(monkeypatch, capsys):
+    proc = _make_metadata_process()
+    proc._set_data_product = None
+    proc._tables_backup = pd.DataFrame(
+        {
+            "Data Product": ["Prod Alpha", "Prod Beta"],
+            "Table": ["table_a", "table_b"],
+            "Export": ["exp1", "exp2"],
+            "Base Directory": ["base/a", "base/b"],
+            "Top-level Directory": ["top1", "top2"],
+            "Timestamp": ["2024-01-01", "2024-01-02"],
+        }
+    )
+    proc._tables_available = proc._tables_backup.copy()
+
+    monkeypatch.setattr(DummyProcess, "_object_defaults", lambda self: None)
+
+    proc.set_data_product = "prod"
+
+    assert proc.set_data_product is None
+    assert "Multiple data products partially match" in capsys.readouterr().out
+
+
+def test_set_table_exact_match_updates_remote_path_and_selection_state(monkeypatch):
+    proc = _make_metadata_process()
+    proc._set_data_product = None
+    proc._set_table = None
+
+    monkeypatch.setattr(DummyProcess, "_object_defaults", lambda self: None)
+    monkeypatch.setattr(
+        DummyProcess,
+        "_check_path",
+        lambda self, path, source: ([f"{path}/part.csv"], path),
+    )
+
+    proc.set_table = "main_table"
+
+    assert proc.set_table == "main_table"
+    assert proc.set_data_product == "Prod"
+    assert proc.remote_path == "base/main_table"
+    assert proc.remote_files == ["base/main_table/part.csv"]
+
+
+def test_set_table_partial_match_reports_multiple_tables(monkeypatch, capsys):
+    proc = _make_metadata_process()
+    proc._set_data_product = None
+    proc._set_table = None
+    proc._tables_backup = pd.DataFrame(
+        {
+            "Data Product": ["Prod", "Prod"],
+            "Table": ["main_table", "main_history"],
+            "Export": ["exp1", "exp1"],
+            "Base Directory": ["base/main_table", "base/main_history"],
+            "Top-level Directory": ["top1", "top1"],
+            "Timestamp": ["2024-01-01", "2024-01-01"],
+        }
+    )
+    proc._tables_available = proc._tables_backup.copy()
+
+    monkeypatch.setattr(DummyProcess, "_object_defaults", lambda self: None)
+
+    proc.set_table = "main"
+
+    assert proc.set_table is None
+    assert "Multiple tables partially match" in capsys.readouterr().out
+
+
+def test_local_path_none_clears_local_and_remote_state():
+    proc = _make_metadata_process()
+    proc._local_path = "local/path"
+    proc._local_files = ["local.csv"]
+    proc._remote_path = "remote/path"
+    proc._remote_files = ["remote.csv"]
+
+    proc.local_path = None
+
+    assert proc.local_path is None
+    assert proc.local_files == []
+    assert proc.remote_path is None
+    assert proc.remote_files == []
