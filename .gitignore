@@ -17,5 +17,4 @@ venv/
 # Build artifacts
 build/
 dist/
-dist_pypi/
 *.egg-info/
