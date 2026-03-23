@@ -171,6 +171,48 @@ def test_get_column_names_uses_dictionary_metadata():
     assert out == ["bvd_id_number", "name"]
 
 
+def test_get_column_names_uses_dictionary_metadata_and_saves(monkeypatch):
+    sftp = object.__new__(Sftp)
+    sftp._set_table = "main_table"
+
+    monkeypatch.setattr(
+        Sftp,
+        "search_dictionary",
+        lambda self, save_to=None: pd.DataFrame({"Column": ["col_a", "col_b"]}),
+    )
+
+    saved = {}
+    monkeypatch.setattr(
+        "moodys_datahub.tools._save_to",
+        lambda df, name, save_to: saved.update(
+            {"columns": df["Column_Names"].tolist(), "name": name, "save_to": save_to}
+        ),
+    )
+
+    out = Sftp.get_column_names(sftp, save_to="csv")
+
+    assert out == ["col_a", "col_b"]
+    assert saved == {
+        "columns": ["col_a", "col_b"],
+        "name": "column_names",
+        "save_to": "csv",
+    }
+
+
+def test_get_column_names_reads_parquet_schema_from_files(tmp_path):
+    file_path = tmp_path / "sample.parquet"
+    pd.DataFrame({"col_a": [1], "col_b": [2]}).to_parquet(file_path, index=False)
+
+    sftp = object.__new__(Sftp)
+    sftp.remote_files = [str(file_path)]
+    sftp._check_args = lambda files: (files, None)
+    sftp._get_file = lambda file: (file, False)
+
+    out = Sftp.get_column_names(sftp, files=[str(file_path)])
+
+    assert out == ["col_a", "col_b"]
+
+
 def test_orbis_to_moodys_maps_known_headers_and_returns_missing(tmp_path, monkeypatch):
     file_path = tmp_path / "orbis.xlsx"
     pd.DataFrame(
@@ -261,6 +303,37 @@ def test_tables_available_reset_restores_backup(monkeypatch):
     assert first_df.equals(overview_df)
     assert reset_df.equals(overview_df)
     assert to_delete == ["old_export"]
+
+
+def test_tables_available_initial_load_uses_table_overview_and_save(monkeypatch):
+    conn = object.__new__(_Connection)
+    conn._tables_available = None
+    conn._tables_backup = None
+
+    overview_df = pd.DataFrame({"Data Product": ["A"], "Table": ["table_a"]})
+    saved = {}
+
+    monkeypatch.setattr(
+        _Connection,
+        "_table_overview",
+        lambda self, product_overview=None: (overview_df, ["old/export"]),
+    )
+    monkeypatch.setattr(_Connection, "_specify_data_products", lambda self: None)
+    monkeypatch.setattr(
+        "moodys_datahub.connection._save_to",
+        lambda df, name, save_to: saved.update(
+            {"df": df.copy(), "name": name, "save_to": save_to}
+        ),
+    )
+
+    df, to_delete = conn.tables_available(save_to="csv")
+
+    assert df.equals(overview_df)
+    assert to_delete == ["old/export"]
+    assert conn._tables_backup.equals(overview_df)
+    assert saved["df"].equals(overview_df)
+    assert saved["name"] == "tables_available"
+    assert saved["save_to"] == "csv"
 
 
 def test_pool_method_rejects_invalid_value():
@@ -363,3 +436,59 @@ def test_local_path_none_clears_local_and_remote_state():
     assert proc.local_files == []
     assert proc.remote_path is None
     assert proc.remote_files == []
+
+
+def test_check_path_lists_local_directory(tmp_path):
+    proc = _make_metadata_process()
+    proc._set_table = None
+    (tmp_path / "one.csv").write_text("a\n1\n", encoding="utf-8")
+    (tmp_path / "two.csv").write_text("a\n2\n", encoding="utf-8")
+
+    files, path = proc._check_path(str(tmp_path), "local")
+
+    assert set(files) == {"one.csv", "two.csv"}
+    assert path == str(tmp_path)
+
+
+def test_check_path_normalizes_local_file_to_parent_directory(tmp_path):
+    proc = _make_metadata_process()
+    local_file = tmp_path / "single.csv"
+    local_file.write_text("a\n1\n", encoding="utf-8")
+
+    files, path = proc._check_path(str(local_file), "local")
+
+    assert files == ["single.csv"]
+    assert path == str(tmp_path)
+
+
+def test_check_path_creates_missing_local_directory(tmp_path, capsys):
+    proc = _make_metadata_process()
+    new_dir = tmp_path / "created"
+
+    files, path = proc._check_path(str(new_dir), "local")
+
+    assert files == []
+    assert path == str(new_dir)
+    assert new_dir.exists()
+    assert "created" in capsys.readouterr().out
+
+
+def test_check_files_rejects_non_string_values():
+    proc = _make_metadata_process()
+
+    with pytest.raises(ValueError, match="list of strings"):
+        proc._check_files(["ok.csv", 1])
+
+
+def test_pool_method_falls_back_to_spawn_without_fork(monkeypatch, capsys):
+    conn = object.__new__(_Connection)
+    conn._pool_method = "threading"
+
+    monkeypatch.delattr("moodys_datahub.connection.os.fork", raising=False)
+
+    conn.pool_method = "fork"
+
+    assert conn.pool_method == "spawn"
+    output = capsys.readouterr().out
+    assert "not supported" in output
+    assert '"spawn" is chosen' in output
