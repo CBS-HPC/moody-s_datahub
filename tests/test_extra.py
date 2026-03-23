@@ -1,6 +1,6 @@
 import pandas as pd
 
-from moodys_datahub.extra import fuzzy_match, year_distribution
+from moodys_datahub.extra import _fuzzy_worker, fuzzy_match, year_distribution
 
 
 def test_year_distribution_prints_frequency_table(capsys):
@@ -78,3 +78,74 @@ def test_fuzzy_match_returns_best_fuzzy_match():
     assert result["BestMatch"].tolist() == ["acme limited"]
     assert result["bvd_id_number"].tolist() == ["BVD1"]
     assert result["Score"].iloc[0] >= 70
+
+
+def test_fuzzy_worker_applies_remove_str_before_exact_matching():
+    df = pd.DataFrame(
+        {
+            "name": ["Acme Ltd"],
+            "bvd_id_number": ["BVD1"],
+        }
+    )
+
+    result = _fuzzy_worker(
+        (["acme"], 80, df, "name", "bvd_id_number", [" ltd"])
+    )
+
+    assert result == [("acme", "acme", 100, "Acme Ltd", "BVD1")]
+
+
+def test_fuzzy_match_parallel_branch_uses_pool(monkeypatch):
+    class FakePool:
+        def __init__(self, processes):
+            self.processes = processes
+            captured["processes"] = processes
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def map(self, fn, args_list):
+            captured["batches"] = len(args_list)
+            return [fn(args) for args in args_list]
+
+    def fake_worker(args):
+        names, _cutoff, df_chunk, match_column, return_column, _remove = args
+        row = df_chunk.iloc[0]
+        score = 100 if row[match_column] == "Acme Ltd" else 50
+        return [
+            (
+                names[0],
+                row[match_column].lower(),
+                score,
+                row[match_column],
+                row[return_column],
+            )
+        ]
+
+    captured = {}
+    df = pd.DataFrame(
+        {
+            "name": ["Acme Ltd", "Beta Group", "Gamma"],
+            "bvd_id_number": ["BVD1", "BVD2", "BVD3"],
+        }
+    )
+
+    monkeypatch.setattr("moodys_datahub.extra.cpu_count", lambda: 4)
+    monkeypatch.setattr("moodys_datahub.extra.Pool", FakePool)
+    monkeypatch.setattr("moodys_datahub.extra._fuzzy_worker", fake_worker)
+
+    result = fuzzy_match(
+        df=df,
+        names=["acme ltd"],
+        match_column="name",
+        return_column="bvd_id_number",
+        cut_off=50,
+        num_workers=-1,
+    )
+
+    assert captured == {"processes": 2, "batches": 2}
+    assert result["BestMatch"].tolist() == ["acme ltd"]
+    assert result["bvd_id_number"].tolist() == ["BVD1"]
