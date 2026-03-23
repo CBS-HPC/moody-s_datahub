@@ -62,6 +62,13 @@ matching, and year-based `time_period` filtering. After processing, inspect
 `SFTP.last_process_engine` and `SFTP.last_process_reason` to see which backend
 was used and why.
 
+`process_all()` currently falls back to pandas when you use:
+- string queries
+- pandas-only callables
+- `concat_files=False`
+- custom `pool_method` or `n_batches`
+- unsupported or mixed file formats
+
 ## Installation
 
 ### Install from a GitHub release wheel

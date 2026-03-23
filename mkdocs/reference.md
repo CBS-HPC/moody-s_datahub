@@ -59,6 +59,9 @@ interact with the package through `moodys_datahub.Sftp` or
   matching, and year-based filtering for `time_period`.
 - `process_all()` falls back to pandas for string queries, pandas-only callables,
   `concat_files=False`, custom batching, and unsupported file formats.
+- `last_process_reason` currently reports values such as `compatible`,
+  `explicit`, `string_query`, `callable_query`, `pool_method`, `n_batches`, and
+  `concat_files_false`.
 - The current release pins `paramiko==3.5.1` because the SFTP backend still
   depends on `pysftp`, which is not compatible with newer Paramiko versions.
 
