@@ -162,6 +162,57 @@ def test_search_dictionary_list_tags_each_search_word():
     assert set(out["Column"]) == {"Total Assets", "name"}
 
 
+def test_search_dictionary_list_supports_exact_match_and_letters_only(monkeypatch):
+    proc = object.__new__(Sftp)
+    proc._set_data_product = "Prod"
+    proc._set_table = "main_table"
+    proc._tables_backup = pd.DataFrame({"Data Product": ["Prod", "Other"]})
+    proc._table_dictionary = pd.DataFrame(
+        {
+            "Data Product": ["Prod", "Prod", "Other"],
+            "Table": ["main_table", "main_table", "other_table"],
+            "Column": ["Total Assets", "name", "other"],
+            "Definition": ["Total Assets", "Company Name", "Other"],
+        }
+    )
+
+    out = Sftp._search_dictionary_list(
+        proc,
+        search_word=["total-assets", "name"],
+        search_cols={
+            "Data Product": False,
+            "Table": False,
+            "Column": True,
+            "Definition": False,
+        },
+        letters_only=True,
+        exact_match=True,
+    )
+
+    assert set(out["search_word"]) == {"totalassets", "name"}
+    assert set(out["Column"]) == {"Total Assets", "name"}
+
+
+def test_search_dictionary_list_returns_empty_for_unknown_table(capsys):
+    proc = object.__new__(Sftp)
+    proc._set_data_product = "Prod"
+    proc._set_table = "main_table"
+    proc._tables_backup = pd.DataFrame({"Data Product": ["Prod"]})
+    proc._table_dictionary = pd.DataFrame(
+        {
+            "Data Product": ["Prod"],
+            "Table": ["main_table"],
+            "Column": ["name"],
+            "Definition": ["Company Name"],
+        }
+    )
+
+    out = Sftp._search_dictionary_list(proc, search_word="name", table="missing_table")
+
+    assert out.empty
+    assert "No such Table was found" in capsys.readouterr().out
+
+
 def test_get_column_names_uses_dictionary_metadata():
     sftp = object.__new__(Sftp)
     sftp._set_table = "main_table"

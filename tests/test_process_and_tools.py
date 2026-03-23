@@ -336,6 +336,94 @@ def test_orbis_to_moodys_maps_known_headings_and_reports_unknown(tmp_path, monke
     assert not_found == ["Unknown Heading"]
 
 
+def test_copy_obj_resets_defaults_and_triggers_select_data(monkeypatch):
+    sftp = object.__new__(Sftp)
+    sftp.marker = "original"
+    called = {"defaults": 0, "select_data": 0}
+
+    def fake_deepcopy(obj):
+        clone = object.__new__(Sftp)
+        clone.marker = obj.marker
+        clone._object_defaults = lambda: called.update(
+            {"defaults": called["defaults"] + 1}
+        )
+        clone.select_data = lambda: called.update(
+            {"select_data": called["select_data"] + 1}
+        )
+        return clone
+
+    monkeypatch.setattr("moodys_datahub.tools.copy.deepcopy", fake_deepcopy)
+
+    clone = Sftp.copy_obj(sftp)
+
+    assert clone is not sftp
+    assert clone.marker == "original"
+    assert called == {"defaults": 1, "select_data": 1}
+
+
+def test_get_column_names_returns_none_when_file_lookup_fails(monkeypatch, capsys):
+    class FakeSession:
+        remote_files = None
+
+        def _check_args(self, files):
+            raise ValueError("missing files")
+
+    out = Sftp.get_column_names(FakeSession(), files=["missing.parquet"])
+
+    assert out is None
+    assert "missing files" in capsys.readouterr().out
+
+
+def test_batch_bvd_search_creates_input_templates_when_missing(monkeypatch, tmp_path):
+    products_template = tmp_path / "products_template.xlsx"
+    bvd_template = tmp_path / "bvd_numbers_template.txt"
+    products_template.write_text("template", encoding="utf-8")
+    bvd_template.write_text("numbers", encoding="utf-8")
+
+    class FakeResource:
+        def __init__(self, path):
+            self.path = path
+
+        def __truediv__(self, other):
+            if other == "products.xlsx":
+                return FakeResource(products_template)
+            return FakeResource(bvd_template)
+
+        def open(self, mode):
+            return open(self.path, mode)
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("moodys_datahub.tools.pkg_resources.files", lambda _: FakeResource(tmp_path))
+
+    Sftp.batch_bvd_search(object(), products="missing_products.xlsx", bvd_numbers="missing_ids.txt")
+
+    assert (tmp_path / "products.xlsx").exists()
+    assert (tmp_path / "bvd_numbers.txt").exists()
+
+
+def test_sftp_init_uses_cbs_fallback_credentials(monkeypatch):
+    monkeypatch.setattr("moodys_datahub.connection.pysftp.CnOpts", lambda: type("C", (), {"hostkeys": None})())
+    monkeypatch.setattr(Sftp, "_object_defaults", lambda self: None)
+    monkeypatch.setattr(Sftp, "tables_available", lambda self, product_overview=None: (pd.DataFrame(), []))
+    monkeypatch.setattr(Sftp, "_server_clean_up", lambda self, to_delete: None)
+
+    attempts = []
+
+    def fake_connect(self):
+        attempts.append(self.username)
+        if self.username == "D2vdz8elTWKyuOcC2kMSnw":
+            raise ValueError("first credential fails")
+        return object()
+
+    monkeypatch.setattr(Sftp, "_connect", fake_connect)
+
+    sftp = Sftp(privatekey="key.pem")
+
+    assert attempts == ["D2vdz8elTWKyuOcC2kMSnw", "aN54UkFxQPCOIEtmr0FmAQ"]
+    assert sftp.hostname == "s-f2112b8b980e44f9a.server.transfer.eu-west-1.amazonaws.com"
+    assert sftp.username == "aN54UkFxQPCOIEtmr0FmAQ"
+
+
 def test_get_file_downloads_remote_file_and_applies_timestamp(monkeypatch, tmp_path):
     class FakeStat:
         st_mtime = 123
