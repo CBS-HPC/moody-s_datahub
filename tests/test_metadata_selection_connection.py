@@ -496,6 +496,119 @@ def test_pool_method_falls_back_to_spawn_without_fork(monkeypatch, capsys):
     assert '"spawn" is chosen' in output
 
 
+def test_remote_path_falls_back_to_export_match(monkeypatch):
+    proc = _make_metadata_process()
+    proc._set_data_product = "Missing Product"
+    proc._set_table = "main_table"
+
+    monkeypatch.setattr(
+        DummyProcess,
+        "_check_path",
+        lambda self, path, source: (["part.csv"], path),
+    )
+
+    proc.remote_path = "exp1"
+
+    assert proc.remote_path == "exp1"
+    assert proc.remote_files == ["part.csv"]
+    assert proc.set_table is None
+
+
+def test_select_data_sets_product_and_table_for_single_match(monkeypatch, capsys):
+    class FakeSelectData:
+        def __init__(self, df, title):
+            self.df = df
+            self.title = title
+
+        async def display_widgets(self):
+            return "Prod", "main_table"
+
+    proc = _make_metadata_process()
+    proc._set_data_product = None
+    proc._set_table = None
+    proc._tables_backup = pd.DataFrame(
+        {
+            "Data Product": ["Prod"],
+            "Table": ["main_table"],
+            "Base Directory": ["base/main_table"],
+            "Top-level Directory": ["top1"],
+            "Export": ["exp1"],
+            "Timestamp": ["2024-01-01"],
+        }
+    )
+    proc._tables_available = proc._tables_backup.copy()
+
+    monkeypatch.setattr("moodys_datahub.selection._SelectData", FakeSelectData)
+    monkeypatch.setattr(
+        "moodys_datahub.selection.asyncio.ensure_future",
+        lambda coro: asyncio.run(coro),
+    )
+    monkeypatch.setattr(
+        DummyProcess,
+        "_check_path",
+        lambda self, path, source: (["part.csv"], path),
+    )
+
+    proc.select_data()
+
+    assert proc.set_data_product == "Prod"
+    assert proc.set_table == "main_table"
+    assert proc.remote_path == "base/main_table"
+    output = capsys.readouterr().out
+    assert "was set as Data Product" in output
+    assert "was set as Table" in output
+
+
+def test_select_data_uses_directory_selector_when_multiple_exports(monkeypatch):
+    class FakeSelectData:
+        def __init__(self, df, title):
+            self.df = df
+            self.title = title
+
+        async def display_widgets(self):
+            return "Prod", "main_table"
+
+    proc = _make_metadata_process()
+    proc._set_data_product = None
+    proc._set_table = None
+    proc._tables_backup = pd.DataFrame(
+        {
+            "Data Product": ["Prod", "Prod"],
+            "Table": ["main_table", "main_table"],
+            "Base Directory": ["base/main_table/v1", "base/main_table/v2"],
+            "Top-level Directory": ["top1", "top2"],
+            "Export": ["exp1", "exp2"],
+            "Timestamp": ["2024-01-01", "2024-01-02"],
+        }
+    )
+    proc._tables_available = proc._tables_backup.copy()
+    captured = {}
+
+    monkeypatch.setattr("moodys_datahub.selection._SelectData", FakeSelectData)
+    monkeypatch.setattr(
+        "moodys_datahub.selection.asyncio.ensure_future",
+        lambda coro: asyncio.run(coro),
+    )
+    monkeypatch.setattr(
+        "moodys_datahub.selection._select_list",
+        lambda class_type, values, col_name, title, fnc, n_args: captured.update(
+            {
+                "class_type": class_type,
+                "values": values,
+                "col_name": col_name,
+                "title": title,
+            }
+        ),
+    )
+
+    proc.select_data()
+
+    assert captured["class_type"] == "_SelectList"
+    assert captured["values"] == ["top1", "top2"]
+    assert proc.set_data_product == "Prod"
+    assert proc.set_table == "main_table"
+
+
 def test_table_overview_reads_local_repo_exports(tmp_path):
     export_dir = tmp_path / "Prod One_exported 2024-02-03_04-05-06"
     export_dir.mkdir()

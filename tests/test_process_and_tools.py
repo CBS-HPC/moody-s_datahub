@@ -69,6 +69,145 @@ def test_select_cols_rejects_missing_columns(monkeypatch, capsys):
     assert "cannot be found" in capsys.readouterr().out
 
 
+def test_time_period_sets_single_date_column_and_updates_select_cols(monkeypatch):
+    proc = _make_dummy_process()
+    proc._select_cols = ["name"]
+
+    monkeypatch.setattr(
+        DummyProcess,
+        "table_dates",
+        lambda self, **kwargs: pd.DataFrame({"Column": ["closing_date"]}),
+    )
+
+    proc.time_period = [2020, 2021]
+
+    assert proc.time_period == [2020, 2021, "closing_date", "remove"]
+    assert set(proc.select_cols) == {"name", "closing_date"}
+
+
+def test_time_period_uses_selector_when_multiple_date_columns(monkeypatch):
+    proc = _make_dummy_process()
+    captured = {}
+
+    monkeypatch.setattr(
+        DummyProcess,
+        "table_dates",
+        lambda self, **kwargs: pd.DataFrame(
+            {"Column": ["closing_date", "information_date"]}
+        ),
+    )
+    monkeypatch.setattr(
+        "moodys_datahub.process._select_list",
+        lambda class_type, values, col_name, title, fnc, n_args: captured.update(
+            {
+                "class_type": class_type,
+                "values": values,
+                "col_name": col_name,
+                "title": title,
+            }
+        ),
+    )
+
+    proc.time_period = [2020, 2021]
+
+    assert captured["class_type"] == "_SelectList"
+    assert captured["values"] == ["closing_date", "information_date"]
+    assert proc.time_period[2] is None
+
+
+def test_time_period_rejects_unknown_date_column(monkeypatch):
+    proc = _make_dummy_process()
+
+    monkeypatch.setattr(
+        DummyProcess,
+        "table_dates",
+        lambda self, **kwargs: pd.DataFrame({"Column": ["closing_date"]}),
+    )
+
+    with pytest.raises(ValueError, match="bad_date was not found"):
+        proc.time_period = [2020, 2021, "bad_date"]
+
+
+def test_bvd_list_sets_exact_query_and_updates_select_cols(monkeypatch):
+    proc = _make_dummy_process()
+    proc._select_cols = ["name"]
+
+    monkeypatch.setattr(
+        DummyProcess,
+        "search_country_codes",
+        lambda self, **kwargs: pd.DataFrame({"Code": ["DK", "SE"]}),
+    )
+    monkeypatch.setattr(
+        DummyProcess,
+        "search_dictionary",
+        lambda self, **kwargs: pd.DataFrame({"Column": ["bvd_id_number"]}),
+    )
+
+    proc.bvd_list = ["BVD1", "BVD2"]
+
+    assert set(proc.bvd_list[0]) == {"BVD1", "BVD2"}
+    assert proc.bvd_list[1] == "bvd_id_number"
+    assert proc.bvd_list[2].startswith("bvd_id_number in [")
+    assert "bvd_id_number" in proc.select_cols
+
+
+def test_bvd_list_uses_prefix_mode_for_country_codes(monkeypatch):
+    proc = _make_dummy_process()
+
+    monkeypatch.setattr(
+        DummyProcess,
+        "search_country_codes",
+        lambda self, **kwargs: pd.DataFrame({"Code": ["DK", "SE"]}),
+    )
+    monkeypatch.setattr(
+        DummyProcess,
+        "search_dictionary",
+        lambda self, **kwargs: pd.DataFrame({"Column": ["bvd_id_number"]}),
+    )
+
+    proc.bvd_list = ["DK", "SE"]
+
+    assert set(proc.bvd_list[0]) == {"DK", "SE"}
+    assert proc.bvd_list[1] == "bvd_id_number"
+    assert "str.startswith('DK'" in proc.bvd_list[2]
+    assert "str.startswith('SE'" in proc.bvd_list[2]
+
+
+def test_bvd_list_uses_selector_when_multiple_bvd_columns_are_available(monkeypatch):
+    proc = _make_dummy_process()
+    captured = {}
+
+    monkeypatch.setattr(
+        DummyProcess,
+        "search_country_codes",
+        lambda self, **kwargs: pd.DataFrame({"Code": ["DK", "SE"]}),
+    )
+    monkeypatch.setattr(
+        DummyProcess,
+        "search_dictionary",
+        lambda self, **kwargs: pd.DataFrame(
+            {"Column": ["bvd_id_number", "guo_bvd_id_number"]}
+        ),
+    )
+    monkeypatch.setattr(
+        "moodys_datahub.process._select_list",
+        lambda class_type, values, col_name, title, fnc, n_args: captured.update(
+            {
+                "class_type": class_type,
+                "values": values,
+                "col_name": col_name,
+                "title": title,
+            }
+        ),
+    )
+
+    proc.bvd_list = ["BVD1"]
+
+    assert captured["class_type"] == "_SelectMultiple"
+    assert captured["values"] == ["bvd_id_number", "guo_bvd_id_number"]
+    assert proc.bvd_list[1] is None
+
+
 def test_search_dictionary_letters_only_returns_original_rows():
     proc = _make_dummy_process()
     proc._table_dictionary = pd.DataFrame(
