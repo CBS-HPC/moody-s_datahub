@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 import pandas as pd
 import pytest
@@ -338,11 +339,235 @@ def test_tables_available_initial_load_uses_table_overview_and_save(monkeypatch)
     assert saved["save_to"] == "csv"
 
 
+def test_connection_init_sets_default_state(monkeypatch):
+    class FakeCnOpts:
+        def __init__(self):
+            self.hostkeys = "preset"
+
+    monkeypatch.setattr("moodys_datahub.connection.pysftp.CnOpts", FakeCnOpts)
+
+    conn = _Connection()
+
+    assert conn.connection is None
+    assert conn.privatekey is None
+    assert conn._cnopts.hostkeys is None
+    assert conn.output_format == [".csv"]
+    assert conn.file_size_mb == 500
+    assert conn.delete_files is False
+    assert conn.concat_files is True
+
+
+def test_connect_passes_credentials_to_pysftp(monkeypatch):
+    captured = {}
+    sentinel = object()
+
+    def fake_connection(**kwargs):
+        captured.update(kwargs)
+        return sentinel
+
+    monkeypatch.setattr("moodys_datahub.connection.pysftp.Connection", fake_connection)
+
+    conn = object.__new__(_Connection)
+    conn.hostname = "host"
+    conn.username = "user"
+    conn.port = 22
+    conn.privatekey = "key.pem"
+    conn._cnopts = object()
+
+    assert conn._connect() is sentinel
+    assert captured == {
+        "host": "host",
+        "username": "user",
+        "port": 22,
+        "private_key": "key.pem",
+        "cnopts": conn._cnopts,
+    }
+
+
 def test_pool_method_rejects_invalid_value():
     conn = object.__new__(_Connection)
 
     with pytest.raises(ValueError, match="Invalid worker pool method"):
         conn.pool_method = "invalid"
+
+
+def test_table_overview_reads_sftp_exports_and_resolves_unknown_products(
+    monkeypatch, tmp_path
+):
+    class FakeStat:
+        def __init__(self, mtime):
+            self.st_mtime = mtime
+
+    class FakeSftp:
+        def __init__(self):
+            self.removed = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def listdir(self, path=None):
+            if path is None:
+                return ["prod_dir", "unknown_dir"]
+            path = path.replace("\\", "/")
+
+            mapping = {
+                "prod_dir": ["tnfs", "export_old", "export_new"],
+                "prod_dir/tnfs": ["old.tnf", "new.tnf"],
+                "prod_dir/export_new": ["main_table.csv", "usd_interim"],
+                "unknown_dir": ["unknown_export"],
+                "unknown_dir/unknown_export": ["mystery_table.csv"],
+            }
+            return mapping[path]
+
+        def exists(self, path):
+            return path == "prod_dir/tnfs"
+
+        def stat(self, path):
+            mapping = {
+                "prod_dir/tnfs/old.tnf": 100,
+                "prod_dir/tnfs/new.tnf": 200,
+            }
+            return FakeStat(mapping[path])
+
+        def get(self, remote_path, local_path):
+            with open(local_path, "w", encoding="utf-8") as handle:
+                json.dump({"DataFolder": "export_new"}, handle)
+
+        def remove(self, path):
+            self.removed.append(path)
+
+    fake_sftp = FakeSftp()
+    conn = object.__new__(_Connection)
+    conn._local_repo = None
+    conn._local_path = str(tmp_path)
+
+    monkeypatch.setattr(
+        "moodys_datahub.connection._table_names",
+        lambda file_name=None: pd.DataFrame(
+            {
+                "Data Product": ["Known Product"],
+                "Top-level Directory": ["prod_dir"],
+            }
+        ),
+    )
+    monkeypatch.setattr(_Connection, "_connect", lambda self: fake_sftp)
+    monkeypatch.setattr(
+        "moodys_datahub.connection._table_match",
+        lambda tables: ("Resolved Product", tables),
+    )
+
+    df, to_delete = conn._table_overview()
+
+    assert set(df["Data Product"]) == {"Known Product", "Resolved Product"}
+    assert set(df["Table"]) == {"main_table", "interim_usd", "mystery_table"}
+    assert "prod_dir/export_old" in to_delete
+    assert "prod_dir/tnfs/old.tnf" in fake_sftp.removed
+
+
+def test_server_clean_up_runs_prompt_for_allowed_host(monkeypatch, capsys):
+    class FakeQuestion:
+        def __init__(self, question, buttons):
+            self.question = question
+            self.buttons = buttons
+
+        async def display_widgets(self):
+            return "ok"
+
+    conn = object.__new__(_Connection)
+    conn.hostname = "s-f2112b8b980e44f9a.server.transfer.eu-west-1.amazonaws.com"
+    conn.username = "D2vdz8elTWKyuOcC2kMSnw"
+    called = {}
+
+    monkeypatch.setattr("moodys_datahub.connection.cpu_count", lambda: 32)
+    monkeypatch.setattr("moodys_datahub.connection._CustomQuestion", FakeQuestion)
+    monkeypatch.setattr(
+        "moodys_datahub.connection.asyncio.ensure_future",
+        lambda coro: asyncio.run(coro),
+    )
+    monkeypatch.setattr(
+        _Connection,
+        "_remove_exports",
+        lambda self, to_delete: called.update({"to_delete": to_delete}),
+    )
+
+    conn._server_clean_up(["export_a"])
+
+    assert called == {"to_delete": ["export_a"]}
+    assert "DELETING OLD EXPORTS" in capsys.readouterr().out
+
+
+def test_delete_files_and_folders_use_sftp_remove(monkeypatch, capsys):
+    class FakeAttr:
+        def __init__(self, filename):
+            self.filename = filename
+
+    class FakeSftp:
+        def __init__(self):
+            self.removed = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def remove(self, path):
+            self.removed.append(path)
+
+        def listdir_attr(self, path):
+            if path == "missing":
+                raise FileNotFoundError
+            return [FakeAttr("one.csv"), FakeAttr("two.csv")]
+
+    fake_sftp = FakeSftp()
+    conn = object.__new__(_Connection)
+
+    monkeypatch.setattr(_Connection, "_connect", lambda self: fake_sftp)
+
+    conn._delete_files(["a.csv", "b.csv"])
+    conn._delete_folders("folder_a")
+    conn._delete_folders("missing")
+
+    assert fake_sftp.removed[:2] == ["a.csv", "b.csv"]
+    assert "folder_a/one.csv" in fake_sftp.removed
+    assert "Folder folder_a deleted successfully" in capsys.readouterr().out
+
+
+def test_object_defaults_resets_runtime_state():
+    conn = object.__new__(_Connection)
+    conn._select_cols = ["name"]
+    conn.query = "value > 1"
+    conn.query_args = ["arg"]
+    conn._bvd_list = [["DK"], "bvd_id_number", "query"]
+    conn._time_period = [2020, 2021, "closing_date", "keep"]
+    conn.dfs = pd.DataFrame({"value": [1]})
+    conn._local_path = "local/path"
+    conn._local_files = ["local.csv"]
+    conn._remote_path = "remote/path"
+    conn._remote_files = ["remote.csv"]
+    conn._set_data_product = "Prod"
+    conn._time_stamp = "2024-01-01"
+    conn._set_table = "table_a"
+    conn._download_finished = True
+    conn._last_process_engine = "polars"
+    conn._last_process_reason = "compatible"
+
+    conn._object_defaults()
+
+    assert conn._select_cols is None
+    assert conn.query is None
+    assert conn.query_args is None
+    assert conn._bvd_list == [None, None, None]
+    assert conn._time_period == [None, None, None, "remove"]
+    assert conn.dfs is None
+    assert conn._local_path is None
+    assert conn._remote_files == []
+    assert conn._set_data_product is None
+    assert conn._download_finished is None
+    assert conn._last_process_engine is None
 
 
 def test_set_data_product_exact_match_updates_timestamp_and_filters_tables(monkeypatch):
