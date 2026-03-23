@@ -619,7 +619,6 @@ def _load_pl(
 
 
 def _read_csv_chunk(params):
-    # FIX ME !!! - Implementering af log-function!!
     (
         file,
         chunk_idx,
@@ -908,7 +907,6 @@ def _date_pd(
     date_filter = (df[date_col].dt.year >= start_year) & (
         df[date_col].dt.year <= end_year
     )
-    # FIX ME [!!] make into pandas query!
 
     if date_filter.any():
         df = df.loc[date_filter]
@@ -1364,79 +1362,6 @@ def fuzzy_match_pl(
 
     except Exception as e:
         raise RuntimeError(f"Error processing fuzzy company matching: {file_list}") from e
-
-
-# FIX ME
-def _bvd_changes_ray_not_working(initial_ids, df, num_workers=-1):
-    """
-    Track the newest IDs using Modin and Ray.
-
-    Args:
-    - initial_ids (set): Set of initial IDs.
-    - df (DataFrame): Modin DataFrame containing 'old_id' and 'new_id' columns.
-    - num_workers (int): Number of workers for Ray. Defaults to using all available CPUs minus two.
-
-    Returns:
-    - new_ids (set): Set of all discovered IDs.
-    - newest_ids (dict): Mapping of each ID to its newest ID.
-    - df (DataFrame): Filtered DataFrame with an additional 'newest_id' column.
-    """
-    _require_ray()
-
-    if num_workers < 1:
-        num_workers = max(1, os.cpu_count() - 2)
-
-    ray.init(num_cpus=num_workers)
-
-    new_ids = set(initial_ids)
-    newest_ids = {id: id for id in new_ids}
-    current_ids = set()
-    found_new = True
-
-    while found_new:
-        found_new = False
-        if not current_ids:
-            current_ids = new_ids.copy()
-        else:
-            current_ids = new_ids - current_ids
-
-        # Filter for old_id and new_id matches
-        old_matches = df[df["old_id"].isin(current_ids)]
-        new_matches = df[df["new_id"].isin(current_ids)]
-
-        if old_matches.empty and new_matches.empty:
-            break
-
-        # Extract unique old_id and new_id values
-        old_id = set(old_matches["old_id"].unique())
-        new_id = set(new_matches["new_id"].unique())
-
-        # Determine new IDs not already in new_ids
-        new_old_ids = old_id - new_ids
-        new_new_ids = new_id - new_ids
-
-        # Check if new IDs were found
-        found_new = bool(new_old_ids or new_new_ids)
-
-        # Update new_ids set
-        new_ids.update(new_old_ids)
-        new_ids.update(new_new_ids)
-
-        # Update newest_ids mapping
-        newest_ids.update(old_matches.set_index("old_id")["new_id"].to_dict())
-        newest_ids.update(old_matches.set_index("new_id")["new_id"].to_dict())
-
-    # Re-filter data based on new_ids
-    df = df[(df["old_id"].isin(new_ids)) | (df["new_id"].isin(new_ids))]
-
-    # Map newest IDs using dictionary lookup
-    df["newest_id"] = df.apply(
-        lambda row: newest_ids.get(row["old_id"], newest_ids.get(row["new_id"])), axis=1
-    )
-
-    ray.shutdown()
-    return new_ids, newest_ids, df
-
 
 def _bvd_changes_ray(initial_ids, df, num_workers: int = -1):
     """Resolve connected BvD ID lineage and map each ID to its terminal newest ID.
