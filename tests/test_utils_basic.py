@@ -370,6 +370,22 @@ def test_bvd_changes_ray_returns_empty_filtered_df_when_no_changes_found():
     assert filtered_df.empty
 
 
+def test_bvd_changes_ray_maps_newest_id_from_new_id_when_old_id_is_missing():
+    df = pd.DataFrame(
+        {
+            "old_id": [pd.NA],
+            "new_id": ["C"],
+            "change_date": ["2020-01-01"],
+        }
+    )
+
+    new_ids, newest_ids, filtered_df = _bvd_changes_ray(["C"], df)
+
+    assert new_ids == {"C"}
+    assert newest_ids == {"C": "C"}
+    assert filtered_df["newest_id"].tolist() == ["C"]
+
+
 def test_fuzzy_match_pl_normalizes_suffixes_for_exact_matches():
     df = pl.DataFrame(
         {

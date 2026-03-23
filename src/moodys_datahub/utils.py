@@ -1438,11 +1438,13 @@ def _bvd_changes_ray(initial_ids, df, num_workers: int = -1):
     ].copy()
 
     if not filtered_df.empty:
-        filtered_df.loc[:, "newest_id"] = filtered_df.apply(
-            lambda row: newest_ids.get(
-                row["old_id"], newest_ids.get(row["new_id"])
-            ),
-            axis=1,
+        filtered_df.loc[:, "newest_id"] = filtered_df["old_id"].map(newest_ids)
+        missing_newest = filtered_df["newest_id"].isna()
+        filtered_df.loc[missing_newest, "newest_id"] = filtered_df.loc[
+            missing_newest, "new_id"
+        ].map(newest_ids)
+        filtered_df.loc[:, "newest_id"] = filtered_df["newest_id"].where(
+            filtered_df["newest_id"].notna(), filtered_df["new_id"]
         )
 
     no_iter = 1 + max(0, len(discovered_ids) - len(initial_ids))
