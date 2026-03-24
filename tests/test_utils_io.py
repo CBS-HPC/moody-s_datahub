@@ -7,6 +7,7 @@ from pyarrow.lib import ArrowInvalid
 
 from moodys_datahub.utils import (
     _create_chunks,
+    _create_workers,
     _date_pl,
     _load_csv_table,
     _load_pd,
@@ -14,6 +15,7 @@ from moodys_datahub.utils import (
     _read_csv_chunk,
     _read_pd,
     _read_pl,
+    _run_parallel,
     _save_chunks,
     _save_files_pd,
     _save_files_pl,
@@ -28,6 +30,120 @@ class _FixedDatetime:
 
     def strftime(self, _fmt):
         return "20260101_120000"
+
+
+def test_create_workers_caps_auto_process_pool(monkeypatch):
+    created = {}
+
+    class FakePool:
+        def __init__(self, processes):
+            created["processes"] = processes
+
+    monkeypatch.setattr(
+        "moodys_datahub.utils.psutil.virtual_memory",
+        lambda: type("Memory", (), {"total": 96 * (1024**3)})(),
+    )
+    monkeypatch.setattr("moodys_datahub.utils.cpu_count", lambda: 4)
+    monkeypatch.setattr("moodys_datahub.utils.Pool", FakePool)
+
+    worker_pool, method = _create_workers(
+        num_workers=-1,
+        n_total=10,
+        pool_method="spawn",
+        query=None,
+    )
+
+    assert isinstance(worker_pool, FakePool)
+    assert method == "process"
+    assert created == {"processes": 4}
+
+
+def test_create_workers_switches_spawn_query_to_thread_pool(monkeypatch):
+    created = {}
+
+    class FakeExecutor:
+        def __init__(self, max_workers):
+            created["max_workers"] = max_workers
+
+    monkeypatch.setattr("moodys_datahub.utils.ThreadPoolExecutor", FakeExecutor)
+
+    worker_pool, method = _create_workers(
+        num_workers=3,
+        n_total=10,
+        pool_method="spawn",
+        query=lambda frame: frame,
+    )
+
+    assert isinstance(worker_pool, FakeExecutor)
+    assert method == "thread"
+    assert created == {"max_workers": 3}
+
+
+def test_run_parallel_process_branch_closes_and_joins(monkeypatch):
+    calls = {"closed": False, "joined": False}
+
+    class FakePool:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def map(self, fnc, params, chunksize=None):
+            calls["chunksize"] = chunksize
+            return [fnc(item) for item in params]
+
+        def close(self):
+            calls["closed"] = True
+
+        def join(self):
+            calls["joined"] = True
+
+    monkeypatch.setattr(
+        "moodys_datahub.utils._create_workers",
+        lambda num_workers, n_total, pool_method: (FakePool(), "process"),
+    )
+    monkeypatch.setattr(
+        "moodys_datahub.utils.tqdm",
+        lambda iterable, total, mininterval: iterable,
+    )
+
+    result = _run_parallel(lambda value: value * 2, [1, 2, 3], n_total=3)
+
+    assert result == [2, 4, 6]
+    assert calls == {"closed": True, "joined": True, "chunksize": 1}
+
+
+def test_run_parallel_returns_empty_on_worker_error(monkeypatch, capsys):
+    class FailingPool:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def map(self, fnc, params, chunksize=None):
+            raise RuntimeError("pool failed")
+
+        def close(self):
+            return None
+
+        def join(self):
+            return None
+
+    monkeypatch.setattr(
+        "moodys_datahub.utils._create_workers",
+        lambda num_workers, n_total, pool_method: (FailingPool(), "process"),
+    )
+    monkeypatch.setattr(
+        "moodys_datahub.utils.tqdm",
+        lambda iterable, total, mininterval: iterable,
+    )
+
+    result = _run_parallel(lambda value: value, [1, 2], n_total=2)
+
+    assert result == []
+    assert "Error occurred: pool failed" in capsys.readouterr().out
 
 
 def test_save_to_writes_pandas_and_polars_csv(monkeypatch, tmp_path, capsys):

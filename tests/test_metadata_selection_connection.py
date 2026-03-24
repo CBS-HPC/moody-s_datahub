@@ -327,6 +327,40 @@ def test_table_search_matches_data_product_and_table():
     assert len(out) == 2
 
 
+def test_check_path_creates_missing_local_folder(tmp_path, capsys):
+    proc = _make_metadata_process()
+    new_folder = tmp_path / "created_folder"
+
+    files, path = proc._check_path(str(new_folder), "local")
+
+    assert files == []
+    assert path == str(new_folder)
+    assert new_folder.exists()
+    assert f"Folder '{new_folder}' created." in capsys.readouterr().out
+
+
+def test_check_path_marks_invalid_remote_path(monkeypatch, capsys):
+    class FakeSftp:
+        def exists(self, path):
+            return False
+
+    proc = _make_metadata_process()
+    monkeypatch.setattr(DummyProcess, "_connect", lambda self: FakeSftp())
+
+    files, path = proc._check_path("remote/missing", "remote")
+
+    assert files == []
+    assert path is None
+    assert "Remote path is invalid" in capsys.readouterr().out
+
+
+def test_check_files_requires_string_lists():
+    proc = _make_metadata_process()
+
+    with pytest.raises(ValueError, match="file list must be a list of strings"):
+        proc._check_files(["ok", 1])
+
+
 def test_tables_available_reset_restores_backup(monkeypatch):
     conn = object.__new__(_Connection)
     conn._tables_available = None
