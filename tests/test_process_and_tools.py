@@ -873,3 +873,199 @@ def test_polars_all_restores_concat_files_on_timeout(monkeypatch):
         proc.polars_all(files=["sample.csv"])
 
     assert proc.concat_files is False
+
+
+def test_normalize_bvd_queries_accepts_string_query():
+    proc = _make_dummy_process()
+
+    pandas_query, polars_query = proc._normalize_bvd_queries("bvd_id_number in ['A1']")
+
+    assert pandas_query == "bvd_id_number in ['A1']"
+    assert polars_query is None
+
+
+def test_normalize_bvd_queries_normalizes_series_inputs():
+    proc = _make_dummy_process()
+
+    pandas_query, polars_query = proc._normalize_bvd_queries(
+        [
+            pd.Series(["A1", "B2"]),
+            pd.Series(["primary_bvd"]),
+            "Exact",
+        ]
+    )
+
+    assert pandas_query == "primary_bvd in ['A1', 'B2']"
+    assert polars_query == [["A1", "B2"], "primary_bvd", "exact"]
+
+
+def test_normalize_bvd_queries_rejects_malformed_length():
+    proc = _make_dummy_process()
+
+    with pytest.raises(ValueError, match="bvd_query must be \\[values, columns\\]"):
+        proc._normalize_bvd_queries([["A1"]])
+
+
+def test_choose_process_engine_routes_string_bvd_query_to_pandas():
+    proc = _make_dummy_process()
+
+    engine, reason = proc._choose_process_engine(
+        files=["one.csv"],
+        raw_bvd_query="bvd_id_number in ['A1']",
+        polars_bvd_query=None,
+    )
+
+    assert engine == "pandas"
+    assert reason == "string_bvd_query"
+
+
+def test_choose_process_engine_routes_unsupported_format_to_pandas():
+    proc = _make_dummy_process()
+
+    engine, reason = proc._choose_process_engine(files=["one.orc"])
+
+    assert engine == "pandas"
+    assert reason == "unsupported_format:orc"
+
+
+def test_get_file_wraps_remote_read_errors(tmp_path, monkeypatch):
+    proc = _make_dummy_process()
+    proc.remote_path = "remote/base"
+    local_file = tmp_path / "sample.csv"
+
+    class FailingSftp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, remote_file, local_target):
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr(DummyProcess, "_file_exist", lambda self, file: (str(local_file), False))
+    monkeypatch.setattr(DummyProcess, "_connect", lambda self: FailingSftp())
+
+    with pytest.raises(ValueError, match="Error reading remote file: boom"):
+        proc._get_file("sample.csv")
+
+
+def test_check_args_generates_destination_when_flag_is_true(tmp_path, monkeypatch):
+    proc = _make_dummy_process()
+    existing_file = tmp_path / "sample.csv"
+    existing_file.write_text("value\n1\n", encoding="utf-8")
+    proc._local_path = str(tmp_path / "Dummy Product" / "dummy_table")
+
+    monkeypatch.setattr("moodys_datahub.process.datetime", type("FixedDatetime", (), {
+        "now": staticmethod(lambda: pd.Timestamp("2026-03-24 12:34:00").to_pydatetime())
+    }))
+
+    files, destination = proc._check_args([str(existing_file)], destination=None, flag=True)
+
+    assert files == [str(existing_file)]
+    assert destination.endswith("2603241234_base")
+
+
+def test_check_args_creates_parent_directory_for_concat_output(tmp_path):
+    proc = _make_dummy_process()
+    proc.concat_files = True
+    existing_file = tmp_path / "sample.csv"
+    existing_file.write_text("value\n1\n", encoding="utf-8")
+    destination = tmp_path / "nested" / "joined.csv"
+
+    files, out_destination = proc._check_args([str(existing_file)], str(destination))
+
+    assert files == [str(existing_file)]
+    assert out_destination == str(destination)
+    assert destination.parent.exists()
+
+
+def test_batch_bvd_search_skips_existing_output_files(tmp_path, monkeypatch):
+    class FakeRunner:
+        def __init__(self):
+            self._set_table = None
+            self.process_calls = []
+
+        def _object_defaults(self):
+            return None
+
+        def __setattr__(self, name, value):
+            if name == "set_data_product":
+                object.__setattr__(self, "_set_data_product", value)
+            elif name == "set_table":
+                object.__setattr__(self, "_set_table", value)
+            else:
+                object.__setattr__(self, name, value)
+
+        def get_column_names(self):
+            return ["bvd_id_number"]
+
+        def process_all(self, **kwargs):
+            self.process_calls.append(kwargs)
+
+    parent = object.__new__(Sftp)
+    runner = FakeRunner()
+    products = tmp_path / "products.xlsx"
+    bvd_numbers = tmp_path / "bvd_numbers.txt"
+    pd.DataFrame(
+        {
+            "Data Product": ["Prod"],
+            "Table": ["table_a"],
+            "Column": ["bvd_id_number"],
+            "Run": [True],
+        }
+    ).to_excel(products, index=False)
+    bvd_numbers.write_text("BVD1\n", encoding="utf-8")
+    (tmp_path / "1_Prod_table_a.csv").write_text("done\n", encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("moodys_datahub.tools.copy.deepcopy", lambda obj: runner)
+
+    parent.batch_bvd_search(str(products), str(bvd_numbers))
+
+    assert runner.process_calls == []
+
+
+def test_batch_bvd_search_skips_rows_with_missing_columns(tmp_path, monkeypatch):
+    class FakeRunner:
+        def __init__(self):
+            self._set_table = None
+            self.process_calls = []
+
+        def _object_defaults(self):
+            return None
+
+        def __setattr__(self, name, value):
+            if name == "set_data_product":
+                object.__setattr__(self, "_set_data_product", value)
+            elif name == "set_table":
+                object.__setattr__(self, "_set_table", value)
+            else:
+                object.__setattr__(self, name, value)
+
+        def get_column_names(self):
+            return ["name"]
+
+        def process_all(self, **kwargs):
+            self.process_calls.append(kwargs)
+
+    parent = object.__new__(Sftp)
+    runner = FakeRunner()
+    products = tmp_path / "products.xlsx"
+    bvd_numbers = tmp_path / "bvd_numbers.txt"
+    pd.DataFrame(
+        {
+            "Data Product": ["Prod"],
+            "Table": ["table_a"],
+            "Column": ["bvd_id_number"],
+            "Run": [True],
+        }
+    ).to_excel(products, index=False)
+    bvd_numbers.write_text("BVD1\n", encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("moodys_datahub.tools.copy.deepcopy", lambda obj: runner)
+
+    parent.batch_bvd_search(str(products), str(bvd_numbers))
+
+    assert runner.process_calls == []
