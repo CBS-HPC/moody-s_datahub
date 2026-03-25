@@ -79,6 +79,28 @@ def test_create_workers_switches_spawn_query_to_thread_pool(monkeypatch):
     assert created == {"max_workers": 3}
 
 
+def test_create_workers_defaults_to_threading_without_fork(monkeypatch):
+    created = {}
+
+    class FakeExecutor:
+        def __init__(self, max_workers):
+            created["max_workers"] = max_workers
+
+    monkeypatch.delattr("moodys_datahub.utils.os.fork", raising=False)
+    monkeypatch.setattr("moodys_datahub.utils.ThreadPoolExecutor", FakeExecutor)
+
+    worker_pool, method = _create_workers(
+        num_workers=8,
+        n_total=3,
+        pool_method=None,
+        query=None,
+    )
+
+    assert isinstance(worker_pool, FakeExecutor)
+    assert method == "thread"
+    assert created == {"max_workers": 3}
+
+
 def test_run_parallel_process_branch_closes_and_joins(monkeypatch):
     calls = {"closed": False, "joined": False}
 
@@ -112,6 +134,31 @@ def test_run_parallel_process_branch_closes_and_joins(monkeypatch):
 
     assert result == [2, 4, 6]
     assert calls == {"closed": True, "joined": True, "chunksize": 1}
+
+
+def test_run_parallel_thread_branch_maps_without_chunksize(monkeypatch):
+    class FakeThreadPool:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def map(self, fnc, params):
+            return [fnc(item) for item in params]
+
+    monkeypatch.setattr(
+        "moodys_datahub.utils._create_workers",
+        lambda num_workers, n_total, pool_method: (FakeThreadPool(), "thread"),
+    )
+    monkeypatch.setattr(
+        "moodys_datahub.utils.tqdm",
+        lambda iterable, total, mininterval: iterable,
+    )
+
+    result = _run_parallel(lambda value: value + 1, [1, 2, 3], n_total=3)
+
+    assert result == [2, 3, 4]
 
 
 def test_run_parallel_returns_empty_on_worker_error(monkeypatch, capsys):
