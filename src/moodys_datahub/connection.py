@@ -537,6 +537,8 @@ class _Connection:
         self.query = None
         self.query_args: list = None
         self._bvd_list: list = [None, None, None]
+        self._and_bvd_list: list = []
+        self._or_bvd_list: list = []
         self._time_period: list = [None, None, None, "remove"]
         self.dfs = None
         self._local_path: str = None

@@ -33,12 +33,15 @@ def _make_dummy_process():
     proc._time_stamp = None
     proc._time_period = [None, None, None, "remove"]
     proc._bvd_list = [None, None, None]
+    proc._and_bvd_list = []
+    proc._or_bvd_list = []
     proc.query = None
     proc.query_args = None
     proc._select_cols = None
     proc.concat_files = True
     proc.output_format = None
     proc.file_size_mb = 100
+    proc._download_finished = True
     proc._set_data_product = "Dummy Product"
     proc._set_table = "dummy_table"
     proc._last_process_engine = None

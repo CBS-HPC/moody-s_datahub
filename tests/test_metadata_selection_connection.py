@@ -19,6 +19,8 @@ def _make_metadata_process():
     proc.remote_files = ["sample.csv"]
     proc._time_period = [None, None, None, "remove"]
     proc._bvd_list = [None, None, None]
+    proc._and_bvd_list = []
+    proc._or_bvd_list = []
     proc.query = None
     proc.query_args = None
     proc._select_cols = None

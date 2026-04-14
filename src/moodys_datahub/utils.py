@@ -464,7 +464,9 @@ def _load_pl(
     - file_list (list): List of file paths.
     - select_cols (list, optional): Columns to select.
     - date_query (list, optional): [start_year, end_year, date_column, nan_action].
-    - bvd_query (tuple, optional): (values_list, column_name or column_names[, mode]).
+    - bvd_query (tuple or dict, optional):
+      single clause as `(values_list, column_name or column_names[, mode])` or
+      grouped clauses as `{"base": ..., "and": [...], "or": [...]}`.
     - query (callable or Polars expression, optional): Additional filter query.
     - query_args (tuple, optional): Arguments for function-based query.
 
@@ -473,34 +475,22 @@ def _load_pl(
     """
 
     def _normalize_pl_bvd_query(bvd_query):
-        if len(bvd_query) == 2:
-            values, columns = bvd_query
-            mode = "exact"
-        elif len(bvd_query) == 3:
-            values, columns, mode = bvd_query
-        else:
-            raise ValueError(
-                "bvd_query must be [values, columns] or [values, columns, mode]."
-            )
+        if bvd_query is None:
+            return None
 
-        if isinstance(values, (pd.Series, np.ndarray)):
-            values = values.tolist()
-        elif not isinstance(values, list):
-            values = [values]
+        if isinstance(bvd_query, dict):
+            return {
+                "base": _normalize_bvd_clause(bvd_query.get("base")),
+                "and": _normalize_bvd_clause_group(bvd_query.get("and")),
+                "or": _normalize_bvd_clause_group(bvd_query.get("or")),
+            }
 
-        values = [str(value) for value in values]
+        if isinstance(bvd_query, (list, tuple)):
+            return {"base": _normalize_bvd_clause(bvd_query), "and": [], "or": []}
 
-        if isinstance(columns, str):
-            columns = [columns]
-        elif isinstance(columns, (pd.Series, np.ndarray)):
-            columns = columns.tolist()
-        elif not isinstance(columns, list):
-            columns = [columns]
-
-        if mode not in ["exact", "prefix"]:
-            raise ValueError("BvD filter mode must be 'exact' or 'prefix'.")
-
-        return values, columns, mode
+        raise ValueError(
+            "bvd_query must be [values, columns[, mode]] or a grouped clause dict."
+        )
 
     def _resolve_required_columns(select_cols, date_query, bvd_query):
         output_cols = None
@@ -517,9 +507,16 @@ def _load_pl(
         if date_query is not None and all(date_query[:3]):
             date_col = date_query[2]
 
-        if required_cols is not None and bvd_query is not None:
-            _, bvd_cols, _ = _normalize_pl_bvd_query(bvd_query)
-            required_cols.extend(bvd_cols)
+        normalized_bvd_query = _normalize_pl_bvd_query(bvd_query)
+        if required_cols is not None and normalized_bvd_query is not None:
+            required_cols.extend(
+                _collect_bvd_clause_columns(
+                    normalized_bvd_query["base"],
+                    normalized_bvd_query["and"],
+                    normalized_bvd_query["or"],
+                )
+                or []
+            )
 
         if required_cols is not None and date_col is not None:
             required_cols.append(date_col)
@@ -530,24 +527,19 @@ def _load_pl(
         return output_cols, required_cols, date_col
 
     def _apply_pl_bvd_filter(df_lazy, bvd_query):
-        values, columns, mode = _normalize_pl_bvd_query(bvd_query)
-
-        if mode == "exact":
-            filters = [
-                pl.col(column).cast(pl.Utf8, strict=False).is_in(values)
-                for column in columns
-            ]
-        else:
-            filters = [
-                pl.col(column).cast(pl.Utf8, strict=False).str.starts_with(value)
-                for column in columns
-                for value in values
-            ]
-
-        if not filters:
+        normalized_bvd_query = _normalize_pl_bvd_query(bvd_query)
+        if normalized_bvd_query is None:
             return df_lazy
 
-        return df_lazy.filter(pl.any_horizontal(filters))
+        expr = _build_bvd_filter_expr(
+            base_clause=normalized_bvd_query["base"],
+            and_clauses=normalized_bvd_query["and"],
+            or_clauses=normalized_bvd_query["or"],
+        )
+        if expr is None:
+            return df_lazy
+
+        return df_lazy.filter(expr)
 
     try:
         # Load files lazily
@@ -982,6 +974,211 @@ def _construct_query(bvd_cols, bvd_list, search_type):
             conditions.append(condition)
     query = " | ".join(conditions)  # Combine conditions using OR (|)
     return query
+
+
+def _normalize_bvd_clause(clause):
+    if clause is None:
+        return None
+
+    if isinstance(clause, dict):
+        values = clause.get("values")
+        columns = clause.get("columns")
+        mode = clause.get("mode", "exact")
+    elif isinstance(clause, (list, tuple)) and len(clause) in [2, 3]:
+        values, columns = clause[:2]
+        mode = clause[2] if len(clause) == 3 else "exact"
+    else:
+        raise ValueError(
+            "BvD clauses must be [values, columns] or [values, columns, mode]."
+        )
+
+    if isinstance(values, str):
+        values = [values]
+    elif isinstance(values, (pd.Series, np.ndarray)):
+        values = values.tolist()
+    elif not isinstance(values, list):
+        values = [values]
+
+    if isinstance(columns, str):
+        columns = [columns]
+    elif isinstance(columns, (pd.Series, np.ndarray)):
+        columns = columns.tolist()
+    elif not isinstance(columns, list):
+        columns = [columns]
+
+    values = [value for value in values if value is not None and str(value).strip()]
+    columns = [column for column in columns if column is not None and str(column).strip()]
+
+    if not values or not columns:
+        return None
+
+    mode = str(mode).lower()
+    if mode not in ["exact", "prefix"]:
+        raise ValueError("BvD filter mode must be 'exact' or 'prefix'.")
+
+    return {"values": values, "columns": columns, "mode": mode}
+
+
+def _normalize_bvd_clause_group(clauses):
+    if clauses is None:
+        return []
+
+    if isinstance(clauses, (list, tuple)) and len(clauses) == 0:
+        return []
+
+    if isinstance(clauses, dict):
+        normalized = _normalize_bvd_clause(clauses)
+        return [normalized] if normalized is not None else []
+
+    if isinstance(clauses, (list, tuple)):
+        group = []
+        is_group = len(clauses) > 0
+
+        if is_group:
+            for clause in clauses:
+                try:
+                    normalized_clause = _normalize_bvd_clause(clause)
+                except ValueError:
+                    is_group = False
+                    break
+
+                if normalized_clause is None:
+                    is_group = False
+                    break
+
+                group.append(normalized_clause)
+
+        if is_group:
+            return group
+
+        normalized = _normalize_bvd_clause(clauses)
+        return [normalized] if normalized is not None else []
+
+    normalized = _normalize_bvd_clause(clauses)
+    return [normalized] if normalized is not None else []
+
+
+def _build_bvd_clause_query(clause):
+    clause = _normalize_bvd_clause(clause)
+    if clause is None:
+        return None
+
+    query = _construct_query(
+        clause["columns"], clause["values"], search_type=clause["mode"] == "prefix"
+    )
+    return query
+
+
+def _build_bvd_clause_group_query(clauses):
+    clauses = _normalize_bvd_clause_group(clauses)
+    queries = []
+    for clause in clauses:
+        query = _build_bvd_clause_query(clause)
+        if query is not None:
+            queries.append(query)
+    if not queries:
+        return None
+    if len(queries) == 1:
+        return queries[0]
+    return " | ".join(queries)
+
+
+def _build_bvd_clause_group_and_query(clauses):
+    clauses = _normalize_bvd_clause_group(clauses)
+    queries = []
+    for clause in clauses:
+        query = _build_bvd_clause_query(clause)
+        if query is not None:
+            queries.append(query)
+    if not queries:
+        return None
+    if len(queries) == 1:
+        return queries[0]
+    return " & ".join(queries)
+
+
+def _build_bvd_filter_query(base_clause=None, and_clauses=None, or_clauses=None):
+    base_query = _build_bvd_clause_query(base_clause)
+    and_query = _build_bvd_clause_group_and_query(and_clauses)
+    or_query = _build_bvd_clause_group_query(or_clauses)
+
+    base_parts = [f"({query})" for query in [base_query, and_query] if query is not None]
+    base_and_query = " & ".join(base_parts) if base_parts else None
+
+    if base_and_query is not None and or_query is not None:
+        return f"({base_and_query}) | ({or_query})"
+    if base_and_query is not None:
+        return base_and_query
+    return or_query
+
+
+def _collect_bvd_clause_columns(base_clause=None, and_clauses=None, or_clauses=None):
+    columns = []
+    for clause in [
+        _normalize_bvd_clause(base_clause),
+        *_normalize_bvd_clause_group(and_clauses),
+        *_normalize_bvd_clause_group(or_clauses),
+    ]:
+        if clause is not None:
+            columns.extend(clause["columns"])
+
+    return list(dict.fromkeys(columns)) if columns else None
+
+
+def _build_bvd_clause_expr(clause):
+    clause = _normalize_bvd_clause(clause)
+    if clause is None:
+        return None
+
+    exprs = []
+    for column in clause["columns"]:
+        col_expr = pl.col(column).cast(pl.Utf8, strict=False)
+        if clause["mode"] == "exact":
+            exprs.append(col_expr.is_in(clause["values"]))
+        else:
+            exprs.extend([col_expr.str.starts_with(value) for value in clause["values"]])
+
+    if not exprs:
+        return None
+    if len(exprs) == 1:
+        return exprs[0]
+    return pl.any_horizontal(exprs)
+
+
+def _build_bvd_filter_expr(base_clause=None, and_clauses=None, or_clauses=None):
+    clause_exprs = []
+    base_expr = _build_bvd_clause_expr(base_clause)
+    if base_expr is not None:
+        clause_exprs.append(base_expr)
+    clause_exprs.extend(
+        expr
+        for expr in (_build_bvd_clause_expr(clause) for clause in _normalize_bvd_clause_group(and_clauses))
+        if expr is not None
+    )
+
+    and_expr = None
+    if clause_exprs:
+        and_expr = clause_exprs[0]
+        for expr in clause_exprs[1:]:
+            and_expr = and_expr & expr
+
+    or_exprs = [
+        expr
+        for expr in (_build_bvd_clause_expr(clause) for clause in _normalize_bvd_clause_group(or_clauses))
+        if expr is not None
+    ]
+
+    or_expr = None
+    if or_exprs:
+        or_expr = or_exprs[0]
+        for expr in or_exprs[1:]:
+            or_expr = or_expr | expr
+
+    if and_expr is not None and or_expr is not None:
+        return and_expr | or_expr
+    if and_expr is not None:
+        return and_expr
+    return or_expr
 
 
 def _letters_only_regex(text):

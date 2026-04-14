@@ -17,6 +17,8 @@ def _make_dummy_process():
     proc.remote_files = ["sample.csv"]
     proc._time_period = [None, None, None, "remove"]
     proc._bvd_list = [None, None, None]
+    proc._and_bvd_list = []
+    proc._or_bvd_list = []
     proc.query = None
     proc.query_args = None
     proc._select_cols = None
@@ -28,6 +30,7 @@ def _make_dummy_process():
     proc._set_table = "dummy_table"
     proc._last_process_engine = None
     proc._last_process_reason = None
+    proc._download_finished = True
     proc._local_path = None
     proc._local_files = []
     proc._remote_path = "remote/base"
@@ -443,6 +446,76 @@ def test_normalize_bvd_queries_rejects_invalid_mode():
 
     with pytest.raises(ValueError, match="must be 'exact' or 'prefix'"):
         proc._normalize_bvd_queries([["DK"], "bvd_id", "invalid"])
+
+
+def test_bvd_layer_setters_refresh_required_columns():
+    proc = _make_dummy_process()
+    proc._select_cols = ["row_id"]
+    proc._time_period = [None, None, None, "remove"]
+    proc._bvd_list = [["B1"], ["base_a", "base_b"], "base_a in ['B1'] | base_b in ['B1']"]
+
+    proc.AND_bvd_list = [
+        [["A1"], ["and_a", "and_b"], "exact"],
+        [["A2"], ["and_c"], "prefix"],
+    ]
+    proc.OR_bvd_list = [[["O1"], ["or_a", "or_b"], "exact"]]
+
+    assert len(proc.AND_bvd_list) == 2
+    assert len(proc.OR_bvd_list) == 1
+    assert set(proc._required_filter_columns()) == {
+        "base_a",
+        "base_b",
+        "and_a",
+        "and_b",
+        "and_c",
+        "or_a",
+        "or_b",
+    }
+    assert set(proc._select_cols) == {
+        "row_id",
+        "base_a",
+        "base_b",
+        "and_a",
+        "and_b",
+        "and_c",
+        "or_a",
+        "or_b",
+    }
+
+
+def test_process_all_supports_and_or_bvd_layers_in_pandas_and_polars(tmp_path):
+    file_path = tmp_path / "bvd_layers.csv"
+    pd.DataFrame(
+        {
+            "row_id": [1, 2, 3, 4],
+            "base_a": ["B1", None, None, "B1"],
+            "base_b": [None, "B1", None, None],
+            "and_a": ["A1", None, None, None],
+            "and_b": [None, "A1", None, None],
+            "and_c": [None, None, None, None],
+            "or_a": [None, None, None, None],
+            "or_b": [None, None, "O1", None],
+        }
+    ).to_csv(file_path, index=False)
+
+    proc = _make_dummy_process()
+    proc._bvd_list = [
+        ["B1"],
+        ["base_a", "base_b"],
+        "base_a in ['B1'] | base_b in ['B1']",
+    ]
+    proc.AND_bvd_list = [[["A1"], ["and_a", "and_b"], "exact"]]
+    proc.OR_bvd_list = [[["O1"], ["or_a", "or_b"], "exact"]]
+
+    pandas_df, _ = proc.process_all(files=[str(file_path)], engine="pandas")
+    polars_df, _ = proc.process_all(files=[str(file_path)], engine="polars")
+    auto_df, _ = proc.process_all(files=[str(file_path)], engine="auto")
+
+    expected_rows = [1, 2, 3]
+    assert pandas_df["row_id"].tolist() == expected_rows
+    assert polars_df["row_id"].tolist() == expected_rows
+    assert auto_df["row_id"].tolist() == expected_rows
+    assert proc.last_process_engine == "polars"
 
 
 def test_get_column_names_reads_local_parquet_schema(tmp_path):

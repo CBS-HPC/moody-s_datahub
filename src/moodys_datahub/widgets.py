@@ -511,21 +511,21 @@ def _select_list(class_type, values, col_name: str, title: str, fnc=None, n_args
     asyncio.ensure_future(f(class_type, values, col_name, title, fnc, n_args))
 
 
-def _select_bvd(selected_value, bvd_list, select_cols, search_type):
+def _select_bvd(selected_value, bvd_list, select_cols, search_type, required_cols=None):
     if selected_value is not None:
         bvd_list[1] = selected_value
         bvd_list[2] = _construct_query(bvd_list[1], bvd_list[0], search_type)
         if select_cols is not None:
-            select_cols = _check_list_format(select_cols, bvd_list[1])
+            select_cols = _check_list_format(select_cols, bvd_list[1], required_cols)
         print(f"{len(bvd_list[0])} unique bvd_id numbers were detected")
         print(f"The following bvd query has been created: {bvd_list[2]}")
 
 
-def _select_date(selected_value, time_period, select_cols):
+def _select_date(selected_value, time_period, select_cols, required_cols=None):
     if selected_value is not None:
         time_period[2] = selected_value
         if select_cols is not None:
-            select_cols = _check_list_format(select_cols, time_period[2])
+            select_cols = _check_list_format(select_cols, time_period[2], required_cols)
         print(f"The following Period will be selected: {time_period}")
 
 

@@ -15,12 +15,18 @@ from .load_data import _country_codes, _table_dates, _table_dictionary
 from .selection import _Selection
 from .utils import (
     SaveFormat,
+    _build_bvd_clause_group_and_query,
+    _build_bvd_clause_group_query,
+    _build_bvd_filter_query,
     _check_list_format,
+    _collect_bvd_clause_columns,
     _construct_query,
     _letters_only_regex,
     _load_csv_table,
     _load_pd,
     _load_pl,
+    _normalize_bvd_clause,
+    _normalize_bvd_clause_group,
     _run_parallel,
     _save_chunks,
     _save_files_pd,
@@ -112,11 +118,6 @@ class _Process(_Selection):
         def set_bvd_list(bvd_list):
             df = self.search_country_codes()
 
-            if (
-                self._bvd_list[1] is not None and self._select_cols is not None
-            ) and self._bvd_list[1] in self._select_cols:
-                self._select_cols.remove(self._bvd_list[1])
-
             self._bvd_list = [None, None, None]
             search_word = None
             if (isinstance(bvd_list, str)) and os.path.isfile(bvd_list):
@@ -197,7 +198,12 @@ class _Process(_Selection):
                     "Columns:",
                     'Select "bvd" Columns to filtrate',
                     _select_bvd,
-                    [self._bvd_list, self._select_cols, search_type],
+                    [
+                        self._bvd_list,
+                        self._select_cols,
+                        search_type,
+                        self._required_filter_columns(),
+                    ],
                 )
                 return
 
@@ -206,11 +212,14 @@ class _Process(_Selection):
             )
 
             if self._select_cols is not None:
-                self._select_cols = _check_list_format(
-                    self._select_cols, self._bvd_list[1], self._time_period[2]
-                )
+                self._sync_select_cols_with_filters(previous_required)
 
+        previous_required = self._required_filter_columns()
         self._bvd_list = [None, None, None]
+
+        if bvd_list is None:
+            self._sync_select_cols_with_filters(previous_required)
+            return
 
         if bvd_list is not None:
             bvd_list, search_word, search_type, non_matching_items = set_bvd_list(
@@ -234,7 +243,12 @@ class _Process(_Selection):
                     "Columns:",
                     'Select "bvd" Columns to filtrate',
                     _select_bvd,
-                    [self._bvd_list, self._select_cols, search_type],
+                    [
+                        self._bvd_list,
+                        self._select_cols,
+                        search_type,
+                        self._required_filter_columns(),
+                    ],
                 )
                 return
 
@@ -242,10 +256,127 @@ class _Process(_Selection):
                 self._bvd_list[1], self._bvd_list[0], search_type
             )
 
-        if self._select_cols is not None:
-            self._select_cols = _check_list_format(
-                self._select_cols, self._bvd_list[1], self._time_period[2]
+            self._sync_select_cols_with_filters(previous_required)
+
+    @property
+    def AND_bvd_list(self):
+        return self._and_bvd_list
+
+    @AND_bvd_list.setter
+    def AND_bvd_list(self, bvd_list=None):
+        previous_required = self._required_filter_columns()
+        self._and_bvd_list = _normalize_bvd_clause_group(bvd_list)
+        self._sync_select_cols_with_filters(previous_required)
+
+    @property
+    def OR_bvd_list(self):
+        return self._or_bvd_list
+
+    @OR_bvd_list.setter
+    def OR_bvd_list(self, bvd_list=None):
+        previous_required = self._required_filter_columns()
+        self._or_bvd_list = _normalize_bvd_clause_group(bvd_list)
+        self._sync_select_cols_with_filters(previous_required)
+
+    def _current_bvd_clause(self):
+        if self._bvd_list[0] is None or self._bvd_list[1] is None:
+            return None
+
+        mode = "prefix"
+        if not (
+            isinstance(self._bvd_list[2], str) and ".str.startswith(" in self._bvd_list[2]
+        ):
+            mode = "exact"
+
+        return _normalize_bvd_clause(
+            {
+                "values": self._bvd_list[0],
+                "columns": self._bvd_list[1],
+                "mode": mode,
+            }
+        )
+
+    def _active_bvd_columns(self):
+        columns = []
+        if self._bvd_list[1] is not None:
+            columns.extend(_check_list_format(None, self._bvd_list[1]))
+
+        columns.extend(
+            _collect_bvd_clause_columns(
+                self._current_bvd_clause(),
+                self._and_bvd_list,
+                self._or_bvd_list,
             )
+            or []
+        )
+        return list(dict.fromkeys(columns)) if columns else None
+
+    def _required_filter_columns(self, bvd_query=None):
+        columns = _check_list_format(None, self._active_bvd_columns(), self._time_period[2])
+
+        if isinstance(bvd_query, dict):
+            if any(key in bvd_query for key in ("base", "and", "or")):
+                columns = _check_list_format(
+                    columns,
+                    _collect_bvd_clause_columns(
+                        bvd_query.get("base"),
+                        bvd_query.get("and"),
+                        bvd_query.get("or"),
+                    ),
+                )
+        elif isinstance(bvd_query, (list, tuple)):
+            clause = _normalize_bvd_clause(bvd_query)
+            if clause is not None:
+                columns = _check_list_format(columns, clause["columns"])
+
+        return columns
+
+    def _sync_select_cols_with_filters(self, previous_required=None):
+        if self._select_cols is None:
+            return
+
+        if previous_required:
+            self._select_cols = [
+                column for column in self._select_cols if column not in previous_required
+            ]
+
+        self._select_cols = _check_list_format(
+            self._select_cols, self._required_filter_columns()
+        )
+
+    def _compose_bvd_filters(self, bvd_query=None):
+        and_clauses = self._and_bvd_list or []
+        or_clauses = self._or_bvd_list or []
+        base_clause = self._current_bvd_clause()
+
+        if bvd_query is None:
+            pandas_query = _build_bvd_filter_query(base_clause, and_clauses, or_clauses)
+            polars_query = (
+                {"base": base_clause, "and": and_clauses, "or": or_clauses}
+                if any([base_clause, and_clauses, or_clauses])
+                else None
+            )
+            return pandas_query, polars_query
+
+        if isinstance(bvd_query, str):
+            base_query = f"({bvd_query})"
+            and_query = _build_bvd_clause_group_and_query(and_clauses)
+            or_query = _build_bvd_clause_group_query(or_clauses)
+
+            if and_query is not None:
+                base_query = f"({base_query} & ({and_query}))"
+            if or_query is not None:
+                return f"({base_query}) | ({or_query})", None
+            return base_query, None
+
+        explicit_clause = _normalize_bvd_clause(bvd_query)
+        pandas_query = _build_bvd_filter_query(explicit_clause, and_clauses, or_clauses)
+        polars_query = (
+            {"base": explicit_clause, "and": and_clauses, "or": or_clauses}
+            if any([explicit_clause, and_clauses, or_clauses])
+            else None
+        )
+        return pandas_query, polars_query
 
     @property
     def time_period(self):
@@ -253,6 +384,8 @@ class _Process(_Selection):
 
     @time_period.setter
     def time_period(self, years: list = None):
+        previous_required = self._required_filter_columns()
+
         def check_year(years):
             # Get the current year
             current_year = datetime.now().year
@@ -287,11 +420,6 @@ class _Process(_Selection):
                 return [start_year, end_year, None]
 
         if years is not None:
-            if (
-                self._time_period[2] is not None and self._select_cols is not None
-            ) and self._time_period[2] in self._select_cols:
-                self._select_cols.remove(self._time_period[2])
-
             self._time_period[:3] = check_year(years)
 
             if self._set_data_product is None or self._set_table is None:
@@ -321,7 +449,7 @@ class _Process(_Selection):
                     "Columns:",
                     'Select "date" Column to filtrate',
                     _select_date,
-                    [self._time_period, self._select_cols],
+                    [self._time_period, self._select_cols, self._required_filter_columns()],
                 )
                 return
 
@@ -329,10 +457,7 @@ class _Process(_Selection):
                 self._time_period[2] = date_col[0]
         else:
             self._time_period = [None, None, None, "remove"]
-        if self._select_cols is not None:
-            self._select_cols = _check_list_format(
-                self._select_cols, self._bvd_list[1], self._time_period[2]
-            )
+        self._sync_select_cols_with_filters(previous_required)
 
     @property
     def select_cols(self):
@@ -345,7 +470,7 @@ class _Process(_Selection):
                 self.select_data()
 
             select_cols = _check_list_format(
-                select_cols, self._bvd_list[1], self._time_period[2]
+                select_cols, self._required_filter_columns()
             )
 
             table_cols = self.search_dictionary(
@@ -434,7 +559,7 @@ class _Process(_Selection):
                 ]
                 self._select_cols = selected_list
                 self._select_cols = _check_list_format(
-                    self._select_cols, self._bvd_list[1], self._time_period[2]
+                    self._select_cols, self._required_filter_columns()
                 )
                 print(f"The following columns have been selected: {self._select_cols}")
 
@@ -652,7 +777,7 @@ class _Process(_Selection):
         elif isinstance(files, int):
             files = [self.remote_files[files]]
 
-        pandas_bvd_query, polars_bvd_query = self._normalize_bvd_queries()
+        _, polars_bvd_query = self._compose_bvd_filters()
         chosen_engine, _ = self._choose_process_engine(
             files=files,
             query=self.query,
@@ -666,11 +791,7 @@ class _Process(_Selection):
                 df = df.to_pandas()
             self.dfs = df
         else:
-            df, _ = self.process_all(
-                files=files,
-                num_workers=len(files),
-                bvd_query=pandas_bvd_query,
-            )
+            df, _ = self.process_all(files=files, num_workers=len(files))
 
         if df.empty:
             print("No rows were retained")
@@ -893,10 +1014,11 @@ class _Process(_Selection):
         if isinstance(files, (str, os.PathLike)):
             files = [files]
         date_query = self.time_period if date_query is None else date_query
-        bvd_query = self._bvd_list[2] if bvd_query is None else bvd_query
         query = self.query if query is None else query
         query_args = self.query_args if query_args is None else query_args
         select_cols = self._select_cols if select_cols is None else select_cols
+        raw_bvd_query = bvd_query
+        bvd_query, _ = self._compose_bvd_filters(raw_bvd_query)
 
         if isinstance(query, pl.Expr):
             raise ValueError(
@@ -915,7 +1037,7 @@ class _Process(_Selection):
             destination=destination,
             select_cols=select_cols,
             date_query=date_query,
-            bvd_query=bvd_query,
+            bvd_query=raw_bvd_query,
             query=query,
         )
 
@@ -985,7 +1107,7 @@ class _Process(_Selection):
         query = self.query if query is None else query
         query_args = self.query_args if query_args is None else query_args
         select_cols = self._select_cols if select_cols is None else select_cols
-        pandas_bvd_query, polars_bvd_query = self._normalize_bvd_queries(bvd_query)
+        _, polars_bvd_query = self._compose_bvd_filters(bvd_query)
 
         if engine not in {"auto", "pandas", "polars"}:
             raise ValueError("engine must be 'auto', 'pandas', or 'polars'.")
@@ -998,7 +1120,7 @@ class _Process(_Selection):
                 n_batches=n_batches,
                 select_cols=select_cols,
                 date_query=date_query,
-                bvd_query=pandas_bvd_query,
+                bvd_query=bvd_query,
                 query=query,
                 query_args=query_args,
                 pool_method=pool_method,
@@ -1036,7 +1158,7 @@ class _Process(_Selection):
                 n_batches=n_batches,
                 select_cols=select_cols,
                 date_query=date_query,
-                bvd_query=pandas_bvd_query,
+                bvd_query=bvd_query,
                 query=query,
                 query_args=query_args,
                 pool_method=pool_method,
@@ -1050,7 +1172,7 @@ class _Process(_Selection):
             num_workers=num_workers,
             select_cols=select_cols,
             date_query=date_query,
-            bvd_query=polars_bvd_query,
+            bvd_query=bvd_query,
             query=query,
             query_args=query_args,
         )
@@ -1090,10 +1212,16 @@ class _Process(_Selection):
         if isinstance(files, (str, os.PathLike)):
             files = [files]
         date_query = self.time_period if date_query is None else date_query
-        bvd_query = self._default_polars_bvd_query() if bvd_query is None else bvd_query
         query = self.query if query is None else query
         query_args = self.query_args if query_args is None else query_args
         select_cols = self._select_cols if select_cols is None else select_cols
+        _, polars_bvd_query = self._compose_bvd_filters(bvd_query)
+
+        if bvd_query is not None and polars_bvd_query is None:
+            raise ValueError(
+                "Polars backend requires structured BvD filters. Use process_all() "
+                "or pandas_all() for string-based bvd_query values."
+            )
 
         current_concat_files = self.concat_files
         self.concat_files = True
@@ -1110,7 +1238,7 @@ class _Process(_Selection):
                 destination=destination,
                 select_cols=select_cols,
                 date_query=date_query,
-                bvd_query=bvd_query,
+                bvd_query=polars_bvd_query,
                 query=query,
             )
 
@@ -1120,7 +1248,7 @@ class _Process(_Selection):
                 destination,
                 select_cols,
                 date_query,
-                bvd_query,
+                polars_bvd_query,
                 query,
                 query_args,
                 row_limit=row_limit,
@@ -1533,7 +1661,7 @@ class _Process(_Selection):
     ):
         if select_cols is not None:
             select_cols = _check_list_format(
-                select_cols, self._bvd_list[1], self._time_period[2]
+                select_cols, self._required_filter_columns(bvd_query)
             )
 
         has_select_cols = select_cols is not None and len(select_cols) > 0
