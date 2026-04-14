@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "moodys_datahub"
-version = "1.0.0"
+version = "1.1.0"
 description = "Python tools for accessing and processing Moody's DataHub exports via SFTP."
 readme = "README.md"
 requires-python = ">=3.9"

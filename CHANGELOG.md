@@ -2,6 +2,20 @@
 
 All notable changes to this project should be documented in this file.
 
+## [1.1.0] - 2026-04-14
+
+### Added
+- Layered BvD filtering via `AND_bvd_list` and `OR_bvd_list` with pandas and
+  Polars support.
+- Auto backend selection that keeps `process_all()` pandas-compatible while
+  using Polars for supported workloads.
+
+### Changed
+- Public docs now describe the layered BvD model and the explicit pandas /
+  Polars backends.
+- `README.md` and API reference pages now point to the current release wheel
+  workflow.
+
 ## [1.0.0] - 2026-03-20
 
 ### Added
