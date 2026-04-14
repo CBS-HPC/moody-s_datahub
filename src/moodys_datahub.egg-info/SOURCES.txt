@@ -1,16 +1,8 @@
 .gitignore
 LICENSE.md
+MANIFEST.in
 README.md
 pyproject.toml
-dist/moodys_datahub-1.0.0rc1-py3-none-any.whl
-dist/moodys_datahub-1.0.0rc1.tar.gz
-mkdocs/examples.ipynb
-mkdocs/how_to_get_started.ipynb
-mkdocs/how_to_get_started.md
-mkdocs/moody-s datahub.md
-mkdocs/reference - utils.md
-mkdocs/reference.md
-mkdocs/.ipynb_checkpoints/how_to_get_started-checkpoint.ipynb
 src/moodys_datahub/__init__.py
 src/moodys_datahub/connection.py
 src/moodys_datahub/extra.py
@@ -29,7 +21,6 @@ src/moodys_datahub/data/__init__.py
 src/moodys_datahub/data/bvd_numbers.txt
 src/moodys_datahub/data/country_codes.xlsx
 src/moodys_datahub/data/data_dict.xlsx
-src/moodys_datahub/data/data_dict_available.xlsx
 src/moodys_datahub/data/data_products.xlsx
 src/moodys_datahub/data/date_cols.xlsx
 src/moodys_datahub/data/products.xlsx

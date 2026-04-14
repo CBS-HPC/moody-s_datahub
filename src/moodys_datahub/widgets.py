@@ -1,4 +1,5 @@
 import asyncio
+
 import ipywidgets as widgets
 from IPython.display import display
 
@@ -13,56 +14,64 @@ class _SelectData:
         self.title = widgets.HTML(value=f"<h2>{title}</h2>")
 
         # Set an initial value for product dropdown (first product by default)
-        self.selected_product = self.df['Data Product'].unique()[0]
-         # Create the second dropdown menu, prepopulate based on initial product
-        filtered_tables = self.df[self.df['Data Product'] == self.selected_product]['Table'].unique()
+        self.selected_product = self.df["Data Product"].unique()[0]
+        # Create the second dropdown menu, prepopulate based on initial product
+        filtered_tables = self.df[self.df["Data Product"] == self.selected_product][
+            "Table"
+        ].unique()
         self.selected_table = filtered_tables[0]
 
         # Create the first dropdown menu
         self.product_dropdown = widgets.Dropdown(
-            options=self.df['Data Product'].unique(),
+            options=self.df["Data Product"].unique(),
             value=self.selected_product,  # Set the initial value
-            description='Data Product:',
+            description="Data Product:",
             disabled=False,
         )
 
         # Create the second dropdown menu placeholder
         self.table_dropdown = widgets.Dropdown(
             options=filtered_tables.tolist(),  # Populate based on initial product
-            value = self.selected_table,
-            description='Table:',
+            value=self.selected_table,
+            description="Table:",
             disabled=False,
         )
 
         # Create the OK button and set its initial state to disabled
         self.ok_button = widgets.Button(
-            description='OK',
+            description="OK",
             disabled=False,
         )
 
         # Create the Cancel button
         self.cancel_button = widgets.Button(
-            description='Cancel',
+            description="Cancel",
             disabled=False,
         )
 
         # Observe changes in both dropdown selections and button click
-        self.product_dropdown.observe(self._observe_product_change, names='value')
-        self.table_dropdown.observe(self._observe_table_change, names='value')
+        self.product_dropdown.observe(self._observe_product_change, names="value")
+        self.table_dropdown.observe(self._observe_table_change, names="value")
         self.ok_button.on_click(self._ok_button_click)
         self.cancel_button.on_click(self._cancel_button_click)
 
     async def _product_change(self, change):
         self.selected_product = self.product_dropdown.value
-        filtered_tables = self.df[self.df['Data Product'] == self.selected_product]['Table'].unique()
-        self.table_dropdown.options = filtered_tables.tolist()  # Ensure options are converted to list
+        filtered_tables = self.df[self.df["Data Product"] == self.selected_product][
+            "Table"
+        ].unique()
+        self.table_dropdown.options = (
+            filtered_tables.tolist()
+        )  # Ensure options are converted to list
         self.table_dropdown.disabled = False  # Enable the table dropdown
         self.ok_button.disabled = True  # Disable the button until a table is selected
 
     async def _table_change(self, change):
-        if change['type'] == 'change' and change['name'] == 'value':
+        if change["type"] == "change" and change["name"] == "value":
             self.selected_table = change.new
-            self.ok_button.disabled = False  # Enable the button once a table is selected
+            self.ok_button.disabled = (
+                False  # Enable the button once a table is selected
+            )
 
     def _observe_product_change(self, change):
         asyncio.ensure_future(self._product_change(change))
@@ -73,16 +82,16 @@ class _SelectData:
     def _ok_button_click(self, b):
         self.ok_button.disabled = True  # Disable the button again after it's clicked
         self.cancel_button.disabled = True  # Disable the Cancel button
-        self.product_dropdown.disabled = True 
-        self.table_dropdown.disabled = True 
+        self.product_dropdown.disabled = True
+        self.table_dropdown.disabled = True
 
     def _cancel_button_click(self, b):
         self.selected_product = None  # Set selected value to None
-        self.selected_table = None 
+        self.selected_table = None
         self.ok_button.disabled = True  # Disable the OK button
         self.cancel_button.disabled = True  # Disable the Cancel button
-        self.product_dropdown.disabled = True 
-        self.table_dropdown.disabled = True 
+        self.product_dropdown.disabled = True
+        self.table_dropdown.disabled = True
 
     async def display_widgets(self):
         # Display the title and widgets arranged horizontally
@@ -96,6 +105,8 @@ class _SelectData:
             await asyncio.sleep(0.1)
 
         return self.selected_product, self.selected_table
+
+
 class _SelectList:
     def __init__(self, values, col_name: str, title="Select an Option"):
         self.selected_value = values[0]
@@ -112,25 +123,27 @@ class _SelectList:
 
         # Create the OK button
         self.ok_button = widgets.Button(
-            description='OK',
+            description="OK",
             disabled=False,
         )
 
         # Create the Cancel button
         self.cancel_button = widgets.Button(
-            description='Cancel',
+            description="Cancel",
             disabled=False,
         )
 
         # Observe changes in dropdown selection and button clicks
-        self.list_dropdown.observe(self._observe_list_change, names='value')
+        self.list_dropdown.observe(self._observe_list_change, names="value")
         self.ok_button.on_click(self._ok_button_click)
         self.cancel_button.on_click(self._cancel_button_click)
 
     async def _list_change(self, change):
-        if change['type'] == 'change' and change['name'] == 'value':
+        if change["type"] == "change" and change["name"] == "value":
             self.selected_value = change.new
-            self.ok_button.disabled = False  # Enable the OK button when a value is selected
+            self.ok_button.disabled = (
+                False  # Enable the OK button when a value is selected
+            )
 
     def _observe_list_change(self, change):
         asyncio.ensure_future(self._list_change(change))
@@ -138,13 +151,13 @@ class _SelectList:
     def _ok_button_click(self, b):
         self.ok_button.disabled = True  # Disable the OK button after it's clicked
         self.cancel_button.disabled = True
-        self.list_dropdown.disabled = True  
+        self.list_dropdown.disabled = True
 
     def _cancel_button_click(self, b):
         self.selected_value = None  # Set selected value to None
         self.ok_button.disabled = True  # Disable the OK button
         self.cancel_button.disabled = True  # Disable the Cancel button
-        self.list_dropdown.disabled = True  
+        self.list_dropdown.disabled = True
 
     async def display_widgets(self):
         # Display the title and widgets arranged horizontally
@@ -156,44 +169,48 @@ class _SelectList:
             await asyncio.sleep(0.1)
 
         return self.selected_value
+
+
 class _SelectMultiple:
     def __init__(self, values, col_name: str, title="Select Multiple Options"):
         self.selected_list = []
         nrows = 20 if len(values) > 20 else len(values)
-        
+
         # Create the title widget
         self.title = widgets.HTML(value=f"<h2>{title}</h2>")
-        
+
         # Create the multiple select widget
         self.list_select = widgets.SelectMultiple(
             options=values,
             description=f"{col_name} :",
             disabled=False,
             rows=nrows,
-            layout=widgets.Layout(width='2000px')  # Adjust the width as needed
+            layout=widgets.Layout(width="2000px"),  # Adjust the width as needed
         )
 
         # Create the OK button
         self.ok_button = widgets.Button(
-            description='OK',
+            description="OK",
             disabled=False,
         )
 
         # Create the Cancel button
         self.cancel_button = widgets.Button(
-            description='Cancel',
+            description="Cancel",
             disabled=False,
         )
 
         # Observe changes in selection and button clicks
-        self.list_select.observe(self._observe_list_change, names='value')
+        self.list_select.observe(self._observe_list_change, names="value")
         self.ok_button.on_click(self._ok_button_click)
         self.cancel_button.on_click(self._cancel_button_click)
 
     async def _list_change(self, change):
-        if change['type'] == 'change' and change['name'] == 'value':
+        if change["type"] == "change" and change["name"] == "value":
             self.selected_list = list(change.new)
-            self.ok_button.disabled = False  # Enable the OK button when a value is selected
+            self.ok_button.disabled = (
+                False  # Enable the OK button when a value is selected
+            )
 
     def _observe_list_change(self, change):
         asyncio.ensure_future(self._list_change(change))
@@ -219,6 +236,8 @@ class _SelectMultiple:
             await asyncio.sleep(0.1)
 
         return self.selected_list
+
+
 class _Multi_dropdown:
     def __init__(self, values, col_names, title):
         # Check if values is a list of lists or a single list
@@ -228,7 +247,7 @@ class _Multi_dropdown:
         else:
             self.is_list_of_lists = False
             self.values = [values]
-        
+
         # Check if col_names is a list and its length matches values
         if not isinstance(col_names, list):
             raise ValueError("col_names must be a list of strings.")
@@ -255,27 +274,29 @@ class _Multi_dropdown:
             )
             # Arrange description and dropdown horizontally
             hbox = widgets.HBox([description, dropdown])
-            self.dropdown_widgets.append((hbox, dropdown))  # Store hbox and dropdown separately
+            self.dropdown_widgets.append(
+                (hbox, dropdown)
+            )  # Store hbox and dropdown separately
             self.selected_values.append(dropdown.value)
-            dropdown.observe(self._observe_list_change, names='value')
-        
+            dropdown.observe(self._observe_list_change, names="value")
+
         # Create OK and Cancel buttons
         self.ok_button = widgets.Button(
-            description='OK',
+            description="OK",
             disabled=False,
         )
         self.cancel_button = widgets.Button(
-            description='Cancel',
+            description="Cancel",
             disabled=False,
         )
-        
+
         # Observe button clicks
         self.ok_button.on_click(self._ok_button_click)
         self.cancel_button.on_click(self._cancel_button_click)
-        
+
     async def _list_change(self, change):
         # Handle asynchronous dropdown updates
-        if change['type'] == 'change' and change['name'] == 'value':
+        if change["type"] == "change" and change["name"] == "value":
             for i, (_hbox, dropdown) in enumerate(self.dropdown_widgets):
                 if dropdown is change.owner:
                     self.selected_values[i] = change.new
@@ -308,69 +329,79 @@ class _Multi_dropdown:
             await asyncio.sleep(0.1)
 
         return self.selected_values
+
+
 class _SelectOptions:
-    def __init__(self,config = None):
+    def __init__(self, config=None):
         # Initialize default configuration
 
         if config:
-            self.config  = config
-        else:    
+            self.config = config
+        else:
             self.config = {
-                'delete_files': False,
-                'concat_files': True,
-                'output_format': [".csv"],
-                'file_size_mb': 500,
+                "delete_files": False,
+                "concat_files": True,
+                "output_format": [".csv"],
+                "file_size_mb": 500,
             }
 
         # Title for delete_files
-        self.delete_files_title = widgets.HTML(value="<h3>Delete Files After Processing (To Prevent Large Storage Consumption - 'False' is recommeded):</h3>")
+        self.delete_files_title = widgets.HTML(
+            value="<h3>Delete Files After Processing (To Prevent Large Storage Consumption - 'False' is recommeded):</h3>"
+        )
         # Dropdown for delete_files
         self.delete_files_dropdown = widgets.Dropdown(
             options=[True, False],
-            value=self.config['delete_files'],  # Use default value
-            description='Delete Files:',
+            value=self.config["delete_files"],  # Use default value
+            description="Delete Files:",
             disabled=False,
         )
 
         # Title for concat_files
-        self.concat_files_title = widgets.HTML(value="<h3>Concatenate Sub-Files into a Single Output File ('True' is Recommeded):</h3>")
+        self.concat_files_title = widgets.HTML(
+            value="<h3>Concatenate Sub-Files into a Single Output File ('True' is Recommeded):</h3>"
+        )
         # Dropdown for concat_files
         self.concat_files_dropdown = widgets.Dropdown(
             options=[True, False],
-            value=self.config['concat_files'],  # Use default value
-            description='Concat Files:',
+            value=self.config["concat_files"],  # Use default value
+            description="Concat Files:",
             disabled=False,
         )
 
         # Title for output_format
-        self.output_format_title = widgets.HTML(value="<h3>Select Output File Formats (More than one can be selected - '.xlsx' is not recommeded):</h3>")
+        self.output_format_title = widgets.HTML(
+            value="<h3>Select Output File Formats (More than one can be selected - '.xlsx' is not recommeded):</h3>"
+        )
         # Multi-select dropdown for output_format
         self.output_format_multiselect = widgets.SelectMultiple(
             options=[".csv", ".xlsx", ".parquet", ".pickle", None],
-            #options=[".csv", ".xlsx", ".parquet", ".pickle", ".dta"],
-            value=self.config['output_format'],  # Use default value
-            description='Formats:',
+            # options=[".csv", ".xlsx", ".parquet", ".pickle", ".dta"],
+            value=self.config["output_format"],  # Use default value
+            description="Formats:",
             disabled=False,
         )
 
         # Title for file_size_mb
-        self.file_size_title = widgets.HTML(value="<h3>File Size Cutoff (MB) Before Splitting into Multiple Output files (Only an approxiate):</h3>")
+        self.file_size_title = widgets.HTML(
+            value="<h3>File Size Cutoff (MB) Before Splitting into Multiple Output files (Only an approxiate):</h3>"
+        )
         # Input field for file_size_mb
         self.file_size_input = widgets.FloatText(
-            value=self.config['file_size_mb'],  # Use default value
-            description='File Size (MB):',
+            value=self.config["file_size_mb"],  # Use default value
+            description="File Size (MB):",
             disabled=False,
         )
 
         # Create the OK button
         self.ok_button = widgets.Button(
-            description='OK',
+            description="OK",
             disabled=False,
         )
 
         # Create the Cancel button
         self.cancel_button = widgets.Button(
-            description='Cancel',
+            description="Cancel",
             disabled=False,
         )
 
@@ -388,10 +419,10 @@ class _SelectOptions:
 
         # Store the current configuration based on user input
         self.config = {
-            'delete_files': self.delete_files_dropdown.value,
-            'concat_files': self.concat_files_dropdown.value,
-            'output_format': list(self.output_format_multiselect.value),
-            'file_size_mb': self.file_size_input.value,
+            "delete_files": self.delete_files_dropdown.value,
+            "concat_files": self.concat_files_dropdown.value,
+            "output_format": list(self.output_format_multiselect.value),
+            "file_size_mb": self.file_size_input.value,
         }
 
     def _cancel_button_click(self, b):
@@ -404,31 +435,37 @@ class _SelectOptions:
         self.file_size_input.disabled = True
 
     async def display_widgets(self):
-
         spacer = widgets.Box(
-            children=[widgets.Label(value="")],  # Add a label with empty text for spacing
-            layout=widgets.Layout(height='20px')  # Adjust height for desired spacing
-            )
-    
+            children=[
+                widgets.Label(value="")
+            ],  # Add a label with empty text for spacing
+            layout=widgets.Layout(height="20px"),  # Adjust height for desired spacing
+        )
 
         # Display the titles, widgets, and buttons
-        display(widgets.VBox([
-            self.delete_files_title,
-            self.delete_files_dropdown,
-            self.concat_files_title,
-            self.concat_files_dropdown,
-            self.output_format_title,
-            self.output_format_multiselect,
-            self.file_size_title,
-            self.file_size_input,
-            spacer,  # Add spacing between input fields and buttons
-            widgets.HBox([self.ok_button, self.cancel_button]),
-        ]))
+        display(
+            widgets.VBox(
+                [
+                    self.delete_files_title,
+                    self.delete_files_dropdown,
+                    self.concat_files_title,
+                    self.concat_files_dropdown,
+                    self.output_format_title,
+                    self.output_format_multiselect,
+                    self.file_size_title,
+                    self.file_size_input,
+                    spacer,  # Add spacing between input fields and buttons
+                    widgets.HBox([self.ok_button, self.cancel_button]),
+                ]
+            )
+        )
 
         while not self.cancel_button.disabled:
             await asyncio.sleep(0.1)
 
         return self.config
+
+
 class _CustomQuestion:
     def __init__(self, question, buttons):
         self.question = question
@@ -458,46 +495,49 @@ class _CustomQuestion:
         for button in self.buttons:
             button.disabled = True
 
-def _select_list(class_type,values, col_name: str,title:str,fnc=None, n_args = None): 
-    
-    async def f(class_type,values,col_name,title, fnc, n_args):
-        if class_type == '_SelectList':
-            Select_obj = _SelectList(values, col_name,title)
-        elif class_type == '_SelectMultiple':
-            Select_obj = _SelectMultiple(values, col_name,title)
+
+def _select_list(class_type, values, col_name: str, title: str, fnc=None, n_args=None):
+    async def f(class_type, values, col_name, title, fnc, n_args):
+        if class_type == "_SelectList":
+            Select_obj = _SelectList(values, col_name, title)
+        elif class_type == "_SelectMultiple":
+            Select_obj = _SelectMultiple(values, col_name, title)
 
         selected_value = await Select_obj.display_widgets()
 
         if fnc and n_args:
-            fnc(selected_value, *n_args) 
+            fnc(selected_value, *n_args)
 
-    asyncio.ensure_future(f(class_type,values,col_name,title,fnc,n_args))
+    asyncio.ensure_future(f(class_type, values, col_name, title, fnc, n_args))
 
-def _select_bvd(selected_value, bvd_list,select_cols, search_type):
-    if selected_value is not None: 
-        bvd_list[1]  = selected_value
-        bvd_list[2] = _construct_query(bvd_list[1],bvd_list[0],search_type)
+
+def _select_bvd(selected_value, bvd_list, select_cols, search_type, required_cols=None):
+    if selected_value is not None:
+        bvd_list[1] = selected_value
+        bvd_list[2] = _construct_query(bvd_list[1], bvd_list[0], search_type)
         if select_cols is not None:
-                select_cols = _check_list_format(select_cols,bvd_list[1])
+            select_cols = _check_list_format(select_cols, bvd_list[1], required_cols)
         print(f"{len(bvd_list[0])} unique bvd_id numbers were detected")
         print(f"The following bvd query has been created: {bvd_list[2]}")
 
-def _select_date(selected_value, time_period,select_cols):
-    if selected_value is not None: 
-        time_period[2]  = selected_value
-        if select_cols  is not None:
-                select_cols = _check_list_format(select_cols,time_period[2])
+
+def _select_date(selected_value, time_period, select_cols, required_cols=None):
+    if selected_value is not None:
+        time_period[2] = selected_value
+        if select_cols is not None:
+            select_cols = _check_list_format(select_cols, time_period[2], required_cols)
         print(f"The following Period will be selected: {time_period}")
 
-def _select_product(selected_value,df,obj):
+
+def _select_product(selected_value, df, obj):
     if selected_value is not None:
         df = df.query(f"`Top-level Directory` == '{selected_value}'")
-        if not df.empty: 
-            obj.remote_path = df['Base Directory'].iloc[0]
+        if not df.empty:
+            obj.remote_path = df["Base Directory"].iloc[0]
             print(f"{obj.set_data_product} was set as Data Product")
             print(f"{obj.set_table} was set as Table")
-            
-        else: 
+
+        else:
             obj.remote_path = None
             obj._set_table = None
             obj._set_data_product = None
@@ -505,4 +545,3 @@ def _select_product(selected_value,df,obj):
         obj.remote_path = None
         obj._set_table = None
         obj._set_data_product = None
-    

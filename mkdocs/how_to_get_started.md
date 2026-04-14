@@ -7,26 +7,29 @@ https://github.com/CBS-HPC/moody-s_datahub/blob/main/mkdocs/how_to_get_started.i
 
 **The pip wheel can be manually downloaded using the link below:**
 
-https://raw.githubusercontent.com/CBS-HPC/moody-s_datahub/main/dist/moodys_datahub-1.0.0rc1-py3-none-any.whl
+https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.1.0/moodys_datahub-1.1.0-py3-none-any.whl
 
 
 Or directly to the working folder by running the line below:
 
 
 ```python
-!curl -s -L -o moodys_datahub-1.0.0rc1-py3-none-any.whl https://raw.githubusercontent.com/CBS-HPC/moody-s_datahub/main/dist/moodys_datahub-1.0.0rc1-py3-none-any.whl
+!curl -s -L -o moodys_datahub-1.1.0-py3-none-any.whl https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.1.0/moodys_datahub-1.1.0-py3-none-any.whl
 ```
 
 ## Installation
 
-Install the package "moodys_datahub-1.0.0rc1-py3-none-any.whl":
+Install the package "moodys_datahub-1.1.0-py3-none-any.whl":
 
 
 
 ```python
 
-!pip install moodys_datahub-1.0.0rc1-py3-none-any.whl
+!pip install moodys_datahub-1.1.0-py3-none-any.whl
 ```
+
+The package pins `paramiko==3.5.1` because the current `pysftp` dependency is
+not compatible with newer Paramiko releases.
 
 ## Usage
 
@@ -133,6 +136,14 @@ Set a "bvd_id" filter. This can be provided in different ways as seen below as a
 
 It can perform an extract search based on full bvd_id numbers or based on the country code that is the two starting letter of the bvd_id numbers.
 
+You can also layer filters:
+
+- `bvd_list` is the base BvD filter
+- `AND_bvd_list` adds extra narrowing clauses
+- `OR_bvd_list` adds extra widening clauses
+
+Each layer can target one or more BvD-related columns.
+
 
 ```python
 # Text file
@@ -229,6 +240,17 @@ Before running the selected filters on all files (SFTP.remote_files) is can be a
 
 **It should be noted that the sub-file that is used below will not contain rows that a relevant for the defined filters.**
 
+`process_one()` uses the same backend-selection rules as `process_all()`. For a
+single Polars-compatible file it pushes the row limit down before collecting the
+sample. After any processing call you can inspect `SFTP.last_process_engine` and
+`SFTP.last_process_reason` to see which backend was used and why.
+
+Use `SFTP.process_all()` when you want automatic backend selection with a pandas
+return type. Use `SFTP.pandas_all()` when you need pandas query semantics
+explicitly. Use `SFTP.polars_all()` when you want the native Polars path for
+exact BvD matching, prefix BvD matching, multi-column BvD filtering, or
+year-based `time_period` filters.
+
 
 ```python
 df_sample = SFTP.process_one()
@@ -240,7 +262,8 @@ df_sample = SFTP.process_one(save_to = 'csv',files = SFTP.remote_files[0], n_row
 
 If working on a slower connection it may be benificial to start downloading all remote files before processing them.
 
-When the downloading process has been started "SFTP._download_finished" will change from a "None" to "False and then "True" upon download completion.
+When the downloading process has been started, `SFTP.download_finished` changes
+from `None` to `False` and then to `True` upon download completion.
 
 The function is executed asyncionsly and the user can proceed working in the jupyter notebook while it is running.
 
@@ -258,9 +281,10 @@ SFTP.download_all(num_workers = 12)
 
 All files can be processed using the function below. 
 
-- If "SFTP._download_finished" is "None" the function also download the files. 
+- If `SFTP.download_finished` is `None`, the function also downloads the files.
 
-- If "SFTP._download_finished" is "False" it will wait upon the download process has been completed and "SFTP._download_finished" is set to "True". 
+- If `SFTP.download_finished` is `False`, it waits until the download process has
+  completed and `SFTP.download_finished` becomes `True`.
 
 
 ```python
@@ -278,8 +302,12 @@ results = SFTP.process_all(files = SFTP.remote_files,
                             query = bvd_filter, 
                             query_args = [bvd_id_numbers,column_filter,1000000000,'total_assets']
                             )
-
 ```
+
+The auto backend also understands layered BvD filters such as
+`AND_bvd_list` and `OR_bvd_list`. `process_all()` returns pandas data by
+default, while `polars_all()` returns native Polars data for the supported
+Polars path.
 
 ### Search in Data Dictionary for variables/columns
 
