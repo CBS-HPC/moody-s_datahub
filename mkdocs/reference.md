@@ -12,7 +12,8 @@ For the maintained API documentation, see `api_reference.md`.
 
 - session setup: `Sftp(...)`, `tables_available()`, `set_data_product`,
   `set_table`, `select_data()`
-- filtering: `select_cols`, `select_columns()`, `bvd_list`, `time_period`
+- filtering: `select_cols`, `select_columns()`, `bvd_list`, `AND_bvd_list`,
+  `OR_bvd_list`, `time_period`
 - processing: `process_one()`, `process_all()`, `pandas_all()`, `polars_all()`,
   `download_all()`
 - diagnostics: `download_finished`, `last_process_engine`,
@@ -26,8 +27,8 @@ For the maintained API documentation, see `api_reference.md`.
   workload is compatible.
 - `pandas_all()` is the explicit pandas backend.
 - `polars_all()` is the explicit native Polars backend and supports exact and
-  prefix BvD filtering, multi-column BvD filters, and year-based
-  `time_period` filtering.
+  prefix BvD filtering, multi-column BvD filters, layered `AND_bvd_list` /
+  `OR_bvd_list` filtering, and year-based `time_period` filtering.
 - string queries belong on the pandas path.
 
 ## Generated reference

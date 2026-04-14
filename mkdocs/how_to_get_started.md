@@ -136,6 +136,14 @@ Set a "bvd_id" filter. This can be provided in different ways as seen below as a
 
 It can perform an extract search based on full bvd_id numbers or based on the country code that is the two starting letter of the bvd_id numbers.
 
+You can also layer filters:
+
+- `bvd_list` is the base BvD filter
+- `AND_bvd_list` adds extra narrowing clauses
+- `OR_bvd_list` adds extra widening clauses
+
+Each layer can target one or more BvD-related columns.
+
 
 ```python
 # Text file
@@ -294,8 +302,12 @@ results = SFTP.process_all(files = SFTP.remote_files,
                             query = bvd_filter, 
                             query_args = [bvd_id_numbers,column_filter,1000000000,'total_assets']
                             )
-
 ```
+
+The auto backend also understands layered BvD filters such as
+`AND_bvd_list` and `OR_bvd_list`. `process_all()` returns pandas data by
+default, while `polars_all()` returns native Polars data for the supported
+Polars path.
 
 ### Search in Data Dictionary for variables/columns
 

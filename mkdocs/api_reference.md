@@ -21,6 +21,8 @@ public API is `moodys_datahub.Sftp` / `moodys_datahub.tools.Sftp`.
 - `select_columns()`: open the interactive column selector.
 - `select_cols`: set selected columns directly.
 - `bvd_list`: define exact BvD ID filtering or prefix/country-code filtering.
+- `AND_bvd_list` / `OR_bvd_list`: add layered BvD clauses that narrow or widen
+  the base `bvd_list` filter.
 - `time_period`: define year-based filtering.
 - `search_dictionary()`: search the packaged data dictionary.
 - `table_dates()`: inspect date-like columns for the active table.
@@ -76,6 +78,7 @@ backend supports:
 - exact BvD list filtering
 - prefix / country-code BvD filtering
 - multi-column BvD filtering
+- layered `AND_bvd_list` / `OR_bvd_list` filtering
 - year-based `time_period` filtering
 - `pl.Expr` filters
 

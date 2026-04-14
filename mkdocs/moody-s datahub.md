@@ -14,7 +14,8 @@ workflow end to end:
 - connect to a Moody's DataHub SFTP server or a local export repository
 - inspect available data products and tables
 - select a product, table, and output columns
-- filter by exact BvD ID lists, country-code prefixes, and time periods
+- filter by layered BvD clauses, exact BvD ID lists, country-code prefixes,
+  and time periods
 - download missing files to a local cache
 - process large exports with an explicit pandas pipeline, an explicit Polars
   pipeline, or an auto-selecting wrapper that returns pandas
@@ -59,7 +60,8 @@ Use `process_all()` when you want automatic backend selection with a pandas
 return type. Use `pandas_all()` when you need pandas-only query semantics
 explicitly, and `polars_all()` when you want the native Polars path and return
 type. The Polars path supports exact and prefix BvD filtering, multi-column BvD
-matching, and year-based `time_period` filtering.
+matching, layered `AND_bvd_list` / `OR_bvd_list` filtering, and year-based
+`time_period` filtering.
 
 ## SFTP Access
 
