@@ -283,6 +283,7 @@ def _save_chunks(
     output_format: list | None = None,
     file_size: int = 100,
     num_workers: int = 1,
+    pool_method: str = "threading",
 ):
     if output_format is None:
         output_format = [".csv"]
@@ -339,6 +340,7 @@ def _save_chunks(
                 params_list=params_list,
                 n_total=n_chunks,
                 num_workers=num_workers,
+                pool_method=pool_method,
                 msg="Saving",
             )
         else:

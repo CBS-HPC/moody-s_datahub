@@ -308,6 +308,46 @@ def test_save_chunks_concatenates_list_and_uses_sequential_processing(monkeypatc
     assert len(calls) == 2
 
 
+def test_save_chunks_defaults_to_threaded_parallel_saving(monkeypatch):
+    captured = {}
+
+    monkeypatch.setattr(
+        "moodys_datahub.utils._create_chunks",
+        lambda df, output_format, file_size: (2, len(df), 1),
+    )
+
+    def fake_run_parallel(fnc, params_list, n_total, num_workers, pool_method, msg):
+        captured.update(
+            {
+                "n_total": n_total,
+                "num_workers": num_workers,
+                "pool_method": pool_method,
+                "msg": msg,
+                "params_len": len(params_list),
+            }
+        )
+        return [["left.csv"], ["right.csv"]]
+
+    monkeypatch.setattr("moodys_datahub.utils._run_parallel", fake_run_parallel)
+
+    df, file_names = _save_chunks(
+        pd.DataFrame({"value": [1, 2]}),
+        "joined",
+        [".csv"],
+        num_workers=2,
+    )
+
+    assert df["value"].tolist() == [1, 2]
+    assert file_names == ["left.csv", "right.csv"]
+    assert captured == {
+        "n_total": 2,
+        "num_workers": 2,
+        "pool_method": "threading",
+        "msg": "Saving",
+        "params_len": 2,
+    }
+
+
 def test_read_pd_and_read_pl_support_csv_and_reject_unknown_formats(tmp_path):
     csv_path = tmp_path / "sample.csv"
     pd.DataFrame({"value": [1], "other": [2]}).to_csv(csv_path, index=False)
