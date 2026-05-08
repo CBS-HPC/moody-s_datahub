@@ -586,6 +586,47 @@ def test_server_clean_up_runs_prompt_for_allowed_host(monkeypatch, capsys):
     assert "DELETING OLD EXPORTS" in capsys.readouterr().out
 
 
+def test_server_clean_up_supports_non_interactive_auto_approve(monkeypatch, capsys):
+    conn = object.__new__(_Connection)
+    conn.hostname = "s-f2112b8b980e44f9a.server.transfer.eu-west-1.amazonaws.com"
+    conn.username = "D2vdz8elTWKyuOcC2kMSnw"
+    called = {}
+
+    monkeypatch.setattr("moodys_datahub.connection.cpu_count", lambda: 32)
+    monkeypatch.setattr(
+        _Connection,
+        "_remove_exports",
+        lambda self, to_delete: called.update({"to_delete": to_delete}),
+    )
+
+    conn._server_clean_up(["export_a"], prompt_response=True)
+
+    assert called == {"to_delete": ["export_a"]}
+    assert "DELETING OLD EXPORTS" in capsys.readouterr().out
+
+
+def test_server_clean_up_supports_non_interactive_skip(monkeypatch):
+    conn = object.__new__(_Connection)
+    conn.hostname = "s-f2112b8b980e44f9a.server.transfer.eu-west-1.amazonaws.com"
+    conn.username = "D2vdz8elTWKyuOcC2kMSnw"
+    called = {}
+
+    monkeypatch.setattr("moodys_datahub.connection.cpu_count", lambda: 32)
+    monkeypatch.setattr(
+        _Connection,
+        "_remove_exports",
+        lambda self, to_delete: called.update({"to_delete": to_delete}),
+    )
+    monkeypatch.setattr(
+        "moodys_datahub.connection.asyncio.ensure_future",
+        lambda coro: called.update({"prompt": "scheduled"}),
+    )
+
+    conn._server_clean_up(["export_a"], prompt_response=False)
+
+    assert called == {}
+
+
 def test_delete_files_and_folders_use_sftp_remove(monkeypatch, capsys):
     class FakeAttr:
         def __init__(self, filename):

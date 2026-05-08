@@ -33,8 +33,22 @@ class Sftp(_Process):
         privatekey: str = None,
         data_product_template: str = None,
         local_repo: str = None,
+        server_cleanup: bool | None = None,
     ):
-        """Initialize SFTP credentials, load table metadata, and apply server cleanup policy."""
+        """Initialize SFTP credentials, load table metadata, and apply server cleanup policy.
+
+        Args:
+            hostname: Optional SFTP hostname.
+            username: Optional SFTP username.
+            port: SFTP port.
+            privatekey: Path to private key.
+            data_product_template: Optional product template path.
+            local_repo: Optional local export repository.
+            server_cleanup: Cleanup response mode for CBS server prompt.
+                - ``None``: keep interactive prompt behavior.
+                - ``True``: auto-approve cleanup when prompt would be shown.
+                - ``False``: skip cleanup prompt and deletion.
+        """
 
         # Initialize mixins
         _Process.__init__(self)
@@ -73,7 +87,7 @@ class Sftp(_Process):
 
         _, to_delete = self.tables_available(product_overview=data_product_template)
 
-        self._server_clean_up(to_delete)
+        self._server_clean_up(to_delete, prompt_response=server_cleanup)
 
     def copy_obj(self):
         """Return a deep copy with defaults restored and interactive data selection triggered."""

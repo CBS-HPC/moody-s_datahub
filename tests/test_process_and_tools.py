@@ -633,7 +633,11 @@ def test_sftp_init_uses_cbs_fallback_credentials(monkeypatch):
     monkeypatch.setattr("moodys_datahub.connection.pysftp.CnOpts", lambda: type("C", (), {"hostkeys": None})())
     monkeypatch.setattr(Sftp, "_object_defaults", lambda self: None)
     monkeypatch.setattr(Sftp, "tables_available", lambda self, product_overview=None: (pd.DataFrame(), []))
-    monkeypatch.setattr(Sftp, "_server_clean_up", lambda self, to_delete: None)
+    monkeypatch.setattr(
+        Sftp,
+        "_server_clean_up",
+        lambda self, to_delete, prompt_response=None: None,
+    )
 
     attempts = []
 
@@ -650,6 +654,33 @@ def test_sftp_init_uses_cbs_fallback_credentials(monkeypatch):
     assert attempts == ["D2vdz8elTWKyuOcC2kMSnw", "aN54UkFxQPCOIEtmr0FmAQ"]
     assert sftp.hostname == "s-f2112b8b980e44f9a.server.transfer.eu-west-1.amazonaws.com"
     assert sftp.username == "aN54UkFxQPCOIEtmr0FmAQ"
+
+
+def test_sftp_init_forwards_server_cleanup_mode(monkeypatch):
+    monkeypatch.setattr(
+        "moodys_datahub.connection.pysftp.CnOpts",
+        lambda: type("C", (), {"hostkeys": None})(),
+    )
+    monkeypatch.setattr(Sftp, "_object_defaults", lambda self: None)
+    monkeypatch.setattr(
+        Sftp,
+        "tables_available",
+        lambda self, product_overview=None: (pd.DataFrame(), ["old_export"]),
+    )
+    monkeypatch.setattr(Sftp, "_connect", lambda self: object())
+
+    called = {}
+    monkeypatch.setattr(
+        Sftp,
+        "_server_clean_up",
+        lambda self, to_delete, prompt_response=None: called.update(
+            {"to_delete": to_delete, "prompt_response": prompt_response}
+        ),
+    )
+
+    Sftp(privatekey="key.pem", server_cleanup=False)
+
+    assert called == {"to_delete": ["old_export"], "prompt_response": False}
 
 
 def test_get_file_downloads_remote_file_and_applies_timestamp(monkeypatch, tmp_path):

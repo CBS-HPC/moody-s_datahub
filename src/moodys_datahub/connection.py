@@ -333,7 +333,7 @@ class _Connection:
             df = compile_table(df)
         return df, to_delete
 
-    def _server_clean_up(self, to_delete):
+    def _server_clean_up(self, to_delete, prompt_response: bool | None = None):
         async def f(self, to_delete):
             question = _CustomQuestion(
                 "Please help maintain the server by deleting old exports? It may take a few minutes",
@@ -352,12 +352,25 @@ class _Connection:
 
         if len(to_delete) == 0:
             return
-        elif (
+        should_prompt = (
             self.hostname
             == "s-f2112b8b980e44f9a.server.transfer.eu-west-1.amazonaws.com"
             and self.username in ["D2vdz8elTWKyuOcC2kMSnw", "aN54UkFxQPCOIEtmr0FmAQ"]
             and int(cpu_count()) >= 32
-        ):
+        )
+
+        if not should_prompt:
+            return
+
+        # Allow non-interactive automation for login workflows.
+        if prompt_response is False:
+            return
+        if prompt_response is True:
+            print("------------------  DELETING OLD EXPORTS FROM SFTP")
+            self._remove_exports(to_delete)
+            return
+
+        if prompt_response is None:
             asyncio.ensure_future(f(self, to_delete))
 
     def _remove_exports(self, to_delete=None, num_workers=None):
