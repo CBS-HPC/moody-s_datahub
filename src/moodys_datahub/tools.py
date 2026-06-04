@@ -33,6 +33,7 @@ class Sftp(_Process):
         privatekey: str = None,
         data_product_template: str = None,
         local_repo: str = None,
+        download_root: str = None,
         server_cleanup: bool | None = None,
         interactive: bool = True,
     ):
@@ -45,6 +46,8 @@ class Sftp(_Process):
             privatekey: Path to private key.
             data_product_template: Optional product template path.
             local_repo: Optional local export repository.
+            download_root: Optional root directory for downloaded remote files.
+                Defaults to ``Data Products`` in the current working directory.
             server_cleanup: Cleanup response mode for CBS server prompt.
                 - ``None``: keep interactive prompt behavior.
                 - ``True``: auto-approve cleanup when prompt would be shown.
@@ -59,6 +62,9 @@ class Sftp(_Process):
         self.privatekey: str = privatekey
         self.port: int = port
         self._interactive: bool = interactive
+        self._download_root: str | None = (
+            os.path.abspath(download_root) if download_root else None
+        )
 
         # Try connecting to CBS servers
         if privatekey and all([hostname, username]) is False:

@@ -1709,7 +1709,11 @@ class _Process(_Selection):
                     else:
                         folder_name = self.set_data_product
 
-                    path = str(Path("Data Products") / folder_name / self.set_table)
+                    download_root = getattr(self, "_download_root", None)
+                    if download_root is None:
+                        download_root = "Data Products"
+
+                    path = str(Path(download_root) / folder_name / self.set_table)
 
                     # if self._time_stamp and self.set_data_product is not None:
                     #    path = "Data Products" + "/" + self.set_data_product +'_exported '+ format_timestamp(self._time_stamp) + "/" + self.set_table

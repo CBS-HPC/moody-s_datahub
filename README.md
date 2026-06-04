@@ -54,6 +54,27 @@ Use `select_data()` when you want the interactive widget-based flow in notebook
 environments. Use `set_data_product` and `set_table` when you want a fully
 scripted workflow.
 
+For batch jobs, disable interactive prompts and set a download cache root:
+
+```python
+SFTP = Sftp(
+    privatekey="user_provided-ssh-key.pem",
+    interactive=False,
+    server_cleanup=False,
+    download_root="/scratch/moody_datahub",
+)
+SFTP.set_data_product = "Firmographics (Monthly)"
+SFTP.set_table = "bvd_id_and_name"
+
+report = SFTP.process_all(dry_run=True)
+if report.ok:
+    df, files = SFTP.process_all()
+```
+
+When `download_root` is not set, downloaded files use the existing default
+relative path: `Data Products/<data_product>/<table>`. When it is set, only the
+root is replaced: `<download_root>/<data_product>/<table>`.
+
 ## Processing backends
 
 Use `process_all()` as the default high-level API. It auto-selects the backend
@@ -95,12 +116,12 @@ print(SFTP.last_process_reason)  # e.g. "compatible" or "string_query"
 
 The stable public API is centered on `moodys_datahub.Sftp`:
 
-- session setup: `Sftp(...)`, `tables_available()`, `set_data_product`,
-  `set_table`, `select_data()`
+- session setup: `Sftp(...)`, `download_root`, `interactive`,
+  `tables_available()`, `set_data_product`, `set_table`, `select_data()`
 - filtering: `select_cols`, `select_columns()`, `bvd_list`, `AND_bvd_list`,
   `OR_bvd_list`, `time_period`
-- processing: `process_one()`, `process_all()`, `pandas_all()`, `polars_all()`,
-  `download_all()`
+- processing: `process_one()`, `process_all(dry_run=True)`, `pandas_all()`,
+  `polars_all()`, `download_all(dry_run=True)`
 - diagnostics: `download_finished`, `last_process_engine`,
   `last_process_reason`
 - helper workflows: `search_company_names()`, `search_bvd_changes()`,
@@ -114,7 +135,7 @@ If you want a pinned wheel from a specific GitHub release, install it directly
 from the release assets:
 
 ```bash
-pip install https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.1.0/moodys_datahub-1.1.0-py3-none-any.whl
+pip install https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.2.0/moodys_datahub-1.2.0-py3-none-any.whl
 ```
 
 ### Install from a local wheel
@@ -123,7 +144,7 @@ Build the package locally and install the wheel from `dist/`:
 
 ```bash
 python -m build
-pip install dist/moodys_datahub-1.1.0-py3-none-any.whl
+pip install dist/moodys_datahub-1.2.0-py3-none-any.whl
 ```
 
 The package pins `paramiko==3.5.1` because the current `pysftp` dependency is

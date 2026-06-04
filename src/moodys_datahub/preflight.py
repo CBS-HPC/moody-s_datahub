@@ -64,7 +64,11 @@ def _candidate_local_path(obj) -> str | None:
     else:
         folder_name = set_data_product
 
-    return str(Path("Data Products") / folder_name / set_table)
+    download_root = getattr(obj, "_download_root", None)
+    if download_root is None:
+        download_root = "Data Products"
+
+    return str(Path(download_root) / folder_name / set_table)
 
 
 def _format_timestamp(timestamp: str) -> str:

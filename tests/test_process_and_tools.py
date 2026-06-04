@@ -1,4 +1,5 @@
 import asyncio
+from pathlib import Path
 
 import pandas as pd
 import polars as pl
@@ -770,6 +771,29 @@ def test_sftp_init_non_interactive_disables_cleanup_prompt_by_default(monkeypatc
     assert called == {"to_delete": ["old_export"], "prompt_response": False}
 
 
+def test_sftp_init_stores_download_root(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "moodys_datahub.connection.pysftp.CnOpts",
+        lambda: type("C", (), {"hostkeys": None})(),
+    )
+    monkeypatch.setattr(Sftp, "_object_defaults", lambda self: None)
+    monkeypatch.setattr(
+        Sftp,
+        "tables_available",
+        lambda self, product_overview=None: (pd.DataFrame(), []),
+    )
+    monkeypatch.setattr(Sftp, "_connect", lambda self: object())
+    monkeypatch.setattr(
+        Sftp,
+        "_server_clean_up",
+        lambda self, to_delete, prompt_response=None: None,
+    )
+
+    sftp = Sftp(privatekey="key.pem", download_root=str(tmp_path / "cache"))
+
+    assert sftp._download_root == str((tmp_path / "cache").resolve())
+
+
 def test_get_file_downloads_remote_file_and_applies_timestamp(monkeypatch, tmp_path):
     class FakeStat:
         st_mtime = 123
@@ -1032,6 +1056,21 @@ def test_process_all_dry_run_allows_known_remote_files(tmp_path):
     assert report.would_download is True
 
 
+def test_process_all_dry_run_uses_download_root_for_remote_files(tmp_path):
+    proc = _make_dummy_process()
+    proc._local_path = None
+    proc._download_root = str(tmp_path / "cache")
+    proc._remote_files = ["remote_sample.csv"]
+
+    report = proc.process_all(files=["remote_sample.csv"], dry_run=True)
+
+    assert report.ok is True
+    assert report.files == [
+        str(tmp_path / "cache" / "Dummy Product" / "dummy_table" / "remote_sample.csv")
+    ]
+    assert report.would_download is True
+
+
 def test_pandas_all_dry_run_rejects_polars_expression():
     proc = _make_dummy_process()
 
@@ -1241,6 +1280,40 @@ def test_check_args_generates_destination_when_flag_is_true(tmp_path, monkeypatc
 
     assert files == [str(existing_file)]
     assert destination.endswith("2603241234_base")
+
+
+def test_check_args_generates_default_download_path_for_remote_files(
+    monkeypatch, tmp_path
+):
+    monkeypatch.chdir(tmp_path)
+    proc = _make_dummy_process()
+    proc._local_path = None
+    proc._remote_path = "remote/base"
+    proc._remote_files = ["sample.csv"]
+    proc._time_stamp = None
+
+    files, destination = proc._check_args(["sample.csv"])
+
+    assert files == ["sample.csv"]
+    assert destination is None
+    assert proc.local_path == str(
+        Path("Data Products") / "Dummy Product" / "dummy_table"
+    )
+
+
+def test_check_args_uses_download_root_for_remote_files(tmp_path):
+    proc = _make_dummy_process()
+    proc._local_path = None
+    proc._remote_path = "remote/base"
+    proc._remote_files = ["sample.csv"]
+    proc._download_root = str(tmp_path / "cache")
+    proc._time_stamp = None
+
+    files, destination = proc._check_args(["sample.csv"])
+
+    assert files == ["sample.csv"]
+    assert destination is None
+    assert proc.local_path == str(tmp_path / "cache" / "Dummy Product" / "dummy_table")
 
 
 def test_check_args_creates_parent_directory_for_concat_output(tmp_path):
