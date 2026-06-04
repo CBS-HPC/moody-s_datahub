@@ -7,25 +7,25 @@ https://github.com/CBS-HPC/moody-s_datahub/blob/main/mkdocs/how_to_get_started.i
 
 **The pip wheel can be manually downloaded using the link below:**
 
-https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.2.0/moodys_datahub-1.2.0-py3-none-any.whl
+https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.3.0/moodys_datahub-1.3.0-py3-none-any.whl
 
 
 Or directly to the working folder by running the line below:
 
 
 ```python
-!curl -s -L -o moodys_datahub-1.2.0-py3-none-any.whl https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.2.0/moodys_datahub-1.2.0-py3-none-any.whl
+!curl -s -L -o moodys_datahub-1.3.0-py3-none-any.whl https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.3.0/moodys_datahub-1.3.0-py3-none-any.whl
 ```
 
 ## Installation
 
-Install the package "moodys_datahub-1.2.0-py3-none-any.whl":
+Install the package "moodys_datahub-1.3.0-py3-none-any.whl":
 
 
 
 ```python
 
-!pip install moodys_datahub-1.2.0-py3-none-any.whl
+!pip install moodys_datahub-1.3.0-py3-none-any.whl
 ```
 
 The package pins `paramiko==3.5.1` because the current `pysftp` dependency is

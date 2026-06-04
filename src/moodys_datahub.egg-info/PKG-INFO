@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: moodys_datahub
-Version: 1.2.0
+Version: 1.3.0
 Summary: Python tools for accessing and processing Moody's DataHub exports via SFTP.
 Author-email: Kristoffer Gulmark Poulsen <kgp.lib@cbs.dk>
 License-Expression: MIT
@@ -107,6 +107,7 @@ SFTP = Sftp(
     interactive=False,
     server_cleanup=False,
     download_root="/scratch/moody_datahub",
+    output_root="/scratch/moody_results",
 )
 SFTP.set_data_product = "Firmographics (Monthly)"
 SFTP.set_table = "bvd_id_and_name"
@@ -119,6 +120,10 @@ if report.ok:
 When `download_root` is not set, downloaded files use the existing default
 relative path: `Data Products/<data_product>/<table>`. When it is set, only the
 root is replaced: `<download_root>/<data_product>/<table>`.
+
+When `output_root` is set, auto-generated processed outputs are written below
+that root. Explicit `destination` values in `process_all()` still take
+precedence and keep the existing behavior.
 
 ## Processing backends
 
@@ -161,7 +166,7 @@ print(SFTP.last_process_reason)  # e.g. "compatible" or "string_query"
 
 The stable public API is centered on `moodys_datahub.Sftp`:
 
-- session setup: `Sftp(...)`, `download_root`, `interactive`,
+- session setup: `Sftp(...)`, `download_root`, `output_root`, `interactive`,
   `tables_available()`, `set_data_product`, `set_table`, `select_data()`
 - filtering: `select_cols`, `select_columns()`, `bvd_list`, `AND_bvd_list`,
   `OR_bvd_list`, `time_period`
@@ -172,6 +177,23 @@ The stable public API is centered on `moodys_datahub.Sftp`:
 - helper workflows: `search_company_names()`, `search_bvd_changes()`,
   `batch_bvd_search()`, `orbis_to_moodys()`
 
+## Data Files
+
+The package and repository include metadata workbooks under
+`src/moodys_datahub/data`:
+
+- `data_dict.xlsx`: broad Moody's DataHub data dictionary. It may include
+  products that are not licensed or available in the current SFTP export.
+- `data_dict_available.xlsx`: repository workbook with an overview of the data
+  products available to the current setup/license. It is intentionally excluded
+  from the built wheel unless packaging rules are changed.
+- `data_products.xlsx`: packaged product metadata used by the helper loaders.
+- `date_cols.xlsx`: known date columns used by date filtering helpers.
+- `country_codes.xlsx`: country-code metadata used by country/prefix BvD
+  lookup.
+- `products.xlsx` and `bvd_numbers.txt`: templates used by
+  `batch_bvd_search()`.
+
 ## Installation
 
 ### Install from a GitHub release wheel
@@ -180,7 +202,7 @@ If you want a pinned wheel from a specific GitHub release, install it directly
 from the release assets:
 
 ```bash
-pip install https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.2.0/moodys_datahub-1.2.0-py3-none-any.whl
+pip install https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.3.0/moodys_datahub-1.3.0-py3-none-any.whl
 ```
 
 ### Install from a local wheel
@@ -189,7 +211,7 @@ Build the package locally and install the wheel from `dist/`:
 
 ```bash
 python -m build
-pip install dist/moodys_datahub-1.2.0-py3-none-any.whl
+pip install dist/moodys_datahub-1.3.0-py3-none-any.whl
 ```
 
 The package pins `paramiko==3.5.1` because the current `pysftp` dependency is
