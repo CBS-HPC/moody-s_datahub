@@ -370,6 +370,9 @@ class _Connection:
             self._remove_exports(to_delete)
             return
 
+        if prompt_response is None and not getattr(self, "_interactive", True):
+            return
+
         if prompt_response is None:
             asyncio.ensure_future(f(self, to_delete))
 
@@ -543,6 +546,13 @@ class _Connection:
         df_multiple = df[df["Data Product"].apply(contains_multiple_options)].copy()
 
         if not df_multiple.empty:
+            if not getattr(self, "_interactive", True):
+                exports = df_multiple["Top-level Directory"].drop_duplicates().tolist()
+                raise ValueError(
+                    "Multiple unresolved data products require interactive selection. "
+                    "Run with interactive=True and create a template, then pass it via "
+                    f"data_product_template. Affected exports: {exports}"
+                )
             asyncio.ensure_future(f(self, df, df_multiple))
 
     def _object_defaults(self):

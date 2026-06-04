@@ -14,6 +14,7 @@ class DummyProcess(_Process):
 
 def _make_dummy_process():
     proc = object.__new__(DummyProcess)
+    proc._interactive = True
     proc.remote_files = ["sample.csv"]
     proc._time_period = [None, None, None, "remove"]
     proc._bvd_list = [None, None, None]
@@ -128,6 +129,22 @@ def test_time_period_uses_selector_when_multiple_date_columns(monkeypatch):
     assert proc.time_period[2] is None
 
 
+def test_time_period_non_interactive_requires_explicit_date_column(monkeypatch):
+    proc = _make_dummy_process()
+    proc._interactive = False
+
+    monkeypatch.setattr(
+        DummyProcess,
+        "table_dates",
+        lambda self, **kwargs: pd.DataFrame(
+            {"Column": ["closing_date", "information_date"]}
+        ),
+    )
+
+    with pytest.raises(ValueError, match="Multiple date columns detected"):
+        proc.time_period = [2020, 2021]
+
+
 def test_time_period_rejects_unknown_date_column(monkeypatch):
     proc = _make_dummy_process()
 
@@ -219,6 +236,49 @@ def test_bvd_list_uses_selector_when_multiple_bvd_columns_are_available(monkeypa
     assert captured["class_type"] == "_SelectMultiple"
     assert captured["values"] == ["bvd_id_number", "guo_bvd_id_number"]
     assert proc.bvd_list[1] is None
+
+
+def test_bvd_list_non_interactive_requires_explicit_column(monkeypatch):
+    proc = _make_dummy_process()
+    proc._interactive = False
+
+    monkeypatch.setattr(
+        DummyProcess,
+        "search_country_codes",
+        lambda self, **kwargs: pd.DataFrame({"Code": ["DK", "SE"]}),
+    )
+    monkeypatch.setattr(
+        DummyProcess,
+        "search_dictionary",
+        lambda self, **kwargs: pd.DataFrame(
+            {"Column": ["bvd_id_number", "guo_bvd_id_number"]}
+        ),
+    )
+
+    with pytest.raises(ValueError, match="Multiple BvD columns detected"):
+        proc.bvd_list = ["BVD1"]
+
+
+def test_bvd_list_non_interactive_rejects_invalid_entries(monkeypatch):
+    proc = _make_dummy_process()
+    proc._interactive = False
+
+    monkeypatch.setattr(
+        DummyProcess,
+        "search_country_codes",
+        lambda self, **kwargs: pd.DataFrame({"Code": ["DK", "SE"]}),
+    )
+
+    with pytest.raises(ValueError, match="Invalid bvd_list entries detected"):
+        proc.bvd_list = ["BVD1", "###"]
+
+
+def test_select_data_non_interactive_raises():
+    proc = _make_dummy_process()
+    proc._interactive = False
+
+    with pytest.raises(ValueError, match="select_data\\(\\) is unavailable"):
+        proc.select_data()
 
 
 def test_search_dictionary_letters_only_returns_original_rows():
@@ -683,6 +743,33 @@ def test_sftp_init_forwards_server_cleanup_mode(monkeypatch):
     assert called == {"to_delete": ["old_export"], "prompt_response": False}
 
 
+def test_sftp_init_non_interactive_disables_cleanup_prompt_by_default(monkeypatch):
+    monkeypatch.setattr(
+        "moodys_datahub.connection.pysftp.CnOpts",
+        lambda: type("C", (), {"hostkeys": None})(),
+    )
+    monkeypatch.setattr(Sftp, "_object_defaults", lambda self: None)
+    monkeypatch.setattr(
+        Sftp,
+        "tables_available",
+        lambda self, product_overview=None: (pd.DataFrame(), ["old_export"]),
+    )
+    monkeypatch.setattr(Sftp, "_connect", lambda self: object())
+
+    called = {}
+    monkeypatch.setattr(
+        Sftp,
+        "_server_clean_up",
+        lambda self, to_delete, prompt_response=None: called.update(
+            {"to_delete": to_delete, "prompt_response": prompt_response}
+        ),
+    )
+
+    Sftp(privatekey="key.pem", interactive=False)
+
+    assert called == {"to_delete": ["old_export"], "prompt_response": False}
+
+
 def test_get_file_downloads_remote_file_and_applies_timestamp(monkeypatch, tmp_path):
     class FakeStat:
         st_mtime = 123
@@ -905,6 +992,92 @@ def test_pandas_all_parallel_batches_and_saves(monkeypatch):
     assert file_names == ["joined.csv"]
     assert proc.last_process_engine == "pandas"
     assert proc.last_process_reason == "direct"
+
+
+def test_process_all_dry_run_returns_report(tmp_path):
+    proc = _make_dummy_process()
+    file_path = tmp_path / "sample.csv"
+    pd.DataFrame({"value": [1]}).to_csv(file_path, index=False)
+
+    report = proc.process_all(files=[str(file_path)], dry_run=True)
+
+    assert report.ok is True
+    assert report.engine == "polars"
+    assert report.files == [str(file_path.resolve())]
+    assert report.missing_files == []
+    assert report.would_download is False
+    assert report.would_write is False
+
+
+def test_process_all_dry_run_reports_missing_files():
+    proc = _make_dummy_process()
+
+    report = proc.process_all(files=["missing.csv"], dry_run=True)
+
+    assert report.ok is False
+    assert "missing.csv" in report.missing_files
+    assert "No files were provided" not in report.errors
+
+
+def test_process_all_dry_run_allows_known_remote_files(tmp_path):
+    proc = _make_dummy_process()
+    proc._local_path = str(tmp_path)
+    proc._remote_files = ["remote_sample.csv"]
+
+    report = proc.process_all(files=["remote_sample.csv"], dry_run=True)
+
+    assert report.ok is True
+    assert report.missing_files == []
+    assert report.files == [str(tmp_path / "remote_sample.csv")]
+    assert report.would_download is True
+
+
+def test_pandas_all_dry_run_rejects_polars_expression():
+    proc = _make_dummy_process()
+
+    report = proc.pandas_all(files=["sample.csv"], query=pl.col("value") > 1, dry_run=True)
+
+    assert report.ok is False
+    assert any("Polars expressions" in error for error in report.errors)
+
+
+def test_polars_all_dry_run_returns_report(tmp_path):
+    proc = _make_dummy_process()
+    file_path = tmp_path / "sample.csv"
+    pd.DataFrame({"value": [1]}).to_csv(file_path, index=False)
+
+    report = proc.polars_all(files=[str(file_path)], dry_run=True)
+
+    assert report.ok is True
+    assert report.engine == "polars"
+    assert report.files == [str(file_path.resolve())]
+
+
+def test_download_all_dry_run_reports_missing_remote_files(tmp_path):
+    proc = _make_dummy_process()
+    proc._local_path = str(tmp_path)
+    proc._remote_files = ["missing_remote.csv"]
+    proc._set_data_product = "Dummy Product"
+    proc._set_table = "dummy_table"
+
+    report = proc.download_all(files=["missing_remote.csv"], dry_run=True)
+
+    assert report.ok is True
+    assert report.engine == "download"
+    assert report.would_download is True
+    assert report.would_prompt is False
+
+
+def test_process_one_dry_run_reports_missing_selection_prompt():
+    proc = _make_dummy_process()
+    proc._set_data_product = None
+    proc._set_table = None
+
+    report = proc.process_one(files=None, dry_run=True)
+
+    assert report.ok is False
+    assert report.would_prompt is True
+    assert any("process_one()" in warning for warning in report.warnings)
 
 
 def test_pandas_all_sequential_concat_false_concatenates_frames(monkeypatch):

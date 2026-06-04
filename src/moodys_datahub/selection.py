@@ -187,6 +187,11 @@ class _Selection(_Connection):
 
     def select_data(self):
         """Open an interactive selector for data product and table."""
+        if not getattr(self, "_interactive", True):
+            raise ValueError(
+                "select_data() is unavailable in non-interactive mode. "
+                "Set set_data_product and set_table explicitly."
+            )
 
         async def f(self):
             Select_obj = _SelectData(

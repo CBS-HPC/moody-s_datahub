@@ -16,6 +16,7 @@ class DummyProcess(_Process):
 
 def _make_metadata_process():
     proc = object.__new__(DummyProcess)
+    proc._interactive = True
     proc.remote_files = ["sample.csv"]
     proc._time_period = [None, None, None, "remove"]
     proc._bvd_list = [None, None, None]
@@ -627,6 +628,31 @@ def test_server_clean_up_supports_non_interactive_skip(monkeypatch):
     assert called == {}
 
 
+def test_server_clean_up_non_interactive_skips_prompt_when_response_unspecified(
+    monkeypatch,
+):
+    conn = object.__new__(_Connection)
+    conn._interactive = False
+    conn.hostname = "s-f2112b8b980e44f9a.server.transfer.eu-west-1.amazonaws.com"
+    conn.username = "D2vdz8elTWKyuOcC2kMSnw"
+    called = {}
+
+    monkeypatch.setattr("moodys_datahub.connection.cpu_count", lambda: 32)
+    monkeypatch.setattr(
+        _Connection,
+        "_remove_exports",
+        lambda self, to_delete: called.update({"to_delete": to_delete}),
+    )
+    monkeypatch.setattr(
+        "moodys_datahub.connection.asyncio.ensure_future",
+        lambda coro: called.update({"prompt": "scheduled"}),
+    )
+
+    conn._server_clean_up(["export_a"])
+
+    assert called == {}
+
+
 def test_delete_files_and_folders_use_sftp_remove(monkeypatch, capsys):
     class FakeAttr:
         def __init__(self, filename):
@@ -1086,3 +1112,22 @@ def test_specify_data_products_updates_unknown_exports(monkeypatch, tmp_path):
     assert conn._tables_available["Data Product"].tolist() == ["Resolved Product"]
     saved_templates = list(tmp_path.glob("*_data_products.csv"))
     assert len(saved_templates) == 1
+
+
+def test_specify_data_products_non_interactive_raises_for_unknown_exports():
+    conn = object.__new__(_Connection)
+    conn._interactive = False
+    conn._tables_available = pd.DataFrame(
+        {
+            "Data Product": ["Multiple_Options: ['Resolved Product', 'Fallback']"],
+            "Table": ["table_a"],
+            "Top-level Directory": ["dir_a"],
+            "Base Directory": ["base/dir_a"],
+            "Timestamp": ["2024-01-01 00:00:00"],
+            "Export": ["export_a"],
+        }
+    )
+    conn._tables_backup = conn._tables_available.copy()
+
+    with pytest.raises(ValueError, match="Multiple unresolved data products"):
+        conn._specify_data_products()

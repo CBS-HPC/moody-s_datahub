@@ -12,6 +12,7 @@ import polars as pl
 import psutil
 
 from .load_data import _country_codes, _table_dates, _table_dictionary
+from .preflight import PreflightReport, build_download_preflight, build_process_preflight
 from .selection import _Selection
 from .utils import (
     SaveFormat,
@@ -214,6 +215,8 @@ class _Process(_Selection):
             if self._select_cols is not None:
                 self._sync_select_cols_with_filters(previous_required)
 
+        interactive = getattr(self, "_interactive", True)
+
         previous_required = self._required_filter_columns()
         self._bvd_list = [None, None, None]
 
@@ -227,16 +230,32 @@ class _Process(_Selection):
             )
 
             if len(non_matching_items) > 0:
+                if not interactive:
+                    preview = non_matching_items[:10]
+                    raise ValueError(
+                        "Invalid bvd_list entries detected in non-interactive mode. "
+                        f"Remove or fix these values: {preview}"
+                    )
                 asyncio.ensure_future(f_bvd_prompt(bvd_list, non_matching_items))
                 return
 
             self._bvd_list[0] = bvd_list
 
             if self._set_data_product is None or self._set_table is None:
+                if not interactive:
+                    raise ValueError(
+                        "set_data_product and set_table must be set before bvd_list "
+                        "in non-interactive mode."
+                    )
                 self.select_data()
 
             bvd_col = set_bvd_col(search_word)
             if bvd_col:
+                if not interactive:
+                    raise ValueError(
+                        "Multiple BvD columns detected in non-interactive mode. "
+                        "Provide bvd_list as [values, 'column_name'] to choose a column."
+                    )
                 _select_list(
                     "_SelectMultiple",
                     bvd_col,
@@ -385,6 +404,7 @@ class _Process(_Selection):
     @time_period.setter
     def time_period(self, years: list = None):
         previous_required = self._required_filter_columns()
+        interactive = getattr(self, "_interactive", True)
 
         def check_year(years):
             # Get the current year
@@ -423,6 +443,11 @@ class _Process(_Selection):
             self._time_period[:3] = check_year(years)
 
             if self._set_data_product is None or self._set_table is None:
+                if not interactive:
+                    raise ValueError(
+                        "set_data_product and set_table must be set before time_period "
+                        "in non-interactive mode."
+                    )
                 self.select_data()
 
             date_col = self.table_dates(
@@ -443,6 +468,11 @@ class _Process(_Selection):
                 )
 
             elif self._time_period[2] is None and len(date_col) > 1:
+                if not interactive:
+                    raise ValueError(
+                        "Multiple date columns detected in non-interactive mode. "
+                        "Set time_period as [start_year, end_year, 'date_column']."
+                    )
                 _select_list(
                     "_SelectList",
                     date_col,
@@ -763,12 +793,67 @@ class _Process(_Selection):
 
         return df
 
-    def process_one(self, save_to: SaveFormat = None, files=None, n_rows: int = 1000):
+    def process_one(
+        self,
+        save_to: SaveFormat = None,
+        files=None,
+        n_rows: int = 1000,
+        dry_run: bool = False,
+    ):
         """Process files and return up to `n_rows` rows, optionally saving the sample.
 
         For a single Polars-compatible file, the row limit is pushed down before
         collection to avoid materializing the full filtered result.
         """
+
+        if dry_run:
+            if isinstance(files, int):
+                remote_files = list(getattr(self, "_remote_files", []))
+                if 0 <= files < len(remote_files):
+                    files = [remote_files[files]]
+                else:
+                    return PreflightReport(
+                        ok=False,
+                        engine="blocked",
+                        reason="Requested file index is out of range.",
+                        files=[],
+                        missing_files=[],
+                        warnings=[],
+                        errors=["Requested file index is out of range."],
+                        required_columns=None,
+                        resolved_date_column=None,
+                        resolved_bvd_columns=None,
+                        destination=None,
+                        would_prompt=False,
+                        would_download=False,
+                        would_write=False,
+                    )
+
+            report = build_process_preflight(
+                self,
+                files=files,
+                select_cols=self._select_cols,
+                date_query=self.time_period,
+                bvd_query=None,
+                query=self.query,
+                query_args=self.query_args,
+                engine="auto",
+                row_limit=n_rows,
+            )
+            if files is None and (
+                self._set_data_product is None or self._set_table is None
+            ):
+                report.ok = False
+                report.engine = "blocked"
+                report.reason = "process_one() would require interactive selection."
+                report.would_prompt = True
+                report.errors.append(
+                    "process_one() would require data product/table selection."
+                )
+                report.warnings.append(
+                    "process_one() would normally prompt for data product/table selection."
+                )
+            return report
 
         if files is None:
             if self._set_data_product is None or self._set_table is None:
@@ -940,6 +1025,7 @@ class _Process(_Selection):
         query=None,
         query_args: list = None,
         pool_method=None,
+        dry_run: bool = False,
     ):
         """Process files with the pandas backend.
 
@@ -950,6 +1036,21 @@ class _Process(_Selection):
             ValueError: Invalid arguments or file-selection state.
             TimeoutError: Downloads are still in progress beyond timeout.
         """
+        if dry_run:
+            return build_process_preflight(
+                self,
+                files=files,
+                destination=destination,
+                select_cols=select_cols,
+                date_query=date_query,
+                bvd_query=bvd_query,
+                query=query,
+                query_args=query_args,
+                engine="pandas",
+                n_batches=n_batches,
+                pool_method=pool_method,
+            )
+
         self._record_process_backend("pandas", "direct")
 
         def batch_processing(n_batches: int = None):
@@ -1091,6 +1192,7 @@ class _Process(_Selection):
         query_args: list = None,
         pool_method=None,
         engine: str = "auto",
+        dry_run: bool = False,
     ):
         """Process files using pandas or Polars while always returning pandas output.
 
@@ -1099,6 +1201,21 @@ class _Process(_Selection):
         The selected backend and routing reason are stored on
         `last_process_engine` and `last_process_reason`.
         """
+
+        if dry_run:
+            return build_process_preflight(
+                self,
+                files=files,
+                destination=destination,
+                select_cols=select_cols,
+                date_query=date_query,
+                bvd_query=bvd_query,
+                query=query,
+                query_args=query_args,
+                engine=engine,
+                n_batches=n_batches,
+                pool_method=pool_method,
+            )
 
         files = self.remote_files if files is None else files
         if isinstance(files, (str, os.PathLike)):
@@ -1197,6 +1314,7 @@ class _Process(_Selection):
         query=None,
         query_args: list = None,
         row_limit: int | None = None,
+        dry_run: bool = False,
     ):
         """Process files with the polars-based pipeline.
 
@@ -1207,6 +1325,20 @@ class _Process(_Selection):
             ValueError: Invalid arguments or file-selection state.
             TimeoutError: Downloads are still in progress beyond timeout.
         """
+        if dry_run:
+            return build_process_preflight(
+                self,
+                files=files,
+                destination=destination,
+                select_cols=select_cols,
+                date_query=date_query,
+                bvd_query=bvd_query,
+                query=query,
+                query_args=query_args,
+                engine="polars",
+                row_limit=row_limit,
+            )
+
         self._record_process_backend("polars", "direct")
         files = self.remote_files if files is None else files
         if isinstance(files, (str, os.PathLike)):
@@ -1271,9 +1403,16 @@ class _Process(_Selection):
         return self.dfs, file_names
 
     def download_all(
-        self, files: list = None, num_workers: int = None, async_mode: bool = True
+        self,
+        files: list = None,
+        num_workers: int = None,
+        async_mode: bool = True,
+        dry_run: bool = False,
     ):
         """Download missing remote files to the local path, optionally in async mode."""
+
+        if dry_run:
+            return build_download_preflight(self, files=files)
 
         files = files or self.remote_files
 

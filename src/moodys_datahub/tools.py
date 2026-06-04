@@ -34,6 +34,7 @@ class Sftp(_Process):
         data_product_template: str = None,
         local_repo: str = None,
         server_cleanup: bool | None = None,
+        interactive: bool = True,
     ):
         """Initialize SFTP credentials, load table metadata, and apply server cleanup policy.
 
@@ -48,6 +49,8 @@ class Sftp(_Process):
                 - ``None``: keep interactive prompt behavior.
                 - ``True``: auto-approve cleanup when prompt would be shown.
                 - ``False``: skip cleanup prompt and deletion.
+            interactive: Enable widget-based interactive flows. Set to ``False``
+                for script/batch execution to avoid widget prompts.
         """
 
         # Initialize mixins
@@ -55,6 +58,7 @@ class Sftp(_Process):
 
         self.privatekey: str = privatekey
         self.port: int = port
+        self._interactive: bool = interactive
 
         # Try connecting to CBS servers
         if privatekey and all([hostname, username]) is False:
@@ -86,6 +90,9 @@ class Sftp(_Process):
         self._object_defaults()
 
         _, to_delete = self.tables_available(product_overview=data_product_template)
+
+        if server_cleanup is None and self._interactive is False:
+            server_cleanup = False
 
         self._server_clean_up(to_delete, prompt_response=server_cleanup)
 
