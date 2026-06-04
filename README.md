@@ -127,6 +127,23 @@ The stable public API is centered on `moodys_datahub.Sftp`:
 - helper workflows: `search_company_names()`, `search_bvd_changes()`,
   `batch_bvd_search()`, `orbis_to_moodys()`
 
+## Data Files
+
+The package and repository include metadata workbooks under
+`src/moodys_datahub/data`:
+
+- `data_dict.xlsx`: broad Moody's DataHub data dictionary. It may include
+  products that are not licensed or available in the current SFTP export.
+- `data_dict_available.xlsx`: repository workbook with an overview of the data
+  products available to the current setup/license. It is intentionally excluded
+  from the built wheel unless packaging rules are changed.
+- `data_products.xlsx`: packaged product metadata used by the helper loaders.
+- `date_cols.xlsx`: known date columns used by date filtering helpers.
+- `country_codes.xlsx`: country-code metadata used by country/prefix BvD
+  lookup.
+- `products.xlsx` and `bvd_numbers.txt`: templates used by
+  `batch_bvd_search()`.
+
 ## Installation
 
 ### Install from a GitHub release wheel

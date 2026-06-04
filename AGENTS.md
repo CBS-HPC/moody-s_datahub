@@ -99,13 +99,17 @@ Files included in the wheel are configured in `pyproject.toml` under
 
 - `bvd_numbers.txt`: example/template BvD list for batch workflows.
 - `country_codes.xlsx`: country-code metadata for BvD prefix/country lookup.
-- `data_dict.xlsx`: packaged data dictionary used by `search_dictionary()`.
+- `data_dict.xlsx`: broad packaged DataHub data dictionary used by
+  `search_dictionary()`. It may include products that are not licensed or
+  available in the current SFTP export.
 - `data_products.xlsx`: known DataHub product metadata.
 - `date_cols.xlsx`: known date columns used by date helpers.
 - `products.xlsx`: batch-search template used by `batch_bvd_search()`.
 
-`data_dict_available.xlsx` is intentionally excluded by `MANIFEST.in`. Do not
-assume it ships in the wheel unless packaging rules are changed deliberately.
+`data_dict_available.xlsx` provides a repository overview of the data products
+available to the current setup/license. It is intentionally excluded by
+`MANIFEST.in`. Do not assume it ships in the wheel unless packaging rules are
+changed deliberately.
 
 ## Behavior Notes
 
