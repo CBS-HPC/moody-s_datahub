@@ -10,7 +10,7 @@ For the maintained API documentation, see `api_reference.md`.
 
 `moodys_datahub` exposes one stable public entry point: `Sftp`.
 
-- session setup: `Sftp(...)`, `download_root`, `interactive`,
+- session setup: `Sftp(...)`, `download_root`, `output_root`, `interactive`,
   `tables_available()`, `set_data_product`, `set_table`, `select_data()`
 - filtering: `select_cols`, `select_columns()`, `bvd_list`, `AND_bvd_list`,
   `OR_bvd_list`, `time_period`
@@ -32,6 +32,8 @@ For the maintained API documentation, see `api_reference.md`.
 - string queries belong on the pandas path.
 - `download_root` controls where remote files are cached. If it is not set, the
   default remains `Data Products/<data_product>/<table>`.
+- `output_root` controls where auto-generated processed outputs are saved.
+  Explicit `destination` values still take precedence.
 - `dry_run=True` returns a preflight report without downloading, processing,
   saving, or deleting files.
 

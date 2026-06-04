@@ -15,6 +15,7 @@ public API is `moodys_datahub.Sftp` / `moodys_datahub.tools.Sftp`.
 - `interactive`: set to `False` to prevent widget prompts in scripts and batch jobs.
 - `server_cleanup`: control the server-cleanup prompt (`None`, `True`, or `False`).
 - `download_root`: override the root folder used for downloaded remote files.
+- `output_root`: override the root folder for auto-generated processed outputs.
 - `tables_available()`: inspect available products and tables.
 - `set_data_product` / `set_table`: set the active product and table directly.
 - `select_data()`: open the interactive selector in notebook environments.
@@ -117,6 +118,7 @@ SFTP = Sftp(
     interactive=False,
     server_cleanup=False,
     download_root="/scratch/moody_datahub",
+    output_root="/scratch/moody_results",
 )
 SFTP.set_data_product = "Firmographics (Monthly)"
 SFTP.set_table = "bvd_id_and_name"
@@ -126,6 +128,10 @@ If `download_root` is not set, remote downloads use the current default:
 `Data Products/<data_product>/<table>`. If it is set, the same product/table
 layout is created below the custom root:
 `<download_root>/<data_product>/<table>`.
+
+If `output_root` is set, generated processed outputs use that root. Explicit
+`destination` values passed to `process_all()`, `pandas_all()`, or
+`polars_all()` take precedence and keep the existing behavior.
 
 Use `dry_run=True` to validate the planned workflow before it performs side
 effects:

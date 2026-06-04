@@ -64,6 +64,7 @@ SFTP = Sftp(
     interactive=False,
     server_cleanup=False,
     download_root="/scratch/moody_datahub",
+    output_root="/scratch/moody_results",
 )
 SFTP.set_data_product = "Firmographics (Monthly)"
 SFTP.set_table = "bvd_id_and_name"
@@ -76,6 +77,10 @@ if report.ok:
 When `download_root` is not set, downloaded files use the existing default
 relative path: `Data Products/<data_product>/<table>`. When it is set, only the
 root is replaced: `<download_root>/<data_product>/<table>`.
+
+When `output_root` is set, auto-generated processed outputs are written below
+that root. Explicit `destination` values in processing calls still take
+precedence.
 
 Use `process_all()` when you want automatic backend selection with a pandas
 return type. Use `pandas_all()` when you need pandas-only query semantics

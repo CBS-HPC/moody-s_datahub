@@ -1756,8 +1756,10 @@ class _Process(_Selection):
 
             destination = f"{timestamp_str}_{suffix}"
 
-            base_path = os.getcwd()
-            base_path = base_path.replace("\\", "/")
+            base_path = getattr(self, "_output_root", None)
+            if base_path is None:
+                base_path = os.getcwd()
+                base_path = base_path.replace("\\", "/")
 
             destination = str(Path(base_path) / destination)
             # destination = base_path + "/" + destination

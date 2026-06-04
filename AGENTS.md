@@ -120,6 +120,9 @@ changed deliberately.
   should fail explicitly or be reported through dry-run preflight.
 - `Sftp(download_root=...)` controls the root for downloaded remote files. If it
   is not set, the default remains `Data Products/<data_product>/<table>`.
+- `Sftp(output_root=...)` controls the root for auto-generated processed
+  outputs. It must only affect calls where `destination=None`; explicit
+  `destination` values take precedence.
 - `process_all(dry_run=True)` and `download_all(dry_run=True)` must not
   download, process, save, delete, spawn worker pools, or open widgets.
 - `process_all()` always returns pandas output. `polars_all()` is the explicit
@@ -136,5 +139,7 @@ changed deliberately.
   multi-column and layered `AND_bvd_list` / `OR_bvd_list` cases.
 - If changing download logic, test default `Data Products/...` behavior and
   custom `download_root`.
+- If changing output path logic, test generated destinations with `output_root`
+  and explicit `destination` precedence.
 - If changing non-interactive behavior, verify both `interactive=True` notebook
   flow and `interactive=False` script flow.

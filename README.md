@@ -62,6 +62,7 @@ SFTP = Sftp(
     interactive=False,
     server_cleanup=False,
     download_root="/scratch/moody_datahub",
+    output_root="/scratch/moody_results",
 )
 SFTP.set_data_product = "Firmographics (Monthly)"
 SFTP.set_table = "bvd_id_and_name"
@@ -74,6 +75,10 @@ if report.ok:
 When `download_root` is not set, downloaded files use the existing default
 relative path: `Data Products/<data_product>/<table>`. When it is set, only the
 root is replaced: `<download_root>/<data_product>/<table>`.
+
+When `output_root` is set, auto-generated processed outputs are written below
+that root. Explicit `destination` values in `process_all()` still take
+precedence and keep the existing behavior.
 
 ## Processing backends
 
@@ -116,7 +121,7 @@ print(SFTP.last_process_reason)  # e.g. "compatible" or "string_query"
 
 The stable public API is centered on `moodys_datahub.Sftp`:
 
-- session setup: `Sftp(...)`, `download_root`, `interactive`,
+- session setup: `Sftp(...)`, `download_root`, `output_root`, `interactive`,
   `tables_available()`, `set_data_product`, `set_table`, `select_data()`
 - filtering: `select_cols`, `select_columns()`, `bvd_list`, `AND_bvd_list`,
   `OR_bvd_list`, `time_period`

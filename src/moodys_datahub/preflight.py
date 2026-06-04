@@ -93,7 +93,11 @@ def _resolve_destination(
         else:
             suffix = "output"
 
-        destination = str(Path.cwd() / f"{_current_time_stamp()}_{suffix}")
+        output_root = getattr(obj, "_output_root", None)
+        if output_root is None:
+            output_root = Path.cwd()
+
+        destination = str(Path(output_root) / f"{_current_time_stamp()}_{suffix}")
         warnings.append(
             "Destination was not provided. Dry-run generated the same default "
             "destination the runtime path would use."

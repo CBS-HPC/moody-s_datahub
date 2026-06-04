@@ -63,12 +63,17 @@ SFTP = Sftp(
     interactive=False,
     server_cleanup=False,
     download_root="/scratch/moody_datahub",
+    output_root="/scratch/moody_results",
 )
 ```
 
 If `download_root` is not provided, downloads use the existing default path:
 `Data Products/<data_product>/<table>`. When `download_root` is provided, only
 the root changes: `<download_root>/<data_product>/<table>`.
+
+If `output_root` is provided, auto-generated processed outputs are written below
+that root. Explicit `destination` values in processing calls still take
+precedence.
 
 ### Select Data Product and Table
 

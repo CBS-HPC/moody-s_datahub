@@ -794,6 +794,29 @@ def test_sftp_init_stores_download_root(monkeypatch, tmp_path):
     assert sftp._download_root == str((tmp_path / "cache").resolve())
 
 
+def test_sftp_init_stores_output_root(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "moodys_datahub.connection.pysftp.CnOpts",
+        lambda: type("C", (), {"hostkeys": None})(),
+    )
+    monkeypatch.setattr(Sftp, "_object_defaults", lambda self: None)
+    monkeypatch.setattr(
+        Sftp,
+        "tables_available",
+        lambda self, product_overview=None: (pd.DataFrame(), []),
+    )
+    monkeypatch.setattr(Sftp, "_connect", lambda self: object())
+    monkeypatch.setattr(
+        Sftp,
+        "_server_clean_up",
+        lambda self, to_delete, prompt_response=None: None,
+    )
+
+    sftp = Sftp(privatekey="key.pem", output_root=str(tmp_path / "outputs"))
+
+    assert sftp._output_root == str((tmp_path / "outputs").resolve())
+
+
 def test_get_file_downloads_remote_file_and_applies_timestamp(monkeypatch, tmp_path):
     class FakeStat:
         st_mtime = 123
@@ -1071,6 +1094,20 @@ def test_process_all_dry_run_uses_download_root_for_remote_files(tmp_path):
     assert report.would_download is True
 
 
+def test_process_all_dry_run_uses_output_root_for_generated_destination(tmp_path):
+    proc = _make_dummy_process()
+    file_path = tmp_path / "sample.csv"
+    pd.DataFrame({"value": [1]}).to_csv(file_path, index=False)
+    proc.output_format = [".csv"]
+    proc._output_root = str(tmp_path / "outputs")
+
+    report = proc.process_all(files=[str(file_path)], dry_run=True)
+
+    assert report.ok is True
+    assert report.destination.startswith(str(tmp_path / "outputs"))
+    assert report.would_write is True
+
+
 def test_pandas_all_dry_run_rejects_polars_expression():
     proc = _make_dummy_process()
 
@@ -1280,6 +1317,40 @@ def test_check_args_generates_destination_when_flag_is_true(tmp_path, monkeypatc
 
     assert files == [str(existing_file)]
     assert destination.endswith("2603241234_base")
+
+
+def test_check_args_uses_output_root_for_generated_destination(tmp_path, monkeypatch):
+    proc = _make_dummy_process()
+    existing_file = tmp_path / "sample.csv"
+    existing_file.write_text("value\n1\n", encoding="utf-8")
+    proc._local_path = str(tmp_path / "Dummy Product" / "dummy_table")
+    proc._output_root = str(tmp_path / "outputs")
+
+    monkeypatch.setattr("moodys_datahub.process.datetime", type("FixedDatetime", (), {
+        "now": staticmethod(lambda: pd.Timestamp("2026-03-24 12:34:00").to_pydatetime())
+    }))
+
+    files, destination = proc._check_args([str(existing_file)], destination=None, flag=True)
+
+    assert files == [str(existing_file)]
+    assert destination == str(tmp_path / "outputs" / "2603241234_base")
+
+
+def test_check_args_explicit_destination_ignores_output_root(tmp_path):
+    proc = _make_dummy_process()
+    proc.concat_files = True
+    existing_file = tmp_path / "sample.csv"
+    existing_file.write_text("value\n1\n", encoding="utf-8")
+    explicit_destination = tmp_path / "explicit" / "joined.csv"
+    proc._output_root = str(tmp_path / "outputs")
+
+    files, destination = proc._check_args(
+        [str(existing_file)], destination=str(explicit_destination), flag=True
+    )
+
+    assert files == [str(existing_file)]
+    assert destination == str(explicit_destination)
+    assert explicit_destination.parent.exists()
 
 
 def test_check_args_generates_default_download_path_for_remote_files(
