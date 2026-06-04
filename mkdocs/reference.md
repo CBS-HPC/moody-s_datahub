@@ -10,12 +10,12 @@ For the maintained API documentation, see `api_reference.md`.
 
 `moodys_datahub` exposes one stable public entry point: `Sftp`.
 
-- session setup: `Sftp(...)`, `tables_available()`, `set_data_product`,
-  `set_table`, `select_data()`
+- session setup: `Sftp(...)`, `download_root`, `interactive`,
+  `tables_available()`, `set_data_product`, `set_table`, `select_data()`
 - filtering: `select_cols`, `select_columns()`, `bvd_list`, `AND_bvd_list`,
   `OR_bvd_list`, `time_period`
-- processing: `process_one()`, `process_all()`, `pandas_all()`, `polars_all()`,
-  `download_all()`
+- processing: `process_one()`, `process_all(dry_run=True)`, `pandas_all()`,
+  `polars_all()`, `download_all(dry_run=True)`
 - diagnostics: `download_finished`, `last_process_engine`,
   `last_process_reason`
 - helper workflows: `search_company_names()`, `search_bvd_changes()`,
@@ -30,6 +30,10 @@ For the maintained API documentation, see `api_reference.md`.
   prefix BvD filtering, multi-column BvD filters, layered `AND_bvd_list` /
   `OR_bvd_list` filtering, and year-based `time_period` filtering.
 - string queries belong on the pandas path.
+- `download_root` controls where remote files are cached. If it is not set, the
+  default remains `Data Products/<data_product>/<table>`.
+- `dry_run=True` returns a preflight report without downloading, processing,
+  saving, or deleting files.
 
 ## Generated reference
 

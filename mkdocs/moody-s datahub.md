@@ -56,6 +56,27 @@ Use `select_data()` when you want the interactive widget-based flow in notebook
 environments. Use `set_data_product` and `set_table` when you want a fully
 scripted workflow.
 
+For batch jobs, disable interactive prompts and set a download cache root:
+
+```python
+SFTP = Sftp(
+    privatekey="user_provided-ssh-key.pem",
+    interactive=False,
+    server_cleanup=False,
+    download_root="/scratch/moody_datahub",
+)
+SFTP.set_data_product = "Firmographics (Monthly)"
+SFTP.set_table = "bvd_id_and_name"
+
+report = SFTP.process_all(dry_run=True)
+if report.ok:
+    df, files = SFTP.process_all()
+```
+
+When `download_root` is not set, downloaded files use the existing default
+relative path: `Data Products/<data_product>/<table>`. When it is set, only the
+root is replaced: `<download_root>/<data_product>/<table>`.
+
 Use `process_all()` when you want automatic backend selection with a pandas
 return type. Use `pandas_all()` when you need pandas-only query semantics
 explicitly, and `polars_all()` when you want the native Polars path and return

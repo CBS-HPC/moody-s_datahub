@@ -12,6 +12,9 @@ public API is `moodys_datahub.Sftp` / `moodys_datahub.tools.Sftp`.
 ### Session setup
 
 - `Sftp(...)`: create a session against SFTP or a local export repository.
+- `interactive`: set to `False` to prevent widget prompts in scripts and batch jobs.
+- `server_cleanup`: control the server-cleanup prompt (`None`, `True`, or `False`).
+- `download_root`: override the root folder used for downloaded remote files.
 - `tables_available()`: inspect available products and tables.
 - `set_data_product` / `set_table`: set the active product and table directly.
 - `select_data()`: open the interactive selector in notebook environments.
@@ -32,9 +35,12 @@ public API is `moodys_datahub.Sftp` / `moodys_datahub.tools.Sftp`.
 
 - `process_one()`: load a sample from one or more files.
 - `process_all()`: auto-select the processing backend and always return pandas.
+- `process_all(dry_run=True)`: validate the planned process workflow without
+  downloading, processing, saving, or deleting files.
 - `pandas_all()`: force the pandas backend explicitly.
 - `polars_all()`: force the native Polars backend explicitly and return Polars.
 - `download_all()`: download missing files into the local cache.
+- `download_all(dry_run=True)`: validate which files would be downloaded.
 
 ### Diagnostics and state
 
@@ -84,6 +90,39 @@ backend supports:
 
 It does not try to emulate every pandas-specific query style. In particular,
 string queries belong on the pandas path.
+
+## Non-interactive and dry-run workflows
+
+Use `interactive=False` when running the package from scripts or batch jobs:
+
+```python
+SFTP = Sftp(
+    privatekey="user_provided-ssh-key.pem",
+    interactive=False,
+    server_cleanup=False,
+    download_root="/scratch/moody_datahub",
+)
+SFTP.set_data_product = "Firmographics (Monthly)"
+SFTP.set_table = "bvd_id_and_name"
+```
+
+If `download_root` is not set, remote downloads use the current default:
+`Data Products/<data_product>/<table>`. If it is set, the same product/table
+layout is created below the custom root:
+`<download_root>/<data_product>/<table>`.
+
+Use `dry_run=True` to validate the planned workflow before it performs side
+effects:
+
+```python
+report = SFTP.process_all(dry_run=True)
+if report.ok:
+    df, file_names = SFTP.process_all()
+```
+
+The returned report includes the selected backend, resolved files, missing
+files, warnings, errors, destination, required columns, and flags such as
+`would_prompt`, `would_download`, and `would_write`.
 
 ## Backend selection reasons
 

@@ -7,25 +7,25 @@ https://github.com/CBS-HPC/moody-s_datahub/blob/main/mkdocs/how_to_get_started.i
 
 **The pip wheel can be manually downloaded using the link below:**
 
-https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.1.0/moodys_datahub-1.1.0-py3-none-any.whl
+https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.2.0/moodys_datahub-1.2.0-py3-none-any.whl
 
 
 Or directly to the working folder by running the line below:
 
 
 ```python
-!curl -s -L -o moodys_datahub-1.1.0-py3-none-any.whl https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.1.0/moodys_datahub-1.1.0-py3-none-any.whl
+!curl -s -L -o moodys_datahub-1.2.0-py3-none-any.whl https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.2.0/moodys_datahub-1.2.0-py3-none-any.whl
 ```
 
 ## Installation
 
-Install the package "moodys_datahub-1.1.0-py3-none-any.whl":
+Install the package "moodys_datahub-1.2.0-py3-none-any.whl":
 
 
 
 ```python
 
-!pip install moodys_datahub-1.1.0-py3-none-any.whl
+!pip install moodys_datahub-1.2.0-py3-none-any.whl
 ```
 
 The package pins `paramiko==3.5.1` because the current `pysftp` dependency is
@@ -52,6 +52,23 @@ SFTP = Sftp(privatekey="user_provided-ssh-key.pem")
 # Connects to custom SFTP server
 SFTP = Sftp(hostname = "example.com", username = "username", port = 22,privatekey="user_provided-ssh-key.pem",data_product_template= "20240909_104135_data_products.csv") 
 ```
+
+For non-interactive batch jobs, disable widget prompts and choose where remote
+files should be cached:
+
+
+```python
+SFTP = Sftp(
+    privatekey="user_provided-ssh-key.pem",
+    interactive=False,
+    server_cleanup=False,
+    download_root="/scratch/moody_datahub",
+)
+```
+
+If `download_root` is not provided, downloads use the existing default path:
+`Data Products/<data_product>/<table>`. When `download_root` is provided, only
+the root changes: `<download_root>/<data_product>/<table>`.
 
 ### Select Data Product and Table
 
@@ -250,6 +267,16 @@ return type. Use `SFTP.pandas_all()` when you need pandas query semantics
 explicitly. Use `SFTP.polars_all()` when you want the native Polars path for
 exact BvD matching, prefix BvD matching, multi-column BvD filtering, or
 year-based `time_period` filters.
+
+Use `dry_run=True` to validate the resolved files, backend choice, filters, and
+download path before downloading or processing data:
+
+
+```python
+report = SFTP.process_all(dry_run=True)
+if report.ok:
+    results = SFTP.process_all()
+```
 
 
 ```python
