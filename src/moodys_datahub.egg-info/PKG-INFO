@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: moodys_datahub
-Version: 1.3.0
+Version: 1.4.0
 Summary: Python tools for accessing and processing Moody's DataHub exports via SFTP.
 Author-email: Kristoffer Gulmark Poulsen <kgp.lib@cbs.dk>
 License-Expression: MIT
@@ -62,8 +62,8 @@ workflow end to end:
 - download missing files to a local cache
 - process large exports with an explicit pandas pipeline, an explicit Polars
   pipeline, or an auto-selecting wrapper that returns pandas
-- run helper workflows such as fuzzy company-name matching, BvD change tracking,
-  and Orbis-to-DataHub column mapping
+- run helper workflows such as indexed RapidFuzz company-name matching, BvD
+  change tracking, and Orbis-to-DataHub column mapping
 
 ## Typical workflow
 
@@ -167,15 +167,63 @@ print(SFTP.last_process_reason)  # e.g. "compatible" or "string_query"
 The stable public API is centered on `moodys_datahub.Sftp`:
 
 - session setup: `Sftp(...)`, `download_root`, `output_root`, `interactive`,
-  `tables_available()`, `set_data_product`, `set_table`, `select_data()`
+  `offline`, `tables_available()`, `set_data_product`, `set_table`,
+  `select_data()`
 - filtering: `select_cols`, `select_columns()`, `bvd_list`, `AND_bvd_list`,
   `OR_bvd_list`, `time_period`
 - processing: `process_one()`, `process_all(dry_run=True)`, `pandas_all()`,
-  `polars_all()`, `download_all(dry_run=True)`
+  `polars_all()`, `download_all(dry_run=True)`, `profile_table()`,
+  `profile_tables()`
 - diagnostics: `download_finished`, `last_process_engine`,
   `last_process_reason`
 - helper workflows: `search_company_names()`, `search_bvd_changes()`,
   `batch_bvd_search()`, `orbis_to_moodys()`
+
+`search_company_names()` uses the Firmographics `bvd_id_and_name` table and an
+indexed RapidFuzz matcher. It checks exact matches first, narrows fuzzy
+candidates with prefix/token/length blocking, and supports scorer selection,
+for example `scorer="token_sort_ratio"` or `scorer="token_set_ratio"`.
+
+Use `Sftp(offline=True)` when you only need packaged metadata and do not want
+to log in to the SFTP server. Offline mode supports helpers such as
+`search_dictionary()`, `table_dates()`, `search_country_codes()`,
+`company_suffix()`, and `offline_capabilities()`.
+
+```python
+from moodys_datahub import Sftp
+
+SFTP = Sftp(offline=True, interactive=False)
+SFTP.search_dictionary(search_word="revenue")
+SFTP.offline_capabilities()
+```
+
+By default, `bvd_list` validates values against known country prefixes and a
+BvD-like ID pattern. In non-interactive scripts, invalid-looking values raise a
+`ValueError`. Set `allow_invalid_bvd_ids=True` to keep them and treat them as
+exact IDs:
+
+```python
+SFTP = Sftp(interactive=False, allow_invalid_bvd_ids=True)
+SFTP.bvd_list = [["custom-id-that-fails-the-format-check"], "bvd_id_number"]
+```
+
+`profile_table()` and `profile_tables()` inspect the first file for selected
+tables and return a privacy-safe column profile. The report includes dtypes,
+missingness, uniqueness, date-format detection, BvD-ID-like value counts, and
+operation-readiness hints without exposing source values, examples, top values,
+or min/max values.
+
+```python
+profile = SFTP.profile_tables(
+    selections={
+        "Firmographics (Monthly)": ["bvd_id_and_name"],
+        "Ownership": ["linkswitharchive", "beneficial_owners_10_10"],
+    },
+    save_report=True,
+)
+
+print(profile.attrs.get("report_path"))
+```
 
 ## Data Files
 
@@ -202,7 +250,7 @@ If you want a pinned wheel from a specific GitHub release, install it directly
 from the release assets:
 
 ```bash
-pip install https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.3.0/moodys_datahub-1.3.0-py3-none-any.whl
+pip install https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.0/moodys_datahub-1.4.0-py3-none-any.whl
 ```
 
 ### Install from a local wheel
@@ -211,7 +259,7 @@ Build the package locally and install the wheel from `dist/`:
 
 ```bash
 python -m build
-pip install dist/moodys_datahub-1.3.0-py3-none-any.whl
+pip install dist/moodys_datahub-1.4.0-py3-none-any.whl
 ```
 
 The package pins `paramiko==3.5.1` because the current `pysftp` dependency is

@@ -4,6 +4,7 @@ import os
 import shutil
 from datetime import datetime
 from multiprocessing import cpu_count
+from pathlib import Path
 
 import pandas as pd
 import polars as pl
@@ -15,9 +16,13 @@ from .utils import (
     SaveFormat,
     _bvd_changes_ray,
     _letters_only_regex,
+    _read_pd,
+    _read_pl,
     _save_to,
     fuzzy_match_pl,
     fuzzy_query,
+    profile_dataframe,
+    save_profile_report,
 )
 
 
@@ -37,6 +42,8 @@ class Sftp(_Process):
         output_root: str = None,
         server_cleanup: bool | None = None,
         interactive: bool = True,
+        offline: bool = False,
+        allow_invalid_bvd_ids: bool = False,
     ):
         """Initialize SFTP credentials, load table metadata, and apply server cleanup policy.
 
@@ -57,6 +64,12 @@ class Sftp(_Process):
                 - ``False``: skip cleanup prompt and deletion.
             interactive: Enable widget-based interactive flows. Set to ``False``
                 for script/batch execution to avoid widget prompts.
+            offline: Initialize without SFTP login. Packaged metadata helpers
+                remain available, but remote discovery/download methods require
+                a normal SFTP or ``local_repo`` session.
+            allow_invalid_bvd_ids: In non-interactive mode, keep values that do
+                not match the built-in BvD/country-code format check and treat
+                them as exact IDs instead of raising.
         """
 
         # Initialize mixins
@@ -65,6 +78,8 @@ class Sftp(_Process):
         self.privatekey: str = privatekey
         self.port: int = port
         self._interactive: bool = interactive
+        self._offline: bool = offline
+        self.allow_invalid_bvd_ids: bool = allow_invalid_bvd_ids
         self._download_root: str | None = (
             os.path.abspath(download_root) if download_root else None
         )
@@ -72,8 +87,11 @@ class Sftp(_Process):
             os.path.abspath(output_root) if output_root else None
         )
 
-        # Try connecting to CBS servers
-        if privatekey and all([hostname, username]) is False:
+        # Try connecting to CBS servers unless explicitly running offline.
+        if offline:
+            self.hostname = hostname
+            self.username = username
+        elif privatekey and all([hostname, username]) is False:
             usernames = ["D2vdz8elTWKyuOcC2kMSnw", "aN54UkFxQPCOIEtmr0FmAQ"]
             for username in usernames:
                 self.hostname: str = (
@@ -101,12 +119,26 @@ class Sftp(_Process):
 
         self._object_defaults()
 
-        _, to_delete = self.tables_available(product_overview=data_product_template)
+        if offline:
+            dictionary = _table_dictionary()
+            self._table_dictionary = dictionary
+            self._tables_available = (
+                dictionary[["Data Product", "Table"]].drop_duplicates().copy()
+            )
+            self._tables_available["Base Directory"] = None
+            self._tables_available["Timestamp"] = None
+            self._tables_available["Export"] = "packaged_dictionary"
+            self._tables_available["Top-level Directory"] = None
+            self._tables_backup = self._tables_available.copy()
+            to_delete = []
+        else:
+            _, to_delete = self.tables_available(product_overview=data_product_template)
 
         if server_cleanup is None and self._interactive is False:
             server_cleanup = False
 
-        self._server_clean_up(to_delete, prompt_response=server_cleanup)
+        if not offline:
+            self._server_clean_up(to_delete, prompt_response=server_cleanup)
 
     def copy_obj(self):
         """Return a deep copy with defaults restored and interactive data selection triggered."""
@@ -115,6 +147,89 @@ class Sftp(_Process):
         SFTP.select_data()
 
         return SFTP
+
+    def offline_capabilities(self):
+        """Return which high-level methods can run without an SFTP login."""
+        rows = [
+            {
+                "method": "search_dictionary",
+                "offline_safe": True,
+                "local_repo_safe": True,
+                "server_required": False,
+                "notes": "Uses packaged data_dict.xlsx metadata.",
+            },
+            {
+                "method": "table_dates",
+                "offline_safe": True,
+                "local_repo_safe": True,
+                "server_required": False,
+                "notes": "Uses packaged date_cols.xlsx metadata.",
+            },
+            {
+                "method": "search_country_codes",
+                "offline_safe": True,
+                "local_repo_safe": True,
+                "server_required": False,
+                "notes": "Uses packaged country_codes.xlsx metadata.",
+            },
+            {
+                "method": "company_suffix",
+                "offline_safe": True,
+                "local_repo_safe": True,
+                "server_required": False,
+                "notes": "Returns a built-in list.",
+            },
+            {
+                "method": "orbis_to_moodys",
+                "offline_safe": True,
+                "local_repo_safe": True,
+                "server_required": False,
+                "notes": "Uses local input files and packaged dictionary metadata.",
+            },
+            {
+                "method": "get_column_names",
+                "offline_safe": True,
+                "local_repo_safe": True,
+                "server_required": False,
+                "notes": "Offline with dictionary metadata or local parquet files.",
+            },
+            {
+                "method": "process_one/process_all/pandas_all/polars_all",
+                "offline_safe": "conditional",
+                "local_repo_safe": True,
+                "server_required": "conditional",
+                "notes": "No login needed when files are local or local_repo is configured.",
+            },
+            {
+                "method": "profile_table/profile_tables",
+                "offline_safe": "conditional",
+                "local_repo_safe": True,
+                "server_required": "conditional",
+                "notes": "No login needed when profiled files are local or local_repo is configured.",
+            },
+            {
+                "method": "search_company_names/search_bvd_changes",
+                "offline_safe": "conditional",
+                "local_repo_safe": True,
+                "server_required": "conditional",
+                "notes": "Need local data files or local_repo; otherwise remote files are required.",
+            },
+            {
+                "method": "download_all",
+                "offline_safe": False,
+                "local_repo_safe": False,
+                "server_required": True,
+                "notes": "Downloads missing files from SFTP.",
+            },
+            {
+                "method": "tables_available",
+                "offline_safe": "packaged_catalog",
+                "local_repo_safe": True,
+                "server_required": "conditional",
+                "notes": "Offline mode exposes packaged product/table metadata, not licensed remote availability.",
+            },
+        ]
+        return pd.DataFrame(rows)
 
     def orbis_to_moodys(self, file):
         """Map Orbis result-column headers to DataHub dictionary columns."""
@@ -224,14 +339,209 @@ class Sftp(_Process):
 
         return column_names
 
+    def _read_profile_file(self, file):
+        """Read one local file for profiling without applying filters."""
+        try:
+            source = _read_pl([file])
+            if isinstance(source, pl.LazyFrame):
+                return source.collect()
+            return source
+        except Exception:
+            return _read_pd(file, select_cols=None)
+
+    @staticmethod
+    def _safe_report_name(value):
+        value = str(value or "profile").strip()
+        value = value.replace("\\", "_").replace("/", "_")
+        return "".join(
+            char if char.isalnum() or char in "._- " else "_" for char in value
+        )
+
+    def _default_profile_report_path(self, data_product=None, table=None, multiple=False):
+        base = Path("Table Profiles")
+        if multiple:
+            name = self._safe_report_name(data_product or "moodys_table_profiles")
+            return str(base / f"{name}_profiles.xlsx")
+        product = self._safe_report_name(data_product or self.set_data_product)
+        table_name = self._safe_report_name(table or self.set_table)
+        return str(base / product / f"{table_name}_profile.xlsx")
+
+    def profile_table(
+        self,
+        data_product: str = None,
+        table: str = None,
+        file: str | int = None,
+        operation_hints: bool = True,
+        save_report: bool = False,
+        report_path: str = None,
+        dry_run: bool = False,
+    ):
+        """Profile the first file for a table without exposing source values."""
+
+        profiler = copy.deepcopy(self)
+        if data_product is not None:
+            profiler.set_data_product = data_product
+        if table is not None:
+            profiler.set_table = table
+
+        if profiler.set_data_product is None or profiler.set_table is None:
+            if not getattr(profiler, "_interactive", True):
+                raise ValueError(
+                    "profile_table() requires data_product/table in non-interactive mode."
+                )
+            profiler.select_data()
+
+        if file is None:
+            if not profiler.remote_files:
+                raise ValueError("No remote files detected for the selected table.")
+            selected_file = profiler.remote_files[0]
+        elif isinstance(file, int):
+            selected_file = profiler.remote_files[file]
+        else:
+            selected_file = file
+
+        if dry_run:
+            return pd.DataFrame(
+                [
+                    {
+                        "data_product": profiler.set_data_product,
+                        "table": profiler.set_table,
+                        "file_name": os.path.basename(selected_file),
+                        "sample_strategy": "first_file",
+                        "would_download": selected_file in profiler.remote_files,
+                        "would_profile": True,
+                        "would_write_report": bool(save_report or report_path),
+                        "report_path": report_path
+                        or (
+                            self._default_profile_report_path(
+                                profiler.set_data_product, profiler.set_table
+                            )
+                            if save_report
+                            else None
+                        ),
+                    }
+                ]
+            )
+
+        files, _ = profiler._check_args([selected_file])
+        local_file, _ = profiler._get_file(files[0])
+        df = profiler._read_profile_file(local_file)
+        profile = profile_dataframe(
+            df,
+            data_product=profiler.set_data_product,
+            table=profiler.set_table,
+            file_name=os.path.basename(local_file),
+            sample_strategy="first_file",
+            operation_hints=operation_hints,
+        )
+
+        if save_report or report_path:
+            if report_path is None:
+                report_path = self._default_profile_report_path(
+                    profiler.set_data_product, profiler.set_table
+                )
+            written_path = save_profile_report(
+                profile,
+                report_path,
+                report_info={
+                    "data_product": profiler.set_data_product,
+                    "table": profiler.set_table,
+                    "sample_strategy": "first_file",
+                },
+            )
+            profile.attrs["report_path"] = written_path
+
+        return profile
+
+    def profile_tables(
+        self,
+        selections: dict = None,
+        data_product: str = None,
+        data_products: list = None,
+        tables: list | str = None,
+        operation_hints: bool = True,
+        save_report: bool = False,
+        report_path: str = None,
+        dry_run: bool = False,
+    ):
+        """Profile first files across one or more data products and tables."""
+
+        def tables_for_product(product):
+            if tables == "all":
+                df = self._tables_backup.query(f"`Data Product` == '{product}'")
+                return sorted(df["Table"].dropna().unique().tolist())
+            if isinstance(tables, str):
+                return [tables]
+            if tables is not None:
+                return list(tables)
+            if product == self.set_data_product and self.set_table is not None:
+                return [self.set_table]
+            raise ValueError(
+                "profile_tables() requires tables, tables='all', or selections."
+            )
+
+        if selections is not None:
+            resolved = {
+                product: ([value] if isinstance(value, str) else list(value))
+                for product, value in selections.items()
+            }
+        elif data_products is not None:
+            resolved = {product: tables_for_product(product) for product in data_products}
+        else:
+            product = data_product or self.set_data_product
+            if product is None:
+                raise ValueError(
+                    "profile_tables() requires selections, data_product, data_products, "
+                    "or an already selected data product."
+                )
+            resolved = {product: tables_for_product(product)}
+
+        profiles = []
+        for product, product_tables in resolved.items():
+            for table in product_tables:
+                profiles.append(
+                    self.profile_table(
+                        data_product=product,
+                        table=table,
+                        operation_hints=operation_hints,
+                        save_report=False,
+                        dry_run=dry_run,
+                    )
+                )
+
+        combined = pd.concat(profiles, ignore_index=True) if profiles else pd.DataFrame()
+        if (save_report or report_path) and not dry_run:
+            if report_path is None:
+                product_name = next(iter(resolved.keys())) if len(resolved) == 1 else None
+                report_path = self._default_profile_report_path(
+                    data_product=product_name, multiple=True
+                )
+            written_path = save_profile_report(
+                combined,
+                report_path,
+                report_info={
+                    "profile_scope": "multiple_tables",
+                    "sample_strategy": "first_file",
+                },
+            )
+            combined.attrs["report_path"] = written_path
+
+        return combined
+
     def search_company_names(
         self,
         names: list,
         num_workers: int = -1,
         cut_off: int = 90.1,
         company_suffixes: list = None,
+        scorer: str = "WRatio",
     ):
-        """Fuzzy-match company names against firmographics and return best-scoring matches."""
+        """Fuzzy-match company names against firmographics.
+
+        The Polars path loads only the firm name and BvD ID columns, then uses
+        an indexed RapidFuzz matcher with exact-match short-circuiting and
+        prefix/token/length candidate blocking.
+        """
 
         # Determine the number of workers if not specified
         if not num_workers or num_workers < 0:
@@ -262,6 +572,7 @@ class Sftp(_Process):
                 cut_off,
                 company_suffixes,
                 1,
+                scorer,
             ]
             df, _ = SFTP.process_all(num_workers=num_workers, engine="pandas")
         else:
@@ -273,6 +584,7 @@ class Sftp(_Process):
                 cut_off=cut_off,
                 remove_str=company_suffixes,
                 num_workers=num_workers,
+                scorer=scorer,
             )
 
         # Finder de bedste matches på tværs af "file parts"
@@ -493,11 +805,12 @@ class Sftp(_Process):
             self._table_dictionary = _table_dictionary()
 
         df = self._table_dictionary
-        df = df[
-            df["Data Product"].isin(
-                self._tables_backup["Data Product"].drop_duplicates()
-            )
-        ]
+        if self._tables_backup is not None:
+            df = df[
+                df["Data Product"].isin(
+                    self._tables_backup["Data Product"].drop_duplicates()
+                )
+            ]
 
         if data_product is not None:
             df_product = df.query(f"`Data Product` == '{data_product}'")

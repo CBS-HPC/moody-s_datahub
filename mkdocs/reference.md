@@ -11,15 +11,33 @@ For the maintained API documentation, see `api_reference.md`.
 `moodys_datahub` exposes one stable public entry point: `Sftp`.
 
 - session setup: `Sftp(...)`, `download_root`, `output_root`, `interactive`,
-  `tables_available()`, `set_data_product`, `set_table`, `select_data()`
+  `offline`, `allow_invalid_bvd_ids`, `tables_available()`,
+  `offline_capabilities()`, `set_data_product`, `set_table`, `select_data()`
 - filtering: `select_cols`, `select_columns()`, `bvd_list`, `AND_bvd_list`,
   `OR_bvd_list`, `time_period`
 - processing: `process_one()`, `process_all(dry_run=True)`, `pandas_all()`,
-  `polars_all()`, `download_all(dry_run=True)`
+  `polars_all()`, `download_all(dry_run=True)`, `profile_table()`,
+  `profile_tables()`
 - diagnostics: `download_finished`, `last_process_engine`,
   `last_process_reason`
 - helper workflows: `search_company_names()`, `search_bvd_changes()`,
   `batch_bvd_search()`, `orbis_to_moodys()`
+
+`search_company_names()` uses indexed RapidFuzz matching with exact-match
+short-circuiting, prefix/token/length candidate blocking, and optional scorer
+selection through the `scorer` argument.
+
+`profile_table()` and `profile_tables()` inspect the first file for selected
+tables and generate privacy-safe column profiles with dtype, missingness,
+uniqueness, date-format, BvD-ID-like value counts, and operation-readiness
+metadata. They do not include source values or example records.
+
+`Sftp(offline=True)` skips SFTP login and supports packaged metadata helpers
+such as `search_dictionary()`, `table_dates()`, `search_country_codes()`, and
+`offline_capabilities()`.
+
+`allow_invalid_bvd_ids=True` lets non-interactive `bvd_list` assignments keep
+invalid-looking values and treat them as exact IDs instead of raising.
 
 ## Current backend behavior
 

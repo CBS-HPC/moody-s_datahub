@@ -3,6 +3,8 @@ import os
 import time
 from pathlib import Path
 
+import pandas as pd
+
 from .connection import _Connection
 from .widgets import _select_list, _select_product, _SelectData
 
@@ -183,7 +185,9 @@ class _Selection(_Connection):
                 self._set_table = table
                 self._set_data_product = df["Data Product"].iloc[0]
                 self._time_stamp = df["Timestamp"].iloc[0]
-                self.remote_path = df["Base Directory"].iloc[0]
+                base_directory = df["Base Directory"].iloc[0]
+                if pd.notna(base_directory):
+                    self.remote_path = base_directory
 
     def select_data(self):
         """Open an interactive selector for data product and table."""

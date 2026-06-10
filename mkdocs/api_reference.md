@@ -13,10 +13,15 @@ public API is `moodys_datahub.Sftp` / `moodys_datahub.tools.Sftp`.
 
 - `Sftp(...)`: create a session against SFTP or a local export repository.
 - `interactive`: set to `False` to prevent widget prompts in scripts and batch jobs.
+- `offline`: set to `True` to skip SFTP login and use packaged metadata only.
+- `allow_invalid_bvd_ids`: set to `True` to keep invalid-looking `bvd_list`
+  values in non-interactive mode and treat them as exact IDs.
 - `server_cleanup`: control the server-cleanup prompt (`None`, `True`, or `False`).
 - `download_root`: override the root folder used for downloaded remote files.
 - `output_root`: override the root folder for auto-generated processed outputs.
 - `tables_available()`: inspect available products and tables.
+- `offline_capabilities()`: list which methods can run offline, with a local
+  repository, or only against the SFTP server.
 - `set_data_product` / `set_table`: set the active product and table directly.
 - `select_data()`: open the interactive selector in notebook environments.
 
@@ -27,6 +32,8 @@ public API is `moodys_datahub.Sftp` / `moodys_datahub.tools.Sftp`.
 - `bvd_list`: define exact BvD ID filtering or prefix/country-code filtering.
 - `AND_bvd_list` / `OR_bvd_list`: add layered BvD clauses that narrow or widen
   the base `bvd_list` filter.
+- `allow_invalid_bvd_ids`: controls whether non-interactive `bvd_list`
+  validation raises or keeps invalid-looking values.
 - `time_period`: define year-based filtering.
 - `search_dictionary()`: search the packaged data dictionary.
 - `table_dates()`: inspect date-like columns for the active table.
@@ -42,6 +49,10 @@ public API is `moodys_datahub.Sftp` / `moodys_datahub.tools.Sftp`.
 - `polars_all()`: force the native Polars backend explicitly and return Polars.
 - `download_all()`: download missing files into the local cache.
 - `download_all(dry_run=True)`: validate which files would be downloaded.
+- `profile_table()`: inspect the first file for one table and return a
+  privacy-safe column profile.
+- `profile_tables()`: profile multiple tables, including tables across multiple
+  data products.
 
 ### Diagnostics and state
 
@@ -51,10 +62,51 @@ public API is `moodys_datahub.Sftp` / `moodys_datahub.tools.Sftp`.
 
 ### Higher-level helpers
 
-- `search_company_names()`: fuzzy-match company names.
+- `search_company_names()`: fuzzy-match company names with the indexed
+  RapidFuzz matcher. It exact-matches first, narrows candidates with
+  prefix/token/length blocking, and accepts scorer names such as `"WRatio"`,
+  `"ratio"`, `"token_sort_ratio"`, and `"token_set_ratio"`.
 - `search_bvd_changes()`: resolve BvD lineage.
 - `batch_bvd_search()`: run workbook-driven batch searches.
 - `orbis_to_moodys()`: map Orbis-style headings to DataHub columns.
+
+### Table profiling
+
+`profile_table()` and `profile_tables()` are designed for planning dataframe
+operations before running large extractions. They report dtypes, missingness,
+uniqueness, date-format detection, BvD-ID-like value counts, and
+operation-readiness flags such as `can_join_key`, `can_numeric_aggregate`, and
+`can_date_filter`.
+
+The reports do not contain source values, examples, top values, or actual
+min/max values.
+
+```python
+profile = SFTP.profile_tables(
+    selections={
+        "Firmographics (Monthly)": ["bvd_id_and_name"],
+        "Ownership": ["linkswitharchive", "beneficial_owners_10_10"],
+    },
+    save_report=True,
+)
+```
+
+### Offline metadata mode
+
+Use `Sftp(offline=True)` when you want packaged metadata helpers without
+logging in to the SFTP server.
+
+```python
+SFTP = Sftp(offline=True, interactive=False)
+
+dictionary = SFTP.search_dictionary(search_word="revenue")
+date_columns = SFTP.table_dates()
+capabilities = SFTP.offline_capabilities()
+```
+
+Offline mode exposes a packaged product/table catalog derived from
+`data_dict.xlsx`. It is useful for dictionary search and planning, but it is
+not a licensed remote-availability check.
 
 ## Data files
 

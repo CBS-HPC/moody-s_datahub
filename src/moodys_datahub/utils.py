@@ -4,12 +4,14 @@ import shlex
 import shutil
 import subprocess
 import sys
+import warnings
 from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from math import ceil
 from multiprocessing import Pool, cpu_count
-from typing import Literal
+from pathlib import Path
+from typing import Callable, Literal
 
 import fastavro
 import numpy as np
@@ -17,7 +19,7 @@ import pandas as pd
 import polars as pl
 import psutil
 import pyarrow
-from rapidfuzz import process
+from rapidfuzz import fuzz, process
 from tqdm import tqdm
 
 SaveFormat = Literal["xlsx", "csv"] | None
@@ -1191,13 +1193,48 @@ def _letters_only_regex(text):
         return text
 
 
+_FUZZY_SCORERS: dict[str, Callable] = {
+    "WRatio": fuzz.WRatio,
+    "ratio": fuzz.ratio,
+    "partial_ratio": fuzz.partial_ratio,
+    "token_sort_ratio": fuzz.token_sort_ratio,
+    "token_set_ratio": fuzz.token_set_ratio,
+    "token_ratio": fuzz.token_ratio,
+    "QRatio": fuzz.QRatio,
+}
+
+
+def _resolve_fuzzy_scorer(scorer: str | Callable | None) -> Callable:
+    """Return a RapidFuzz scorer from a name or callable."""
+    if scorer is None:
+        return fuzz.WRatio
+    if callable(scorer):
+        return scorer
+    try:
+        return _FUZZY_SCORERS[scorer]
+    except KeyError as exc:
+        valid = ", ".join(sorted(_FUZZY_SCORERS))
+        raise ValueError(f"Unknown fuzzy scorer '{scorer}'. Valid scorers: {valid}.") from exc
+
+
 def _fuzzy_match(args):
     """
     Worker function to perform fuzzy matching for each batch of names.
     """
-    name_batch, choices, cut_off, df, match_column, return_column, choice_to_index = (
-        args
-    )
+    if len(args) == 7:
+        name_batch, choices, cut_off, df, match_column, return_column, choice_to_index = args
+        scorer = fuzz.WRatio
+    else:
+        (
+            name_batch,
+            choices,
+            cut_off,
+            df,
+            match_column,
+            return_column,
+            choice_to_index,
+            scorer,
+        ) = args
     results = []
 
     for name in name_batch:
@@ -1211,7 +1248,9 @@ def _fuzzy_match(args):
             )  # Exact match with score 100
         else:
             # Perform fuzzy matching if no exact match is found
-            match_obj = process.extractOne(name, choices, score_cutoff=cut_off)
+            match_obj = process.extractOne(
+                name, choices, scorer=scorer, score_cutoff=cut_off
+            )
             if match_obj:
                 match, score, match_index = match_obj
                 match_value = df.iloc[match_index][match_column]
@@ -1231,6 +1270,7 @@ def fuzzy_query(
     cut_off: int = 50,
     remove_str: list = None,
     num_workers: int = None,
+    scorer: str | Callable | None = None,
 ):
     """
     Perform fuzzy string matching with a list of input strings against a specific column in a DataFrame.
@@ -1252,6 +1292,7 @@ def fuzzy_query(
             choices = [choice.replace(substring.lower(), "") for choice in choices]
         return choices
 
+    scorer = _resolve_fuzzy_scorer(scorer)
     choices = [choice.lower() for choice in df[match_column].tolist()]
     names = [name.lower() for name in names]
 
@@ -1280,7 +1321,16 @@ def fuzzy_query(
         ]
 
         args_list = [
-            (batch, choices, cut_off, df, match_column, return_column, choice_to_index)
+            (
+                batch,
+                choices,
+                cut_off,
+                df,
+                match_column,
+                return_column,
+                choice_to_index,
+                scorer,
+            )
             for batch in name_batches
         ]
 
@@ -1300,6 +1350,7 @@ def fuzzy_query(
                     match_column,
                     return_column,
                     choice_to_index,
+                    scorer,
                 )
             )
         )
@@ -1313,6 +1364,302 @@ def fuzzy_query(
     return result_df
 
 
+class CompanyNameFuzzyMatcher:
+    """Reusable fuzzy company-name matcher with indexed candidate blocking."""
+
+    def __init__(
+        self,
+        df,
+        match_column: str,
+        return_column: str,
+        remove_str: list = None,
+        scorer: str | Callable | None = None,
+        max_cdist_cells: int = 2_000_000,
+    ):
+        self.match_column = match_column
+        self.return_column = return_column
+        self.remove_str = remove_str or []
+        self.scorer = _resolve_fuzzy_scorer(scorer)
+        self.max_cdist_cells = max_cdist_cells
+        self.records = self._prepare_records(df)
+        self.exact_lookup = {record["BestMatch"]: record for record in self.records}
+        self.prefix3_map = defaultdict(list)
+        self.prefix1_map = defaultdict(list)
+        self.token_map = defaultdict(list)
+        for idx, record in enumerate(self.records):
+            self.prefix3_map[record["_prefix3"]].append(idx)
+            self.prefix1_map[record["_prefix1"]].append(idx)
+            for token in record["_tokens"]:
+                self.token_map[token].append(idx)
+        self.all_indices = tuple(range(len(self.records)))
+
+    def normalize_company_name(self, value):
+        if pd.isna(value):
+            return None
+
+        normalized = str(value).lower()
+        normalized = re.sub(r"[^\w\s]", " ", normalized)
+        normalized = re.sub(r"\s+", " ", normalized).strip()
+        original_lower = normalized
+
+        for suffix in self.remove_str:
+            suffix = re.sub(r"[^\w\s]", " ", str(suffix).lower())
+            suffix = re.sub(r"\s+", " ", suffix).strip()
+            if suffix and original_lower.endswith(suffix):
+                normalized = original_lower[: -len(suffix)].strip()
+                break
+
+        return normalized or None
+
+    @staticmethod
+    def _block_key(value, length):
+        if value is None:
+            return ""
+        letters_only = _letters_only_regex(value)
+        return letters_only[:length]
+
+    @staticmethod
+    def _tokens(value):
+        if value is None:
+            return tuple()
+        return tuple(token for token in value.split() if len(token) > 1)
+
+    def _prepare_records(self, df):
+        source_df = df.dropna(subset=[self.match_column]).reset_index(drop=True).copy()
+        source_df["BestMatch"] = source_df[self.match_column].map(
+            self.normalize_company_name
+        )
+        source_df = source_df.dropna(subset=["BestMatch"]).reset_index(drop=True)
+        source_df["_prefix3"] = source_df["BestMatch"].map(
+            lambda value: self._block_key(value, 3)
+        )
+        source_df["_prefix1"] = source_df["BestMatch"].map(
+            lambda value: self._block_key(value, 1)
+        )
+        source_df["_name_len"] = source_df["BestMatch"].str.len()
+        source_df["_tokens"] = source_df["BestMatch"].map(self._tokens)
+
+        # Match the pandas exact-match behavior by keeping the last occurrence.
+        source_df = source_df.drop_duplicates(subset=["BestMatch"], keep="last")
+        source_df = source_df.reset_index(drop=True)
+        columns = [
+            self.match_column,
+            self.return_column,
+            "BestMatch",
+            "_prefix3",
+            "_prefix1",
+            "_name_len",
+            "_tokens",
+        ]
+        return source_df[columns].to_dict("records")
+
+    @staticmethod
+    def _dedupe_indices(indices):
+        seen = set()
+        unique_indices = []
+        for idx in indices:
+            if idx not in seen:
+                seen.add(idx)
+                unique_indices.append(idx)
+        return tuple(unique_indices)
+
+    def _filter_by_length(self, indices, search_string):
+        name_length = len(search_string)
+        max_delta = max(3, min(10, int(ceil(name_length / 3))))
+        filtered = tuple(
+            idx
+            for idx in indices
+            if abs(self.records[idx]["_name_len"] - name_length) <= max_delta
+        )
+        return filtered or tuple(indices)
+
+    def _candidate_tiers(self, search_string):
+        prefix3 = self._block_key(search_string, 3)
+        prefix1 = self._block_key(search_string, 1)
+        tokens = self._tokens(search_string)
+        tiers = []
+
+        prefix3_candidates = self._dedupe_indices(self.prefix3_map.get(prefix3, []))
+        if prefix3_candidates:
+            tiers.append(self._filter_by_length(prefix3_candidates, search_string))
+
+        token_candidates = []
+        for token in tokens:
+            token_candidates.extend(self.token_map.get(token, []))
+        token_candidates = self._dedupe_indices(token_candidates)
+        if token_candidates:
+            tier = self._filter_by_length(token_candidates, search_string)
+            if not tiers or tier != tiers[-1]:
+                tiers.append(tier)
+
+        prefix1_candidates = self._dedupe_indices(self.prefix1_map.get(prefix1, []))
+        if prefix1_candidates:
+            tier = self._filter_by_length(prefix1_candidates, search_string)
+            if not tiers or tier != tiers[-1]:
+                tiers.append(tier)
+
+        length_candidates = self._filter_by_length(self.all_indices, search_string)
+        if not tiers or length_candidates != tiers[-1]:
+            tiers.append(length_candidates)
+
+        if tiers[-1] != self.all_indices:
+            tiers.append(self.all_indices)
+
+        return tiers
+
+    def _rows_from_scores(self, search_strings, candidate_indices, scores):
+        rows_by_search = {search_string: [] for search_string in search_strings}
+        for row_idx, search_string in enumerate(search_strings):
+            row_scores = np.asarray(scores[row_idx])
+            if row_scores.size == 0:
+                continue
+            best_score = float(row_scores.max())
+            if best_score < self._effective_cutoff:
+                continue
+            best_positions = np.flatnonzero(row_scores == best_score)
+            for position in best_positions:
+                candidate = self.records[candidate_indices[int(position)]]
+                rows_by_search[search_string].append(
+                    (
+                        search_string,
+                        candidate["BestMatch"],
+                        best_score,
+                        candidate[self.match_column],
+                        candidate[self.return_column],
+                    )
+                )
+        return rows_by_search
+
+    def _score_group(self, search_strings, candidate_indices, cut_off, workers):
+        if not search_strings or not candidate_indices:
+            return {search_string: [] for search_string in search_strings}
+
+        cells = len(search_strings) * len(candidate_indices)
+        choices = [self.records[idx]["BestMatch"] for idx in candidate_indices]
+        if cells <= self.max_cdist_cells:
+            self._effective_cutoff = cut_off
+            scores = process.cdist(
+                search_strings,
+                choices,
+                scorer=self.scorer,
+                score_cutoff=cut_off,
+                workers=workers,
+            )
+            return self._rows_from_scores(search_strings, candidate_indices, scores)
+
+        rows_by_search = {}
+        for search_string in search_strings:
+            best_match = process.extractOne(
+                search_string,
+                choices,
+                scorer=self.scorer,
+                score_cutoff=cut_off,
+            )
+            if best_match is None:
+                rows_by_search[search_string] = []
+                continue
+            _, score, candidate_idx = best_match
+            candidate = self.records[candidate_indices[candidate_idx]]
+            rows_by_search[search_string] = [
+                (
+                    search_string,
+                    candidate["BestMatch"],
+                    float(score),
+                    candidate[self.match_column],
+                    candidate[self.return_column],
+                )
+            ]
+        return rows_by_search
+
+    def search(self, names: list, cut_off: int = 50, num_workers: int = None):
+        if not num_workers or num_workers < 0:
+            num_workers = max(1, cpu_count() - 2)
+
+        search_names = [self.normalize_company_name(name) for name in names]
+        search_names = [name for name in search_names if name is not None]
+        if not search_names:
+            return pd.DataFrame(
+                columns=[
+                    "Search_string",
+                    "BestMatch",
+                    "Score",
+                    self.match_column,
+                    self.return_column,
+                ]
+            )
+
+        matches = []
+        unresolved = []
+        tier_lookup = {}
+        for search_string in search_names:
+            exact_match = self.exact_lookup.get(search_string)
+            if exact_match is not None:
+                matches.append(
+                    (
+                        search_string,
+                        search_string,
+                        100.0,
+                        exact_match[self.match_column],
+                        exact_match[self.return_column],
+                    )
+                )
+            else:
+                tiers = self._candidate_tiers(search_string)
+                tier_lookup[search_string] = tiers
+                unresolved.append(search_string)
+
+        max_workers = min(max(1, num_workers), len(unresolved) or 1)
+        max_tiers = max((len(tiers) for tiers in tier_lookup.values()), default=0)
+        for tier_idx in range(max_tiers):
+            if not unresolved:
+                break
+
+            grouped = defaultdict(list)
+            next_unresolved = []
+            skipped = set()
+            for search_string in unresolved:
+                tiers = tier_lookup[search_string]
+                if tier_idx >= len(tiers):
+                    next_unresolved.append(search_string)
+                    skipped.add(search_string)
+                    continue
+                grouped[tiers[tier_idx]].append(search_string)
+
+            tier_results = {}
+            for candidate_indices, grouped_searches in grouped.items():
+                result = self._score_group(
+                    grouped_searches,
+                    candidate_indices,
+                    cut_off=cut_off,
+                    workers=max_workers,
+                )
+                tier_results.update(result)
+
+            for search_string in unresolved:
+                if search_string in skipped:
+                    continue
+                rows = tier_results.get(search_string, [])
+                if rows:
+                    matches.extend(rows)
+                else:
+                    next_unresolved.append(search_string)
+            unresolved = next_unresolved
+
+        for search_string in unresolved:
+            matches.append((search_string, None, 0.0, None, None))
+
+        return pd.DataFrame(
+            matches,
+            columns=[
+                "Search_string",
+                "BestMatch",
+                "Score",
+                self.match_column,
+                self.return_column,
+            ],
+        )
+
+
 def fuzzy_match_pl(
     names: list,
     file_list: list = None,
@@ -1322,27 +1669,10 @@ def fuzzy_match_pl(
     cut_off: int = 50,
     remove_str: list = None,
     num_workers: int = None,
+    scorer: str | Callable | None = None,
+    max_cdist_cells: int = 2_000_000,
 ):
-    def normalize_company_name(value):
-        if pd.isna(value):
-            return None
-
-        normalized = str(value).lower()
-        original_lower = normalized
-
-        if remove_str:
-            for suffix in remove_str:
-                suffix = str(suffix).lower()
-                if suffix and original_lower.endswith(suffix):
-                    normalized = original_lower[: -len(suffix)].strip()
-
-        return normalized
-
-    def block_key(value, length):
-        if value is None:
-            return ""
-        letters_only = _letters_only_regex(value)
-        return letters_only[:length]
+    """Fuzzy-match names against a pandas/Polars frame using indexed blocking."""
 
     def prepare_source_frame():
         if df is not None:
@@ -1364,187 +1694,16 @@ def fuzzy_match_pl(
         return source.to_pandas()
 
     try:
-        if not num_workers or num_workers < 0:
-            num_workers = max(1, cpu_count() - 2)
-
         source_df = prepare_source_frame()
-        source_df = source_df.dropna(subset=[match_column]).reset_index(drop=True)
-        source_df["BestMatch"] = source_df[match_column].map(normalize_company_name)
-        source_df = source_df.dropna(subset=["BestMatch"]).reset_index(drop=True)
-        source_df["_source_idx"] = source_df.index
-        source_df["_prefix3"] = source_df["BestMatch"].map(lambda value: block_key(value, 3))
-        source_df["_prefix1"] = source_df["BestMatch"].map(lambda value: block_key(value, 1))
-        source_df["_name_len"] = source_df["BestMatch"].str.len()
-
-        # Match the pandas exact-match behavior by keeping the last occurrence.
-        source_df = source_df.drop_duplicates(subset=["BestMatch"], keep="last").reset_index(
-            drop=True
+        matcher = CompanyNameFuzzyMatcher(
+            source_df,
+            match_column=match_column,
+            return_column=return_column,
+            remove_str=remove_str,
+            scorer=scorer,
+            max_cdist_cells=max_cdist_cells,
         )
-
-        exact_lookup = {
-            row["BestMatch"]: row
-            for row in source_df[
-                [match_column, return_column, "BestMatch", "_prefix3", "_prefix1", "_name_len"]
-            ].to_dict("records")
-        }
-
-        prefix3_map = defaultdict(list)
-        prefix1_map = defaultdict(list)
-        candidate_records = source_df[
-            [match_column, return_column, "BestMatch", "_prefix3", "_prefix1", "_name_len"]
-        ].to_dict("records")
-        for record in candidate_records:
-            prefix3_map[record["_prefix3"]].append(record)
-            prefix1_map[record["_prefix1"]].append(record)
-
-        def dedupe_candidates(candidates):
-            seen = set()
-            unique_candidates = []
-            for candidate in candidates:
-                key = candidate["BestMatch"]
-                if key not in seen:
-                    seen.add(key)
-                    unique_candidates.append(candidate)
-            return unique_candidates
-
-        def filter_by_length(candidates, search_string):
-            name_length = len(search_string)
-            max_delta = max(3, min(10, int(ceil(name_length / 3))))
-            filtered = [
-                candidate
-                for candidate in candidates
-                if abs(candidate["_name_len"] - name_length) <= max_delta
-            ]
-            return filtered or candidates
-
-        def candidate_tiers(search_string):
-            prefix3 = block_key(search_string, 3)
-            prefix1 = block_key(search_string, 1)
-            tiers = []
-
-            prefix3_candidates = dedupe_candidates(prefix3_map.get(prefix3, []))
-            prefix1_candidates = dedupe_candidates(prefix1_map.get(prefix1, []))
-
-            if prefix3_candidates:
-                tiers.append(filter_by_length(prefix3_candidates, search_string))
-
-            if prefix1_candidates:
-                filtered_prefix1 = filter_by_length(prefix1_candidates, search_string)
-                if not tiers or filtered_prefix1 != tiers[-1]:
-                    tiers.append(filtered_prefix1)
-
-            all_length_candidates = filter_by_length(candidate_records, search_string)
-            if not tiers or all_length_candidates != tiers[-1]:
-                tiers.append(all_length_candidates)
-
-            if tiers[-1] != candidate_records:
-                tiers.append(candidate_records)
-
-            return tiers
-
-        def score_candidate_set(search_string, candidates):
-            choices = [candidate["BestMatch"] for candidate in candidates]
-
-            if len(choices) > 2000:
-                best_match = process.extractOne(
-                    search_string, choices, score_cutoff=cut_off
-                )
-                if best_match is None:
-                    return []
-
-                _, best_score, candidate_idx = best_match
-                candidate = candidates[candidate_idx]
-                return [
-                    (
-                        search_string,
-                        candidate["BestMatch"],
-                        float(best_score),
-                        candidate[match_column],
-                        candidate[return_column],
-                    )
-                ]
-
-            matches = process.extract(
-                search_string,
-                choices,
-                score_cutoff=cut_off,
-                limit=len(choices),
-            )
-
-            if not matches:
-                return []
-
-            best_score = matches[0][1]
-            best_candidates = [
-                candidates[candidate_idx]
-                for _, score, candidate_idx in matches
-                if score == best_score
-            ]
-            return [
-                (
-                    search_string,
-                    candidate["BestMatch"],
-                    float(best_score),
-                    candidate[match_column],
-                    candidate[return_column],
-                )
-                for candidate in best_candidates
-            ]
-
-        def score_search_strings(search_batch):
-            result_rows = []
-            for search_string in search_batch:
-                exact_match = exact_lookup.get(search_string)
-                if exact_match is not None:
-                    result_rows.append(
-                        (
-                            search_string,
-                            search_string,
-                            100.0,
-                            exact_match[match_column],
-                            exact_match[return_column],
-                        )
-                    )
-                    continue
-
-                matched_rows = []
-                for candidates in candidate_tiers(search_string):
-                    matched_rows = score_candidate_set(search_string, candidates)
-                    if matched_rows:
-                        break
-
-                if not matched_rows:
-                    result_rows.append((search_string, None, 0.0, None, None))
-                    continue
-
-                result_rows.extend(matched_rows)
-
-            return result_rows
-
-        search_names = [normalize_company_name(name) for name in names]
-        search_names = [name for name in search_names if name is not None]
-
-        if len(search_names) < num_workers:
-            num_workers = len(search_names) or 1
-
-        if num_workers > 1 and len(search_names) > 1:
-            batch_size = ceil(len(search_names) / num_workers)
-            search_batches = [
-                search_names[i : i + batch_size]
-                for i in range(0, len(search_names), batch_size)
-            ]
-            matches = []
-            with ThreadPoolExecutor(max_workers=num_workers) as pool:
-                for batch_matches in pool.map(score_search_strings, search_batches):
-                    matches.extend(batch_matches)
-        else:
-            matches = score_search_strings(search_names)
-
-        return pd.DataFrame(
-            matches,
-            columns=["Search_string", "BestMatch", "Score", match_column, return_column],
-        )
-
+        return matcher.search(names=names, cut_off=cut_off, num_workers=num_workers)
     except Exception as e:
         raise RuntimeError(f"Error processing fuzzy company matching: {file_list}") from e
 
@@ -1721,3 +1880,335 @@ def _read_pl(files):
         raise ValueError(f"Unsupported file format: {file_ext}")
 
     return read_functions[file_ext](files)
+
+
+_DATE_FORMATS = [
+    ("%Y-%m-%d", "date", False, False),
+    ("%Y%m%d", "date", False, False),
+    ("%Y-%m", "year_month", False, False),
+    ("%Y", "year", False, False),
+    ("%d/%m/%Y", "date", True, False),
+    ("%m/%d/%Y", "date", True, False),
+    ("%d-%m-%Y", "date", True, False),
+    ("%m-%d-%Y", "date", True, False),
+    ("%Y-%m-%d %H:%M:%S", "datetime", False, True),
+    ("%Y-%m-%dT%H:%M:%S", "datetime", False, True),
+    ("%Y-%m-%dT%H:%M:%SZ", "datetime", False, True),
+    ("%Y-%m-%d %H:%M:%S%z", "datetime", False, True),
+    ("%Y-%m-%dT%H:%M:%S%z", "datetime", False, True),
+]
+
+
+def _profile_date_format(series: pd.Series) -> dict:
+    """Infer date parse metadata without returning any source values."""
+    non_null = series.dropna()
+    result = {
+        "date_format": None,
+        "date_format_confidence": 0.0,
+        "date_format_ambiguous": False,
+        "date_granularity": None,
+        "date_parseable_pct": 0.0,
+        "has_time_component": False,
+        "has_timezone": False,
+        "date_filter_strategy": None,
+    }
+    if non_null.empty:
+        return result
+
+    if pd.api.types.is_datetime64_any_dtype(series):
+        result.update(
+            {
+                "date_format": "native",
+                "date_format_confidence": 1.0,
+                "date_granularity": "datetime",
+                "date_parseable_pct": 1.0,
+                "has_time_component": True,
+                "date_filter_strategy": "native",
+            }
+        )
+        return result
+
+    values = non_null.astype(str).str.strip()
+    values = values[values != ""]
+    total = len(values)
+    if total == 0:
+        return result
+
+    best = None
+    scores = {}
+    for fmt, granularity, ambiguous, has_time in _DATE_FORMATS:
+        parsed = pd.to_datetime(values, format=fmt, errors="coerce")
+        score = float(parsed.notna().mean())
+        scores[fmt] = score
+        if best is None or score > best[1]:
+            best = (fmt, score, granularity, ambiguous, has_time)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        fallback_parsed = pd.to_datetime(values, errors="coerce")
+    fallback_score = float(fallback_parsed.notna().mean())
+    if best is None or fallback_score > best[1]:
+        best = ("mixed", fallback_score, "mixed", False, False)
+
+    fmt, score, granularity, ambiguous, has_time = best
+    if score == 0:
+        return result
+
+    tied_formats = [candidate for candidate, value in scores.items() if value == score]
+    is_ambiguous = ambiguous or (
+        "%d/%m/%Y" in tied_formats and "%m/%d/%Y" in tied_formats
+    )
+    has_timezone = bool(
+        values.str.contains(r"(?:Z|[+-]\d{2}:?\d{2})$", regex=True).any()
+    )
+    result.update(
+        {
+            "date_format": fmt,
+            "date_format_confidence": score,
+            "date_format_ambiguous": is_ambiguous,
+            "date_granularity": granularity,
+            "date_parseable_pct": score,
+            "has_time_component": has_time
+            or bool(values.str.contains(r"\d{1,2}:\d{2}", regex=True).any()),
+            "has_timezone": has_timezone,
+            "date_filter_strategy": f"parse_with_format:{fmt}"
+            if fmt not in {"mixed", None}
+            else "mixed_or_inferred",
+        }
+    )
+    return result
+
+
+def _infer_logical_type(series: pd.Series, date_profile: dict) -> str:
+    """Infer an operation-oriented logical type from dtype and safe stats."""
+    dtype = series.dtype
+    non_null = series.dropna()
+    if pd.api.types.is_bool_dtype(dtype):
+        return "boolean"
+    if pd.api.types.is_integer_dtype(dtype):
+        return "integer"
+    if pd.api.types.is_float_dtype(dtype):
+        return "float"
+    if pd.api.types.is_datetime64_any_dtype(dtype):
+        return "datetime"
+    if date_profile["date_parseable_pct"] >= 0.9:
+        return "date" if date_profile["date_granularity"] != "datetime" else "datetime"
+    if non_null.empty:
+        return "unknown"
+
+    unique_pct = non_null.nunique(dropna=True) / len(non_null)
+    as_text = non_null.astype(str)
+    alpha_num_pct = as_text.str.contains(r"[A-Za-z]").mean()
+    digit_pct = as_text.str.contains(r"\d").mean()
+    if unique_pct >= 0.8 and (alpha_num_pct > 0 or digit_pct > 0):
+        return "identifier"
+    if unique_pct <= 0.2:
+        return "categorical"
+    return "string"
+
+
+def _profile_bvd_id_format(series: pd.Series) -> dict:
+    """Count values that look like BvD IDs without returning source values."""
+    non_null = series.dropna()
+    result = {
+        "bvd_id_like_count": 0,
+        "bvd_id_like_pct": 0.0,
+        "contains_bvd_id_like_values": False,
+        "mostly_bvd_id_like": False,
+    }
+    if non_null.empty:
+        return result
+
+    values = non_null.astype(str).str.strip()
+    values = values[values != ""]
+    if values.empty:
+        return result
+
+    bvd_pattern = r"^[A-Za-z]+[*]?[A-Za-z]*\d*[-\dA-Za-z]*$"
+    matches = values.str.match(bvd_pattern, na=False)
+    count = int(matches.sum())
+    pct = count / len(values)
+    result.update(
+        {
+            "bvd_id_like_count": count,
+            "bvd_id_like_pct": pct,
+            "contains_bvd_id_like_values": count > 0,
+            "mostly_bvd_id_like": pct >= 0.8,
+        }
+    )
+    return result
+
+
+def profile_dataframe(
+    df,
+    data_product: str = None,
+    table: str = None,
+    file_name: str = None,
+    sample_strategy: str = "first_file",
+    operation_hints: bool = True,
+) -> pd.DataFrame:
+    """Create a privacy-safe column profile for a pandas or Polars DataFrame."""
+    if isinstance(df, pl.LazyFrame):
+        df = df.collect()
+    if isinstance(df, pl.DataFrame):
+        df = df.to_pandas()
+    if not isinstance(df, pd.DataFrame):
+        raise ValueError("'df' must be a pandas or Polars DataFrame.")
+
+    sampled_rows = len(df)
+    column_count = len(df.columns)
+    rows = []
+    for column in df.columns:
+        series = df[column]
+        non_null_count = int(series.notna().sum())
+        missing_count = int(series.isna().sum())
+        missing_pct = missing_count / sampled_rows if sampled_rows else 0.0
+        unique_count = int(series.nunique(dropna=True))
+        unique_pct = unique_count / non_null_count if non_null_count else 0.0
+
+        string_lengths = series.dropna().astype(str).str.len()
+        date_profile = _profile_date_format(series)
+        bvd_profile = _profile_bvd_id_format(series)
+        logical_type = _infer_logical_type(series, date_profile)
+        nullable = missing_count > 0
+
+        can_date_filter = logical_type in {"date", "datetime"} and (
+            date_profile["date_parseable_pct"] >= 0.9
+            or date_profile["date_filter_strategy"] == "native"
+        )
+        can_numeric_aggregate = logical_type in {"integer", "float"} and non_null_count > 0
+        can_filter_prefix = logical_type in {"string", "identifier", "categorical"}
+        can_join_key = (
+            logical_type in {"identifier", "integer", "string"}
+            and missing_pct <= 0.01
+            and unique_pct >= 0.8
+        )
+        can_groupby = (
+            logical_type in {"categorical", "identifier", "string", "boolean", "date"}
+            and unique_pct <= 0.5
+            and non_null_count > 0
+        )
+
+        notes = []
+        if nullable:
+            notes.append("contains_nulls")
+        if can_date_filter:
+            notes.append("date_filter_supported")
+        if can_join_key:
+            notes.append("candidate_join_key")
+        if can_numeric_aggregate:
+            notes.append("numeric_aggregation_supported")
+        if logical_type == "identifier":
+            notes.append("candidate_identifier")
+        if bvd_profile["mostly_bvd_id_like"]:
+            notes.append("candidate_bvd_id_column")
+        elif bvd_profile["contains_bvd_id_like_values"]:
+            notes.append("contains_bvd_id_like_values")
+
+        row = {
+            "data_product": data_product,
+            "table": table,
+            "file_name": file_name,
+            "sample_strategy": sample_strategy,
+            "sampled_rows": sampled_rows,
+            "column_count": column_count,
+            "column": column,
+            "physical_dtype": str(series.dtype),
+            "logical_type": logical_type,
+            "nullable": nullable,
+            "non_null_count": non_null_count,
+            "missing_count": missing_count,
+            "missing_pct": missing_pct,
+            "unique_count": unique_count,
+            "unique_pct": unique_pct,
+            "string_min_length": int(string_lengths.min())
+            if not string_lengths.empty
+            else None,
+            "string_max_length": int(string_lengths.max())
+            if not string_lengths.empty
+            else None,
+            "string_mean_length": float(string_lengths.mean())
+            if not string_lengths.empty
+            else None,
+            **date_profile,
+            **bvd_profile,
+            "can_filter_exact": logical_type != "unknown" and non_null_count > 0,
+            "can_filter_prefix": can_filter_prefix,
+            "can_groupby": can_groupby,
+            "can_join_key": can_join_key,
+            "can_numeric_aggregate": can_numeric_aggregate,
+            "can_date_filter": can_date_filter,
+            "needs_null_handling": nullable,
+            "operation_notes": ";".join(notes) if operation_hints else None,
+        }
+        rows.append(row)
+
+    return pd.DataFrame(rows)
+
+
+def save_profile_report(
+    profile: pd.DataFrame,
+    report_path: str | os.PathLike,
+    report_info: dict | None = None,
+) -> str:
+    """Save a privacy-safe table profile report and return the written path."""
+    report_path = Path(report_path)
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    suffix = report_path.suffix.lower()
+    if suffix == ".csv":
+        profile.to_csv(report_path, index=False)
+    elif suffix == ".parquet":
+        profile.to_parquet(report_path, index=False)
+    elif suffix in {"", ".xlsx"}:
+        if suffix == "":
+            report_path = report_path.with_suffix(".xlsx")
+        summary_cols = [
+            "data_product",
+            "table",
+            "file_name",
+            "sample_strategy",
+            "sampled_rows",
+            "column_count",
+        ]
+        summary = profile[summary_cols].drop_duplicates()
+        date_formats = profile[
+            profile["date_format"].notna() | profile["can_date_filter"]
+        ].copy()
+        bvd_id_columns = profile[profile["contains_bvd_id_like_values"]].copy()
+        operation_cols = [
+            "data_product",
+            "table",
+            "column",
+            "logical_type",
+            "nullable",
+            "missing_pct",
+            "unique_pct",
+            "bvd_id_like_pct",
+            "mostly_bvd_id_like",
+            "can_filter_exact",
+            "can_filter_prefix",
+            "can_groupby",
+            "can_join_key",
+            "can_numeric_aggregate",
+            "can_date_filter",
+            "operation_notes",
+        ]
+        with pd.ExcelWriter(report_path) as writer:
+            profile.to_excel(writer, sheet_name="columns", index=False)
+            summary.to_excel(writer, sheet_name="summary", index=False)
+            date_formats.to_excel(writer, sheet_name="date_formats", index=False)
+            bvd_id_columns.to_excel(writer, sheet_name="bvd_id_columns", index=False)
+            profile[operation_cols].to_excel(
+                writer, sheet_name="operation_hints", index=False
+            )
+            info = {
+                "profile_created_at": datetime.now().isoformat(timespec="seconds"),
+                "privacy": "No source values, examples, top values, or min/max values are included.",
+            }
+            if report_info:
+                info.update(report_info)
+            pd.DataFrame([info]).to_excel(writer, sheet_name="report_info", index=False)
+    else:
+        raise ValueError("Report path must end with .xlsx, .csv, or .parquet.")
+
+    return str(report_path)

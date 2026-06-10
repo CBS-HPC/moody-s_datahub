@@ -2,6 +2,30 @@
 
 All notable changes to this project should be documented in this file.
 
+## [1.4.0] - 2026-06-10
+
+### Added
+- Optimized company-name fuzzy matching with indexed RapidFuzz blocking,
+  batched scoring, and scorer selection.
+- Privacy-safe table profiling via `profile_table()` and `profile_tables()`,
+  including dtype, missingness, uniqueness, date-format, BvD-ID-like, and
+  operation-readiness metadata.
+- Reusable profile report exports for Excel, CSV, and Parquet.
+- Offline metadata mode with `Sftp(offline=True)` and
+  `offline_capabilities()` for no-login dictionary/date/country-code workflows.
+- Non-interactive override `allow_invalid_bvd_ids=True` for keeping
+  invalid-looking `bvd_list` values as exact IDs.
+
+### Changed
+- Documentation now covers offline metadata mode, profile reports, BvD format
+  overrides, and optimized fuzzy matching behavior.
+- `search_dictionary()` and `table_dates()` can operate from packaged metadata
+  without requiring remote table discovery.
+
+### Notes
+- Profile reports intentionally exclude source values, example values, top
+  values, and actual min/max values.
+
 ## [1.1.0] - 2026-04-14
 
 ### Added

@@ -15,6 +15,8 @@ from moodys_datahub.utils import (
     _load_pl,
     fuzzy_match_pl,
     fuzzy_query,
+    profile_dataframe,
+    save_profile_report,
 )
 
 
@@ -46,6 +48,8 @@ def _make_dummy_process():
     proc._set_table = "dummy_table"
     proc._last_process_engine = None
     proc._last_process_reason = None
+    proc._interactive = False
+    proc.allow_invalid_bvd_ids = False
     return proc
 
 
@@ -488,6 +492,39 @@ def test_default_polars_bvd_query_detects_prefix_mode():
     ]
 
 
+def test_bvd_list_rejects_invalid_values_in_non_interactive_mode(monkeypatch):
+    proc = _make_dummy_process()
+    monkeypatch.setattr(
+        DummyProcess,
+        "search_country_codes",
+        lambda self: pd.DataFrame({"Code": ["DK"]}),
+    )
+
+    with pytest.raises(ValueError, match="allow_invalid_bvd_ids=True"):
+        proc.bvd_list = [["@@@BAD"], "bvd_id_number"]
+
+
+def test_bvd_list_can_keep_invalid_values_in_non_interactive_mode(monkeypatch):
+    proc = _make_dummy_process()
+    proc.allow_invalid_bvd_ids = True
+    monkeypatch.setattr(
+        DummyProcess,
+        "search_country_codes",
+        lambda self: pd.DataFrame({"Code": ["DK"]}),
+    )
+    monkeypatch.setattr(
+        DummyProcess,
+        "search_dictionary",
+        lambda self, **kwargs: pd.DataFrame({"Column": ["bvd_id_number"]}),
+    )
+
+    proc.bvd_list = [["@@@BAD"], "bvd_id_number"]
+
+    assert proc._bvd_list[0] == ["@@@BAD"]
+    assert proc._bvd_list[1] == "bvd_id_number"
+    assert proc._bvd_list[2] == "bvd_id_number in ['@@@BAD']"
+
+
 def test_normalize_bvd_queries_builds_exact_queries():
     proc = _make_dummy_process()
 
@@ -786,6 +823,227 @@ def test_fuzzy_match_pl_widens_candidates_when_blocked_prefix_misses():
     assert result["Score"].iloc[0] >= 80
 
 
+def test_fuzzy_match_pl_batches_scoring_with_cdist(monkeypatch):
+    df = pl.DataFrame(
+        {
+            "name": ["Acme Limited", "Acme Services"],
+            "bvd_id_number": ["BVD1", "BVD2"],
+        }
+    )
+    calls = []
+
+    from moodys_datahub import utils as utils_module
+
+    original_cdist = utils_module.process.cdist
+
+    def recording_cdist(*args, **kwargs):
+        calls.append((args, kwargs))
+        return original_cdist(*args, **kwargs)
+
+    monkeypatch.setattr(utils_module.process, "cdist", recording_cdist)
+
+    result = fuzzy_match_pl(
+        names=["acme limted", "acme servics"],
+        df=df,
+        match_column="name",
+        return_column="bvd_id_number",
+        cut_off=70,
+        num_workers=2,
+    )
+
+    assert calls
+    assert set(result["bvd_id_number"]) == {"BVD1", "BVD2"}
+
+
+def test_fuzzy_match_pl_accepts_scorer_option():
+    df = pl.DataFrame(
+        {
+            "name": ["Acme Limited"],
+            "bvd_id_number": ["BVD1"],
+        }
+    )
+
+    result = fuzzy_match_pl(
+        names=["limited acme"],
+        df=df,
+        match_column="name",
+        return_column="bvd_id_number",
+        cut_off=90,
+        num_workers=1,
+        scorer="token_sort_ratio",
+    )
+
+    assert result["bvd_id_number"].tolist() == ["BVD1"]
+    assert result["Score"].iloc[0] >= 90
+
+
+def test_profile_dataframe_returns_privacy_safe_operation_hints():
+    df = pd.DataFrame(
+        {
+            "bvd_id_number": ["DK001", "DK002", "DK003"],
+            "closing_date": ["2024-01-31", "2024-02-29", None],
+            "revenue": [1.0, None, 3.0],
+            "status": ["active", "active", None],
+        }
+    )
+
+    profile = profile_dataframe(
+        df,
+        data_product="Accounts",
+        table="financials",
+        file_name="part-000.parquet",
+    )
+
+    assert set(profile["column"]) == {
+        "bvd_id_number",
+        "closing_date",
+        "revenue",
+        "status",
+    }
+    assert "example" not in " ".join(profile.columns).lower()
+    assert "min_value" not in profile.columns
+    assert "max_value" not in profile.columns
+
+    date_row = profile.set_index("column").loc["closing_date"]
+    assert date_row["date_format"] == "%Y-%m-%d"
+    assert bool(date_row["can_date_filter"]) is True
+    assert date_row["date_filter_strategy"] == "parse_with_format:%Y-%m-%d"
+
+    revenue_row = profile.set_index("column").loc["revenue"]
+    assert bool(revenue_row["can_numeric_aggregate"]) is True
+    assert bool(revenue_row["needs_null_handling"]) is True
+
+    bvd_row = profile.set_index("column").loc["bvd_id_number"]
+    assert bool(bvd_row["contains_bvd_id_like_values"]) is True
+    assert bool(bvd_row["mostly_bvd_id_like"]) is True
+    assert bvd_row["bvd_id_like_count"] == 3
+    assert bvd_row["bvd_id_like_pct"] == 1.0
+    assert "candidate_bvd_id_column" in bvd_row["operation_notes"]
+
+
+def test_save_profile_report_writes_excel_sheets(tmp_path):
+    profile = profile_dataframe(
+        pd.DataFrame({"id": ["A", "B"], "date": ["20240101", "20240102"]}),
+        data_product="Product",
+        table="Table",
+        file_name="first.parquet",
+    )
+    report_path = tmp_path / "profile.xlsx"
+
+    written = save_profile_report(profile, report_path)
+
+    assert written == str(report_path)
+    sheets = pd.read_excel(report_path, sheet_name=None)
+    assert {
+        "columns",
+        "summary",
+        "date_formats",
+        "bvd_id_columns",
+        "operation_hints",
+        "report_info",
+    } <= set(sheets)
+    assert "privacy" in sheets["report_info"].columns
+
+
+def test_profile_table_profiles_first_file_without_values(monkeypatch):
+    class FakeProfiler:
+        def __init__(self):
+            self.set_data_product = "Product"
+            self.set_table = "Table"
+            self.remote_files = ["first.parquet", "second.parquet"]
+            self.requested = []
+
+        def _check_args(self, files):
+            self.requested.extend(files)
+            return files, []
+
+        def _get_file(self, file):
+            return file, True
+
+        def _read_profile_file(self, file):
+            assert file == "first.parquet"
+            return pd.DataFrame({"id": ["A", "B"], "date": ["2024-01-01", None]})
+
+    fake = FakeProfiler()
+    monkeypatch.setattr("moodys_datahub.tools.copy.deepcopy", lambda obj: fake)
+
+    profile = Sftp.profile_table(object())
+
+    assert fake.requested == ["first.parquet"]
+    assert profile["file_name"].unique().tolist() == ["first.parquet"]
+    assert "date" in profile["column"].tolist()
+    assert "A" not in profile.to_string()
+    assert "B" not in profile.to_string()
+
+
+def test_profile_tables_accepts_multiple_data_products(monkeypatch):
+    calls = []
+
+    def fake_profile_table(self, **kwargs):
+        calls.append((kwargs["data_product"], kwargs["table"], kwargs["dry_run"]))
+        return pd.DataFrame(
+            {
+                "data_product": [kwargs["data_product"]],
+                "table": [kwargs["table"]],
+                "column": ["id"],
+            }
+        )
+
+    monkeypatch.setattr(Sftp, "profile_table", fake_profile_table)
+
+    result = Sftp.profile_tables(
+        object.__new__(Sftp),
+        selections={"Product A": ["table_1", "table_2"], "Product B": ["table_3"]},
+        dry_run=True,
+    )
+
+    assert calls == [
+        ("Product A", "table_1", True),
+        ("Product A", "table_2", True),
+        ("Product B", "table_3", True),
+    ]
+    assert result["table"].tolist() == ["table_1", "table_2", "table_3"]
+
+
+def test_offline_constructor_does_not_connect_and_metadata_helpers_work(monkeypatch):
+    def fail_connect(self):  # pragma: no cover - failure path only
+        raise AssertionError("offline=True must not connect")
+
+    monkeypatch.setattr(Sftp, "_connect", fail_connect)
+
+    sftp = Sftp(offline=True, interactive=False)
+
+    dictionary = sftp.search_dictionary(search_word="bvd")
+    country_codes = sftp.search_country_codes("DK")
+    dates = sftp.table_dates()
+    capabilities = sftp.offline_capabilities()
+
+    assert not dictionary.empty
+    assert not country_codes.empty
+    assert isinstance(dates, pd.DataFrame)
+    assert "search_dictionary" in capabilities["method"].tolist()
+    assert bool(
+        capabilities.loc[
+            capabilities["method"] == "download_all", "server_required"
+        ].iloc[0]
+    ) is True
+
+
+def test_offline_mode_exposes_packaged_table_catalog(monkeypatch):
+    monkeypatch.setattr(
+        Sftp,
+        "_connect",
+        lambda self: (_ for _ in ()).throw(AssertionError("should not connect")),
+    )
+
+    sftp = Sftp(offline=True, interactive=False)
+    tables, to_delete = sftp.tables_available()
+
+    assert to_delete == []
+    assert {"Data Product", "Table", "Export"} <= set(tables.columns)
+    assert tables["Export"].eq("packaged_dictionary").all()
+
+
 def test_process_one_uses_polars_row_limit_for_single_compatible_file(monkeypatch):
     proc = _make_dummy_process()
 
@@ -967,9 +1225,9 @@ def test_search_company_names_prefers_polars_without_pandas_fallback(monkeypatch
 
     monkeypatch.setattr("moodys_datahub.tools.copy.deepcopy", lambda obj: fake_search)
     monkeypatch.setattr(pd.DataFrame, "to_csv", lambda self, *args, **kwargs: None)
-    monkeypatch.setattr(
-        "moodys_datahub.tools.fuzzy_match_pl",
-        lambda **kwargs: pd.DataFrame(
+    def fake_fuzzy_match_pl(**kwargs):
+        assert kwargs["scorer"] == "token_set_ratio"
+        return pd.DataFrame(
             {
                 "Search_string": ["acme"],
                 "BestMatch": ["acme ltd"],
@@ -977,10 +1235,13 @@ def test_search_company_names_prefers_polars_without_pandas_fallback(monkeypatch
                 "name": ["Acme Ltd"],
                 "bvd_id_number": ["BVD1"],
             }
-        ),
-    )
+        )
 
-    result = Sftp.search_company_names(object(), names=["Acme"], num_workers=1)
+    monkeypatch.setattr("moodys_datahub.tools.fuzzy_match_pl", fake_fuzzy_match_pl)
+
+    result = Sftp.search_company_names(
+        object(), names=["Acme"], num_workers=1, scorer="token_set_ratio"
+    )
 
     assert result["bvd_id_number"].tolist() == ["BVD1"]
     assert fake_search.set_data_product == "Firmographics (Monthly)"

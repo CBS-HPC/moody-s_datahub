@@ -7,7 +7,11 @@ from typing import Any
 
 import polars as pl
 
-from .utils import _collect_bvd_clause_columns, _normalize_bvd_clause_group
+from .utils import (
+    _collect_bvd_clause_columns,
+    _normalize_bvd_clause,
+    _normalize_bvd_clause_group,
+)
 
 
 @dataclass

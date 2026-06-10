@@ -7,25 +7,25 @@ https://github.com/CBS-HPC/moody-s_datahub/blob/main/mkdocs/how_to_get_started.i
 
 **The pip wheel can be manually downloaded using the link below:**
 
-https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.3.0/moodys_datahub-1.3.0-py3-none-any.whl
+https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.0/moodys_datahub-1.4.0-py3-none-any.whl
 
 
 Or directly to the working folder by running the line below:
 
 
 ```python
-!curl -s -L -o moodys_datahub-1.3.0-py3-none-any.whl https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.3.0/moodys_datahub-1.3.0-py3-none-any.whl
+!curl -s -L -o moodys_datahub-1.4.0-py3-none-any.whl https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.0/moodys_datahub-1.4.0-py3-none-any.whl
 ```
 
 ## Installation
 
-Install the package "moodys_datahub-1.3.0-py3-none-any.whl":
+Install the package "moodys_datahub-1.4.0-py3-none-any.whl":
 
 
 
 ```python
 
-!pip install moodys_datahub-1.3.0-py3-none-any.whl
+!pip install moodys_datahub-1.4.0-py3-none-any.whl
 ```
 
 The package pins `paramiko==3.5.1` because the current `pysftp` dependency is
@@ -74,6 +74,32 @@ the root changes: `<download_root>/<data_product>/<table>`.
 If `output_root` is provided, auto-generated processed outputs are written below
 that root. Explicit `destination` values in processing calls still take
 precedence.
+
+For packaged metadata helpers that do not need server access, initialize
+without logging in:
+
+
+```python
+SFTP = Sftp(offline=True, interactive=False)
+
+dictionary = SFTP.search_dictionary(search_word="revenue")
+date_columns = SFTP.table_dates()
+capabilities = SFTP.offline_capabilities()
+```
+
+For non-interactive scripts, `bvd_list` raises if values do not match the
+built-in country-prefix or BvD-like ID format check. If the values are known to
+be valid for your use case, keep them as exact IDs:
+
+```python
+SFTP = Sftp(
+    privatekey="user_provided-ssh-key.pem",
+    interactive=False,
+    allow_invalid_bvd_ids=True,
+)
+
+SFTP.bvd_list = [["custom-id-that-fails-the-format-check"], "bvd_id_number"]
+```
 
 ### Select Data Product and Table
 
@@ -341,6 +367,35 @@ The auto backend also understands layered BvD filters such as
 default, while `polars_all()` returns native Polars data for the supported
 Polars path.
 
+### Profile table structure before large processing
+
+Use `profile_table()` or `profile_tables()` to inspect the first file for one
+or more tables before running a large extraction. The profile is privacy-safe:
+it reports metadata such as dtypes, missingness, uniqueness, date formats,
+BvD-ID-like value counts, and operation-readiness hints, but does not include
+source values, examples, top values, or actual min/max values.
+
+```python
+# Profile the currently selected table:
+profile = SFTP.profile_table()
+
+# Profile tables across multiple data products and save a reusable Excel report:
+profile = SFTP.profile_tables(
+    selections={
+        "Firmographics (Monthly)": ["bvd_id_and_name"],
+        "Ownership": ["linkswitharchive", "beneficial_owners_10_10"],
+    },
+    save_report=True,
+)
+
+print(profile.attrs.get("report_path"))
+```
+
+Useful columns in the profile include `logical_type`, `missing_pct`,
+`unique_pct`, `bvd_id_like_pct`, `mostly_bvd_id_like`, `date_format`,
+`date_filter_strategy`, `can_join_key`, `can_numeric_aggregate`,
+`can_date_filter`, and `needs_null_handling`.
+
 ### Search in Data Dictionary for variables/columns
 
 It is possible to search in the "Data Dictionary" for variables, keywords or topic. The "Data Dictionary" will be filtrated according to "Data Product" and "Table" selection.
@@ -407,10 +462,41 @@ best_matches = SFTP.search_company_names(names=companies)
 company_suffixes = SFTP.company_suffix()
 
 # Define cut-off level and company name suffixes to remove:
-best_matches = SFTP.search_company_names(names=companies, num_workers=32,cut_off= 90.1, company_suffixes= company_suffixes)
+best_matches = SFTP.search_company_names(
+    names=companies,
+    num_workers=32,
+    cut_off=90.1,
+    company_suffixes=company_suffixes,
+)
 
 # Define own list of suffixes:
-best_matches = SFTP.search_company_names(names=companies, num_workers=32,cut_off= 90.1, company_suffixes= ["inc", "incorporated","ltd","limited","llc","plc","corp","corporation","co","company","llp","gmbh"])
+best_matches = SFTP.search_company_names(
+    names=companies,
+    num_workers=32,
+    cut_off=90.1,
+    company_suffixes=[
+        "inc",
+        "incorporated",
+        "ltd",
+        "limited",
+        "llc",
+        "plc",
+        "corp",
+        "corporation",
+        "co",
+        "company",
+        "llp",
+        "gmbh",
+    ],
+)
+
+# Use an alternative RapidFuzz scorer when word order differs:
+best_matches = SFTP.search_company_names(
+    names=companies,
+    cut_off=90,
+    company_suffixes=company_suffixes,
+    scorer="token_sort_ratio",
+)
 ```
 
 ### Find changes in bvd_id over time

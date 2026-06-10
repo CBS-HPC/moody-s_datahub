@@ -12,7 +12,11 @@ import polars as pl
 import psutil
 
 from .load_data import _country_codes, _table_dates, _table_dictionary
-from .preflight import PreflightReport, build_download_preflight, build_process_preflight
+from .preflight import (
+    PreflightReport,
+    build_download_preflight,
+    build_process_preflight,
+)
 from .selection import _Selection
 from .utils import (
     SaveFormat,
@@ -231,13 +235,23 @@ class _Process(_Selection):
 
             if len(non_matching_items) > 0:
                 if not interactive:
-                    preview = non_matching_items[:10]
-                    raise ValueError(
-                        "Invalid bvd_list entries detected in non-interactive mode. "
-                        f"Remove or fix these values: {preview}"
-                    )
-                asyncio.ensure_future(f_bvd_prompt(bvd_list, non_matching_items))
-                return
+                    if getattr(self, "allow_invalid_bvd_ids", False):
+                        print(
+                            "Invalid-looking bvd_list entries were kept because "
+                            "allow_invalid_bvd_ids=True."
+                        )
+                        bvd_list = bvd_list + non_matching_items
+                        search_type = False
+                    else:
+                        preview = non_matching_items[:10]
+                        raise ValueError(
+                            "Invalid bvd_list entries detected in non-interactive mode. "
+                            f"Remove or fix these values: {preview}. To keep them, set "
+                            "allow_invalid_bvd_ids=True."
+                        )
+                else:
+                    asyncio.ensure_future(f_bvd_prompt(bvd_list, non_matching_items))
+                    return
 
             self._bvd_list[0] = bvd_list
 
@@ -650,11 +664,12 @@ class _Process(_Selection):
         if self._table_dictionary is None:
             self._table_dictionary = _table_dictionary()
         df = self._table_dictionary
-        df = df[
-            df["Data Product"].isin(
-                self._tables_backup["Data Product"].drop_duplicates()
-            )
-        ]
+        if self._tables_backup is not None:
+            df = df[
+                df["Data Product"].isin(
+                    self._tables_backup["Data Product"].drop_duplicates()
+                )
+            ]
 
         if data_product is not None:
             df_product = df.query(f"`Data Product` == '{data_product}'")
@@ -731,11 +746,12 @@ class _Process(_Selection):
         if self._table_dates is None:
             self._table_dates = _table_dates()
         df = self._table_dates
-        df = df[
-            df["Data Product"].isin(
-                self._tables_backup["Data Product"].drop_duplicates()
-            )
-        ]
+        if self._tables_backup is not None:
+            df = df[
+                df["Data Product"].isin(
+                    self._tables_backup["Data Product"].drop_duplicates()
+                )
+            ]
 
         if data_product is not None:
             df_product = df.query(f"`Data Product` == '{data_product}'")

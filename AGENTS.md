@@ -118,6 +118,9 @@ changed deliberately.
   preferred fix.
 - `Sftp(interactive=False)` should not launch widget prompts. Missing choices
   should fail explicitly or be reported through dry-run preflight.
+- `Sftp(offline=True)` must not connect to SFTP during construction. Packaged
+  metadata helpers such as `search_dictionary()`, `table_dates()`, and
+  `search_country_codes()` should work without credentials.
 - `Sftp(download_root=...)` controls the root for downloaded remote files. If it
   is not set, the default remains `Data Products/<data_product>/<table>`.
 - `Sftp(output_root=...)` controls the root for auto-generated processed
@@ -137,6 +140,8 @@ changed deliberately.
   affects a release.
 - If changing BvD filtering, test both pandas and Polars paths, including
   multi-column and layered `AND_bvd_list` / `OR_bvd_list` cases.
+- If changing `bvd_list` validation, test both strict non-interactive mode and
+  `allow_invalid_bvd_ids=True`.
 - If changing download logic, test default `Data Products/...` behavior and
   custom `download_root`.
 - If changing output path logic, test generated destinations with `output_root`
