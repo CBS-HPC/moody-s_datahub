@@ -32,12 +32,18 @@ tables and generate privacy-safe column profiles with dtype, missingness,
 uniqueness, date-format, BvD-ID-like value counts, and operation-readiness
 metadata. They do not include source values or example records.
 
+The BvD-ID heuristic is conservative and only flags values that look like a
+country-code prefix followed by digits.
+
 `Sftp(offline=True)` skips SFTP login and supports packaged metadata helpers
 such as `search_dictionary()`, `table_dates()`, `search_country_codes()`, and
 `offline_capabilities()`.
 
 `allow_invalid_bvd_ids=True` lets non-interactive `bvd_list` assignments keep
 invalid-looking values and treat them as exact IDs instead of raising.
+
+`batch_bvd_search()` accepts optional `AND_bvd_list` and `OR_bvd_list`
+arguments so workbook-driven searches can reuse the layered BvD filter model.
 
 ## Current backend behavior
 

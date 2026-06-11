@@ -7,25 +7,25 @@ https://github.com/CBS-HPC/moody-s_datahub/blob/main/mkdocs/how_to_get_started.i
 
 **The pip wheel can be manually downloaded using the link below:**
 
-https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.0/moodys_datahub-1.4.0-py3-none-any.whl
+https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.1/moodys_datahub-1.4.1-py3-none-any.whl
 
 
 Or directly to the working folder by running the line below:
 
 
 ```python
-!curl -s -L -o moodys_datahub-1.4.0-py3-none-any.whl https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.0/moodys_datahub-1.4.0-py3-none-any.whl
+!curl -s -L -o moodys_datahub-1.4.1-py3-none-any.whl https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.1/moodys_datahub-1.4.1-py3-none-any.whl
 ```
 
 ## Installation
 
-Install the package "moodys_datahub-1.4.0-py3-none-any.whl":
+Install the package "moodys_datahub-1.4.1-py3-none-any.whl":
 
 
 
 ```python
 
-!pip install moodys_datahub-1.4.0-py3-none-any.whl
+!pip install moodys_datahub-1.4.1-py3-none-any.whl
 ```
 
 The package pins `paramiko==3.5.1` because the current `pysftp` dependency is
@@ -367,6 +367,17 @@ The auto backend also understands layered BvD filters such as
 default, while `polars_all()` returns native Polars data for the supported
 Polars path.
 
+Workbook-driven searches can also use layered BvD filters:
+
+```python
+SFTP.batch_bvd_search(
+    products="products.xlsx",
+    bvd_numbers="bvd_numbers.txt",
+    AND_bvd_list=[[["DK_PARENT"], "global_ultimate_owner_bvd_id_number"]],
+    OR_bvd_list=[[["SE_ALT"], "previous_bvd_id_number"]],
+)
+```
+
 ### Profile table structure before large processing
 
 Use `profile_table()` or `profile_tables()` to inspect the first file for one
@@ -374,6 +385,10 @@ or more tables before running a large extraction. The profile is privacy-safe:
 it reports metadata such as dtypes, missingness, uniqueness, date formats,
 BvD-ID-like value counts, and operation-readiness hints, but does not include
 source values, examples, top values, or actual min/max values.
+
+The BvD-ID detection is conservative and only flags values that look like a
+country-code prefix followed by digits, so names and addresses are not marked
+as BvD-like.
 
 ```python
 # Profile the currently selected table:

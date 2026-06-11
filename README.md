@@ -168,6 +168,10 @@ missingness, uniqueness, date-format detection, BvD-ID-like value counts, and
 operation-readiness hints without exposing source values, examples, top values,
 or min/max values.
 
+The BvD-ID heuristic is conservative: it only flags values that look like a
+country-code prefix followed by digits, which avoids common name/address false
+positives.
+
 ```python
 profile = SFTP.profile_tables(
     selections={
@@ -179,6 +183,10 @@ profile = SFTP.profile_tables(
 
 print(profile.attrs.get("report_path"))
 ```
+
+`batch_bvd_search()` uses the workbook-driven `products.xlsx` /
+`bvd_numbers.txt` workflow. Optional `AND_bvd_list` and `OR_bvd_list` arguments
+apply the same layered BvD filtering model used by `process_all()`.
 
 ## Data Files
 
@@ -205,7 +213,7 @@ If you want a pinned wheel from a specific GitHub release, install it directly
 from the release assets:
 
 ```bash
-pip install https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.0/moodys_datahub-1.4.0-py3-none-any.whl
+pip install https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.1/moodys_datahub-1.4.1-py3-none-any.whl
 ```
 
 ### Install from a local wheel
@@ -214,7 +222,7 @@ Build the package locally and install the wheel from `dist/`:
 
 ```bash
 python -m build
-pip install dist/moodys_datahub-1.4.0-py3-none-any.whl
+pip install dist/moodys_datahub-1.4.1-py3-none-any.whl
 ```
 
 The package pins `paramiko==3.5.1` because the current `pysftp` dependency is

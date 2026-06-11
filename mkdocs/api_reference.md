@@ -67,7 +67,9 @@ public API is `moodys_datahub.Sftp` / `moodys_datahub.tools.Sftp`.
   prefix/token/length blocking, and accepts scorer names such as `"WRatio"`,
   `"ratio"`, `"token_sort_ratio"`, and `"token_set_ratio"`.
 - `search_bvd_changes()`: resolve BvD lineage.
-- `batch_bvd_search()`: run workbook-driven batch searches.
+- `batch_bvd_search()`: run workbook-driven batch searches. Optional
+  `AND_bvd_list` and `OR_bvd_list` arguments apply layered BvD filters to each
+  batch run.
 - `orbis_to_moodys()`: map Orbis-style headings to DataHub columns.
 
 ### Table profiling
@@ -77,6 +79,10 @@ operations before running large extractions. They report dtypes, missingness,
 uniqueness, date-format detection, BvD-ID-like value counts, and
 operation-readiness flags such as `can_join_key`, `can_numeric_aggregate`, and
 `can_date_filter`.
+
+The BvD-ID heuristic is conservative: it only flags values that look like a
+country-code prefix followed by digits, which avoids common name/address false
+positives.
 
 The reports do not contain source values, examples, top values, or actual
 min/max values.

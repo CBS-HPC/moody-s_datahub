@@ -8,6 +8,7 @@ import warnings
 from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+from functools import lru_cache
 from math import ceil
 from multiprocessing import Pool, cpu_count
 from pathlib import Path
@@ -21,6 +22,8 @@ import psutil
 import pyarrow
 from rapidfuzz import fuzz, process
 from tqdm import tqdm
+
+from .load_data import _country_codes
 
 SaveFormat = Literal["xlsx", "csv"] | None
 
@@ -2007,6 +2010,43 @@ def _infer_logical_type(series: pd.Series, date_profile: dict) -> str:
     return "string"
 
 
+@lru_cache(maxsize=1)
+def _bvd_country_prefixes() -> set[str]:
+    """Return known country-code prefixes used by Moody's BvD IDs."""
+    try:
+        codes = _country_codes()["Code"].dropna().astype(str).str.upper().str.strip()
+        return {code for code in codes if code}
+    except Exception:
+        return set()
+
+
+def _looks_like_bvd_id(value) -> bool:
+    """Return True when a value looks like a real BvD ID, not just text."""
+    if value is None or pd.isna(value):
+        return False
+
+    text = str(value).strip().upper()
+    if not text:
+        return False
+
+    normalized = re.sub(r"[\s\-_./]", "", text)
+    if len(normalized) < 5:
+        return False
+
+    prefix = normalized[:2]
+    if prefix not in _bvd_country_prefixes():
+        return False
+
+    body = normalized[2:]
+    if not body.isdigit():
+        return False
+
+    if len(body) < 3:
+        return False
+
+    return True
+
+
 def _profile_bvd_id_format(series: pd.Series) -> dict:
     """Count values that look like BvD IDs without returning source values."""
     non_null = series.dropna()
@@ -2024,8 +2064,7 @@ def _profile_bvd_id_format(series: pd.Series) -> dict:
     if values.empty:
         return result
 
-    bvd_pattern = r"^[A-Za-z]+[*]?[A-Za-z]*\d*[-\dA-Za-z]*$"
-    matches = values.str.match(bvd_pattern, na=False)
+    matches = values.map(_looks_like_bvd_id)
     count = int(matches.sum())
     pct = count / len(values)
     result.update(
@@ -2102,8 +2141,6 @@ def profile_dataframe(
             notes.append("candidate_identifier")
         if bvd_profile["mostly_bvd_id_like"]:
             notes.append("candidate_bvd_id_column")
-        elif bvd_profile["contains_bvd_id_like_values"]:
-            notes.append("contains_bvd_id_like_values")
 
         row = {
             "data_product": data_product,
@@ -2174,7 +2211,7 @@ def save_profile_report(
         date_formats = profile[
             profile["date_format"].notna() | profile["can_date_filter"]
         ].copy()
-        bvd_id_columns = profile[profile["contains_bvd_id_like_values"]].copy()
+        bvd_id_columns = profile[profile["mostly_bvd_id_like"]].copy()
         operation_cols = [
             "data_product",
             "table",

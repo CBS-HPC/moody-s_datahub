@@ -881,6 +881,20 @@ def test_profile_dataframe_returns_privacy_safe_operation_hints():
     df = pd.DataFrame(
         {
             "bvd_id_number": ["DK001", "DK002", "DK003"],
+            "beneficial_owner_name": ["Anna Jensen", "Peter Hansen", "Li Wei"],
+            "beneficial_owner_bvd_id_number": ["DK100", "SE200", "CN300"],
+            "beneficial_owner_salutation": ["Ms", "Mr", "Dr"],
+            "beneficial_owner_fist_name": ["Anna", "Peter", "Li"],
+            "beneficial_owner_last_name": ["Jensen", "Hansen", "Wei"],
+            "beneficial_owner_address": ["Main Street 1", "Second Street 2", "Third Street 3"],
+            "beneficial_owner_city": ["Copenhagen", "Aarhus", "Odense"],
+            "beneficial_owner_postcode": ["1000", "8000", "5000"],
+            "beneficial_owner_country": ["DK", "DK", "DK"],
+            "beneficial_owner_same_or_similar_name_in_the_lexisnexis_worldcompliance_database": [
+                "No",
+                "No",
+                "Yes",
+            ],
             "closing_date": ["2024-01-31", "2024-02-29", None],
             "revenue": [1.0, None, 3.0],
             "status": ["active", "active", None],
@@ -896,6 +910,16 @@ def test_profile_dataframe_returns_privacy_safe_operation_hints():
 
     assert set(profile["column"]) == {
         "bvd_id_number",
+        "beneficial_owner_name",
+        "beneficial_owner_bvd_id_number",
+        "beneficial_owner_salutation",
+        "beneficial_owner_fist_name",
+        "beneficial_owner_last_name",
+        "beneficial_owner_address",
+        "beneficial_owner_city",
+        "beneficial_owner_postcode",
+        "beneficial_owner_country",
+        "beneficial_owner_same_or_similar_name_in_the_lexisnexis_worldcompliance_database",
         "closing_date",
         "revenue",
         "status",
@@ -919,6 +943,27 @@ def test_profile_dataframe_returns_privacy_safe_operation_hints():
     assert bvd_row["bvd_id_like_count"] == 3
     assert bvd_row["bvd_id_like_pct"] == 1.0
     assert "candidate_bvd_id_column" in bvd_row["operation_notes"]
+
+    other_bvd_row = profile.set_index("column").loc["beneficial_owner_bvd_id_number"]
+    assert bool(other_bvd_row["mostly_bvd_id_like"]) is True
+    assert "candidate_bvd_id_column" in other_bvd_row["operation_notes"]
+
+    false_positive_columns = [
+        "beneficial_owner_name",
+        "beneficial_owner_salutation",
+        "beneficial_owner_fist_name",
+        "beneficial_owner_last_name",
+        "beneficial_owner_address",
+        "beneficial_owner_city",
+        "beneficial_owner_postcode",
+        "beneficial_owner_country",
+        "beneficial_owner_same_or_similar_name_in_the_lexisnexis_worldcompliance_database",
+    ]
+    for column in false_positive_columns:
+        row = profile.set_index("column").loc[column]
+        assert bool(row["contains_bvd_id_like_values"]) is False
+        assert bool(row["mostly_bvd_id_like"]) is False
+        assert "candidate_bvd_id_column" not in row["operation_notes"]
 
 
 def test_save_profile_report_writes_excel_sheets(tmp_path):
@@ -1466,9 +1511,15 @@ def test_batch_bvd_search_uses_structured_exact_bvd_query(monkeypatch, tmp_path)
         object(),
         products=str(products_path),
         bvd_numbers=str(bvd_numbers_path),
+        AND_bvd_list=[[["DK_PARENT"], "global_ultimate_owner_bvd_id_number"]],
+        OR_bvd_list=[[["SE_ALT"], "previous_bvd_id_number"]],
     )
 
     assert len(fake_search.calls) == 1
+    assert fake_search.AND_bvd_list == [
+        [["DK_PARENT"], "global_ultimate_owner_bvd_id_number"]
+    ]
+    assert fake_search.OR_bvd_list == [[["SE_ALT"], "previous_bvd_id_number"]]
     assert fake_search.calls[0]["bvd_query"] == [
         ["DK1", "SE2"],
         ["bvd_id_number", "guo_bvd_id_number"],

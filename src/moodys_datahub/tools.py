@@ -603,8 +603,14 @@ class Sftp(_Process):
         return best_matches
 
     def batch_bvd_search(
-        self, products: str = "products.xlsx", bvd_numbers: str = "bvd_numbers.txt"
+        self,
+        products: str = "products.xlsx",
+        bvd_numbers: str = "bvd_numbers.txt",
+        AND_bvd_list=None,
+        OR_bvd_list=None,
     ):
+        """Run workbook-driven BvD searches with optional layered BvD filters."""
+
         def check_file_exists(base_name, extension=".csv", max_attempts=100):
             # Check for "filename.csv"
             if os.path.exists(base_name + extension):
@@ -655,6 +661,8 @@ class Sftp(_Process):
 
         SFTP = copy.deepcopy(self)
         SFTP._object_defaults()
+        SFTP.AND_bvd_list = AND_bvd_list
+        SFTP.OR_bvd_list = OR_bvd_list
 
         in_complete = []
         # Loop through both lists together
