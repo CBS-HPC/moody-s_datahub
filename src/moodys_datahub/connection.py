@@ -18,6 +18,7 @@ from .utils import (
     SaveFormat,
     _check_list_format,
     _join_remote_path,
+    _normalize_remote_path,
     _run_parallel,
     _save_to,
 )
@@ -132,6 +133,33 @@ class _Connection:
         return sftp
 
     def _table_overview(self, product_overview=None):
+        def resolve_export_path(sftp, product_path, data_folder):
+            product_path = _normalize_remote_path(product_path)
+            data_folder = _normalize_remote_path(data_folder)
+            if data_folder is None:
+                return product_path
+
+            product_key = product_path.strip("/")
+            data_key = data_folder.strip("/")
+
+            if data_key == product_key or data_key.startswith(f"{product_key}/"):
+                candidates = [data_folder, data_key]
+            else:
+                candidates = [
+                    _join_remote_path(product_path, data_folder),
+                    data_folder,
+                    data_key,
+                ]
+
+            seen = set()
+            for candidate in candidates:
+                if candidate and candidate not in seen:
+                    seen.add(candidate)
+                    if sftp.exists(candidate):
+                        return candidate
+
+            return candidates[0]
+
         def check_sftp(product_overview, sftp):
             product_paths = sftp.listdir()
             newest_exports = []
@@ -201,8 +229,8 @@ class _Connection:
                     # Read the contents of the newest .tnfs file
                     with open(local_file, "r") as f:
                         tnfs_data = json.load(f)
-                        newest_export = _join_remote_path(
-                            product_path, tnfs_data.get("DataFolder")
+                        newest_export = resolve_export_path(
+                            sftp, product_path, tnfs_data.get("DataFolder")
                         )
                         # newest_export = product_path + "/" + tnfs_data.get('DataFolder')
                         newest_exports.append(newest_export)

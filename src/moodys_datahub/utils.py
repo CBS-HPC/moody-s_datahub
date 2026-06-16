@@ -44,18 +44,26 @@ def _normalize_remote_path(path):
 def _join_remote_path(*parts):
     """Join remote SFTP path parts using POSIX separators."""
     normalized_parts = []
+    is_absolute = False
     for part in parts:
         if part is None:
             continue
         text = str(part).replace("\\", "/").strip()
         if not text:
             continue
-        normalized_parts.append(text)
+        if not normalized_parts:
+            is_absolute = text.startswith("/")
+        text = text.strip("/")
+        if text:
+            normalized_parts.append(text)
 
     if not normalized_parts:
-        return None
+        return "/" if is_absolute else None
 
-    return posixpath.normpath(posixpath.join(*normalized_parts))
+    joined = posixpath.normpath(posixpath.join(*normalized_parts))
+    if is_absolute:
+        joined = f"/{joined}"
+    return joined
 
 
 # Dependency functions

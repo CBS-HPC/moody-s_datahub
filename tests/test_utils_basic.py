@@ -11,6 +11,7 @@ from moodys_datahub.utils import (
     _construct_query,
     _date_pd,
     _fuzzy_match,
+    _join_remote_path,
     _letters_only_regex,
     _load_pl,
     fuzzy_match_pl,
@@ -56,6 +57,12 @@ def _make_dummy_process():
 def test_letters_only_regex():
     assert _letters_only_regex("Abc-123!") == "abc123"
     assert _letters_only_regex(None) is None
+
+
+def test_join_remote_path_treats_child_parts_as_fragments():
+    assert _join_remote_path("product", "/export") == "product/export"
+    assert _join_remote_path("product", r"tnfs\latest.tnf") == "product/tnfs/latest.tnf"
+    assert _join_remote_path("/product", "export") == "/product/export"
 
 
 def test_fuzzy_match_handles_exact_fuzzy_and_no_match():

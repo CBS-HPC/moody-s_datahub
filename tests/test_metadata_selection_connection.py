@@ -544,7 +544,7 @@ def test_table_overview_reads_sftp_exports_and_resolves_unknown_products(
             return mapping[path]
 
         def exists(self, path):
-            return path == "prod_dir/tnfs"
+            return path in {"prod_dir/tnfs", "prod_dir/export_new"}
 
         def stat(self, path):
             mapping = {
@@ -657,6 +657,126 @@ def test_table_overview_uses_posix_remote_paths_on_windows(monkeypatch, tmp_path
     assert not df["Base Directory"].str.contains("\\\\").any()
     assert "prod_dir/export_old" in to_delete
     assert "prod_dir/tnfs/old.tnf" in fake_sftp.removed
+
+
+def test_table_overview_keeps_product_prefix_for_tnf_datafolder(monkeypatch, tmp_path):
+    class FakeStat:
+        def __init__(self, mtime):
+            self.st_mtime = mtime
+
+    class FakeSftp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def listdir(self, path=None):
+            mapping = {
+                None: ["prod_dir"],
+                "prod_dir": ["tnfs", "export_old", "export_new"],
+                "prod_dir/tnfs": ["new.tnf"],
+                "prod_dir/export_new": ["main_table.csv"],
+            }
+            if path not in mapping:
+                raise AssertionError(f"unexpected listdir path: {path}")
+            return mapping[path]
+
+        def exists(self, path):
+            return path in {"prod_dir/tnfs", "prod_dir/export_new"}
+
+        def stat(self, path):
+            if path != "prod_dir/tnfs/new.tnf":
+                raise AssertionError(f"unexpected stat path: {path}")
+            return FakeStat(200)
+
+        def get(self, remote_path, local_path):
+            with open(local_path, "w", encoding="utf-8") as handle:
+                json.dump({"DataFolder": "/export_new"}, handle)
+
+        def remove(self, path):
+            pass
+
+    conn = object.__new__(_Connection)
+    conn._local_repo = None
+    conn._local_path = str(tmp_path)
+
+    monkeypatch.setattr(
+        "moodys_datahub.connection._table_names",
+        lambda file_name=None: pd.DataFrame(
+            {
+                "Data Product": ["Known Product"],
+                "Top-level Directory": ["prod_dir"],
+            }
+        ),
+    )
+    monkeypatch.setattr(_Connection, "_connect", lambda self: FakeSftp())
+
+    df, _ = conn._table_overview()
+
+    assert df["Data Product"].tolist() == ["Known Product"]
+    assert df["Export"].tolist() == ["prod_dir/export_new"]
+    assert df["Base Directory"].tolist() == ["prod_dir/export_new"]
+
+
+def test_table_overview_accepts_absolute_tnf_datafolder(monkeypatch, tmp_path):
+    class FakeStat:
+        def __init__(self, mtime):
+            self.st_mtime = mtime
+
+    class FakeSftp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def listdir(self, path=None):
+            mapping = {
+                None: ["prod_dir"],
+                "prod_dir": ["tnfs", "export_old", "export_new"],
+                "prod_dir/tnfs": ["new.tnf"],
+                "/prod_dir/export_new": ["main_table.csv"],
+            }
+            if path not in mapping:
+                raise AssertionError(f"unexpected listdir path: {path}")
+            return mapping[path]
+
+        def exists(self, path):
+            return path in {"prod_dir/tnfs", "/prod_dir/export_new"}
+
+        def stat(self, path):
+            if path != "prod_dir/tnfs/new.tnf":
+                raise AssertionError(f"unexpected stat path: {path}")
+            return FakeStat(200)
+
+        def get(self, remote_path, local_path):
+            with open(local_path, "w", encoding="utf-8") as handle:
+                json.dump({"DataFolder": "/prod_dir/export_new"}, handle)
+
+        def remove(self, path):
+            pass
+
+    conn = object.__new__(_Connection)
+    conn._local_repo = None
+    conn._local_path = str(tmp_path)
+
+    monkeypatch.setattr(
+        "moodys_datahub.connection._table_names",
+        lambda file_name=None: pd.DataFrame(
+            {
+                "Data Product": ["Known Product"],
+                "Top-level Directory": ["prod_dir"],
+            }
+        ),
+    )
+    monkeypatch.setattr(_Connection, "_connect", lambda self: FakeSftp())
+
+    df, _ = conn._table_overview()
+
+    assert df["Data Product"].tolist() == ["Known Product"]
+    assert df["Export"].tolist() == ["/prod_dir/export_new"]
+    assert df["Base Directory"].tolist() == ["/prod_dir/export_new"]
 
 
 def test_server_clean_up_runs_prompt_for_allowed_host(monkeypatch, capsys):
