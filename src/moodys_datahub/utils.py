@@ -1,4 +1,5 @@
 import os
+import posixpath
 import re
 import shlex
 import shutil
@@ -26,6 +27,35 @@ from tqdm import tqdm
 from .load_data import _country_codes
 
 SaveFormat = Literal["xlsx", "csv"] | None
+
+
+def _normalize_remote_path(path):
+    """Normalize remote SFTP paths to POSIX separators."""
+    if path is None:
+        return None
+
+    text = str(path).replace("\\", "/").strip()
+    if not text:
+        return None
+
+    return posixpath.normpath(text)
+
+
+def _join_remote_path(*parts):
+    """Join remote SFTP path parts using POSIX separators."""
+    normalized_parts = []
+    for part in parts:
+        if part is None:
+            continue
+        text = str(part).replace("\\", "/").strip()
+        if not text:
+            continue
+        normalized_parts.append(text)
+
+    if not normalized_parts:
+        return None
+
+    return posixpath.normpath(posixpath.join(*normalized_parts))
 
 
 # Dependency functions

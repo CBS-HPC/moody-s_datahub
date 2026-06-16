@@ -6,6 +6,7 @@ from pathlib import Path
 import pandas as pd
 
 from .connection import _Connection
+from .utils import _join_remote_path, _normalize_remote_path
 from .widgets import _select_list, _select_product, _SelectData
 
 
@@ -252,6 +253,7 @@ class _Selection(_Connection):
                         print(f"Folder '{path}' created.")
 
             if mode == "remote":
+                path = _normalize_remote_path(path)
                 sftp = self._connect()
 
                 if sftp.exists(path):
@@ -277,7 +279,7 @@ class _Selection(_Connection):
 
             if mode == "remote" and not self._time_stamp:
                 if files and files[0] is not None:
-                    file_attributes = sftp.stat(Path(path) / files[0])
+                    file_attributes = sftp.stat(_join_remote_path(path, files[0]))
                     self._time_stamp = time.strftime(
                         "%Y-%m-%d %H:%M:%S", time.localtime(file_attributes.st_mtime)
                     )
@@ -287,7 +289,10 @@ class _Selection(_Connection):
             files = []
 
         if path is not None:
-            path = str(Path(path))
+            if mode == "remote":
+                path = _normalize_remote_path(path)
+            else:
+                path = str(Path(path))
 
         return files, path
 

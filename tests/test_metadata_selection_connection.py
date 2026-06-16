@@ -1,5 +1,6 @@
 import asyncio
 import json
+from pathlib import PureWindowsPath
 
 import pandas as pd
 import pytest
@@ -357,6 +358,38 @@ def test_check_path_marks_invalid_remote_path(monkeypatch, capsys):
     assert "Remote path is invalid" in capsys.readouterr().out
 
 
+def test_check_path_normalizes_remote_path_separators(monkeypatch):
+    class FakeStat:
+        def __init__(self, mtime):
+            self.st_mtime = mtime
+
+    class FakeSftp:
+        def __init__(self):
+            self.stat_path = None
+
+        def exists(self, path):
+            return path == "remote/path"
+
+        def listdir(self, path=None):
+            if path == "remote/path":
+                return ["part.csv"]
+            raise AssertionError(f"unexpected listdir path: {path}")
+
+        def stat(self, path):
+            self.stat_path = path
+            return FakeStat(123)
+
+    proc = _make_metadata_process()
+    fake_sftp = FakeSftp()
+    monkeypatch.setattr(DummyProcess, "_connect", lambda self: fake_sftp)
+
+    files, path = proc._check_path(r"remote\path", "remote")
+
+    assert files == ["part.csv"]
+    assert path == "remote/path"
+    assert fake_sftp.stat_path == "remote/path/part.csv"
+
+
 def test_check_files_requires_string_lists():
     proc = _make_metadata_process()
 
@@ -551,6 +584,77 @@ def test_table_overview_reads_sftp_exports_and_resolves_unknown_products(
 
     assert set(df["Data Product"]) == {"Known Product", "Resolved Product"}
     assert set(df["Table"]) == {"main_table", "interim_usd", "mystery_table"}
+    assert "prod_dir/export_old" in to_delete
+    assert "prod_dir/tnfs/old.tnf" in fake_sftp.removed
+
+
+def test_table_overview_uses_posix_remote_paths_on_windows(monkeypatch, tmp_path):
+    class FakeStat:
+        def __init__(self, mtime):
+            self.st_mtime = mtime
+
+    class FakeSftp:
+        def __init__(self):
+            self.removed = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def listdir(self, path=None):
+            mapping = {
+                None: ["prod_dir"],
+                "prod_dir": ["tnfs", "export_old", "export_new"],
+                "prod_dir/tnfs": ["old.tnf", "new.tnf"],
+                "prod_dir/export_new": ["main_table.csv"],
+            }
+            if path not in mapping:
+                raise AssertionError(f"unexpected listdir path: {path}")
+            return mapping[path]
+
+        def exists(self, path):
+            return path == "prod_dir/tnfs"
+
+        def stat(self, path):
+            mapping = {
+                "prod_dir/tnfs/old.tnf": 100,
+                "prod_dir/tnfs/new.tnf": 200,
+            }
+            if path not in mapping:
+                raise AssertionError(f"unexpected stat path: {path}")
+            return FakeStat(mapping[path])
+
+        def get(self, remote_path, local_path):
+            with open(local_path, "w", encoding="utf-8") as handle:
+                json.dump({"DataFolder": "export_new"}, handle)
+
+        def remove(self, path):
+            self.removed.append(path)
+
+    fake_sftp = FakeSftp()
+    conn = object.__new__(_Connection)
+    conn._local_repo = None
+    conn._local_path = str(tmp_path)
+
+    monkeypatch.setattr("moodys_datahub.connection.Path", PureWindowsPath)
+    monkeypatch.setattr(
+        "moodys_datahub.connection._table_names",
+        lambda file_name=None: pd.DataFrame(
+            {
+                "Data Product": ["Known Product"],
+                "Top-level Directory": ["prod_dir"],
+            }
+        ),
+    )
+    monkeypatch.setattr(_Connection, "_connect", lambda self: fake_sftp)
+
+    df, to_delete = conn._table_overview()
+
+    assert set(df["Data Product"]) == {"Known Product"}
+    assert set(df["Table"]) == {"main_table"}
+    assert not df["Base Directory"].str.contains("\\\\").any()
     assert "prod_dir/export_old" in to_delete
     assert "prod_dir/tnfs/old.tnf" in fake_sftp.removed
 

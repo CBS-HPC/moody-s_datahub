@@ -14,7 +14,13 @@ import pandas as pd
 import pysftp
 
 from .load_data import _table_match, _table_names
-from .utils import SaveFormat, _check_list_format, _run_parallel, _save_to
+from .utils import (
+    SaveFormat,
+    _check_list_format,
+    _join_remote_path,
+    _run_parallel,
+    _save_to,
+)
 from .widgets import _CustomQuestion, _Multi_dropdown
 
 
@@ -144,13 +150,13 @@ class _Connection:
                     data_products.append(sel_product.values[0])
 
                 # tnfs_folder = str(Path(product_path) / "tnfs")
-                tnfs_folder = product_path + "/" + "tnfs"
+                tnfs_folder = _join_remote_path(product_path, "tnfs")
 
                 export_paths = sftp.listdir(product_path)
 
                 if not sftp.exists(tnfs_folder):
                     # path = str(Path(product_path) / export_paths[0])
-                    path = product_path + "/" + export_paths[0]
+                    path = _join_remote_path(product_path, export_paths[0])
                     newest_exports.append(path)
                     time_stamp.append(None)
                     continue
@@ -170,7 +176,7 @@ class _Connection:
                 # Determine the newest .tnfs file
                 for tnfs_file in tnfs_files:
                     # tnfs_file_path  = str(Path(tnfs_folder) / tnfs_file)
-                    tnfs_file_path = tnfs_folder + "/" + tnfs_file
+                    tnfs_file_path = _join_remote_path(tnfs_folder, tnfs_file)
                     file_attributes = sftp.stat(tnfs_file_path)
                     mtime = file_attributes.st_mtime
                     if mtime > newest_mtime:
@@ -195,8 +201,8 @@ class _Connection:
                     # Read the contents of the newest .tnfs file
                     with open(local_file, "r") as f:
                         tnfs_data = json.load(f)
-                        newest_export = str(
-                            Path(product_path) / tnfs_data.get("DataFolder")
+                        newest_export = _join_remote_path(
+                            product_path, tnfs_data.get("DataFolder")
                         )
                         # newest_export = product_path + "/" + tnfs_data.get('DataFolder')
                         newest_exports.append(newest_export)
@@ -205,7 +211,7 @@ class _Connection:
 
                     for export_path in export_paths:
                         # export_path = str(Path(product_path) / export_path)
-                        export_path = product_path + "/" + export_path
+                        export_path = _join_remote_path(product_path, export_path)
                         if export_path != newest_export and export_path != tnfs_folder:
                             to_delete.append(export_path)
 
@@ -273,7 +279,7 @@ class _Connection:
                 if sftp:
                     tables = sftp.listdir(export)
                     # full_paths  = [str(Path(export) / table) for table in tables]
-                    full_paths = [export + "/" + table for table in tables]
+                    full_paths = [_join_remote_path(export, table) for table in tables]
 
                 else:
                     tables = os.listdir(export)
@@ -440,7 +446,7 @@ class _Connection:
         with self._connect() as sftp:
             for file_attr in sftp.listdir_attr(path):
                 # full_path = str(Path(path) / file_attr.filename)
-                full_path = path + "/" + file_attr.filename
+                full_path = _join_remote_path(path, file_attr.filename)
 
                 # Check if the file ends with any of the specified extensions
                 if full_path.endswith(extensions):
@@ -462,7 +468,7 @@ class _Connection:
         def recursive_delete(sftp, path):
             for file_attr in sftp.listdir_attr(path):
                 # full_path = str(Path(path) / file_attr.filename)
-                full_path = path + "/" + file_attr.filename
+                full_path = _join_remote_path(path, file_attr.filename)
                 sftp.remove(full_path)
 
         with self._connect() as sftp:
