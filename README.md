@@ -162,11 +162,20 @@ SFTP = Sftp(interactive=False, allow_invalid_bvd_ids=True)
 SFTP.bvd_list = [["custom-id-that-fails-the-format-check"], "bvd_id_number"]
 ```
 
-`profile_table()` and `profile_tables()` inspect the first file for selected
-tables and return a privacy-safe column profile. The report includes dtypes,
+`profile_table()` and `profile_tables()` default to `file_scope="first_file"`
+and return a privacy-safe first-file column profile. The report includes dtypes,
 missingness, uniqueness, date-format detection, BvD-ID-like value counts, and
 operation-readiness hints without exposing source values, examples, top values,
 or min/max values.
+
+Use `file_scope="all_files"` when you need a bounded complete scan. It stages
+one CSV, Parquet, or Avro file at a time, removes newly downloaded files after
+each scan, and returns a sampled column profile plus aggregate metadata in
+`profile.attrs["table_summary"]` or `profile.attrs["table_summaries"]`. The
+summary records source-file count, total rows, exact canonical BvD-ID count
+when `bvd_id_number` or an explicit canonical column is present, date spans,
+and BvD-ID-format counts. It never returns identifier values; date min/max are
+aggregate metadata.
 
 The BvD-ID heuristic is conservative: it only flags values that look like a
 country-code prefix followed by digits, which avoids common name/address false
@@ -182,6 +191,15 @@ profile = SFTP.profile_tables(
 )
 
 print(profile.attrs.get("report_path"))
+```
+
+```python
+complete_profile = SFTP.profile_table(
+    data_product="Firmographics (Monthly)",
+    table="bvd_id_and_name",
+    file_scope="all_files",
+)
+print(complete_profile.attrs["table_summary"]["row_count"])
 ```
 
 `batch_bvd_search()` uses the workbook-driven `products.xlsx` /

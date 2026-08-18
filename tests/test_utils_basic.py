@@ -1028,6 +1028,96 @@ def test_profile_table_profiles_first_file_without_values(monkeypatch):
     assert "B" not in profile.to_string()
 
 
+def test_profile_table_all_files_aggregates_without_retaining_values(tmp_path, monkeypatch):
+    first = tmp_path / "first.csv"
+    second = tmp_path / "second.csv"
+    first.write_text(
+        "bvd_id_number,closing_date,label\nDK123,2024-01-02,one\nSE200,2024-02-03,two\n",
+        encoding="utf-8",
+    )
+    second.write_text(
+        "bvd_id_number,closing_date,label\nDK123,2023-12-31,three\nUS999,2024-03-04,four\n",
+        encoding="utf-8",
+    )
+
+    class FakeProfiler:
+        def __init__(self):
+            self.set_data_product = "Product"
+            self.set_table = "Table"
+            self.remote_files = [str(first), str(second)]
+
+        def _check_args(self, files):
+            return files, []
+
+        def _get_file(self, file):
+            return file, True
+
+    fake = FakeProfiler()
+    monkeypatch.setattr("moodys_datahub.tools.copy.deepcopy", lambda obj: fake)
+
+    profile = Sftp.profile_table(
+        object(),
+        file_scope="all_files",
+        profile_sample_rows=1,
+        profile_chunk_rows=1,
+        scratch_dir=tmp_path,
+    )
+
+    summary = profile.attrs["table_summary"]
+    assert summary["scan_scope"] == "all_files"
+    assert summary["source_file_count"] == 2
+    assert summary["scanned_file_count"] == 2
+    assert summary["row_count"] == 4
+    assert summary["canonical_bvd_column"] == "bvd_id_number"
+    assert summary["unique_canonical_bvd_ids"] == 3
+    assert summary["date_columns"] == [
+        {
+            "column": "closing_date",
+            "minimum": "2023-12-31T00:00:00+00:00",
+            "maximum": "2024-03-04T00:00:00+00:00",
+            "parseable_count": 4,
+            "invalid_count": 0,
+        }
+    ]
+    assert "DK123" not in str(summary)
+    assert int(profile.loc[profile["column"] == "bvd_id_number", "full_non_null_count"].iloc[0]) == 4
+    assert not list(tmp_path.glob(".profile-*.sqlite3"))
+
+
+def test_profile_table_all_files_rejects_schema_drift_and_cleans_scratch(tmp_path, monkeypatch):
+    first = tmp_path / "first.csv"
+    second = tmp_path / "second.csv"
+    first.write_text("bvd_id_number\nDK123\n", encoding="utf-8")
+    second.write_text("different_column\nSE200\n", encoding="utf-8")
+
+    class FakeProfiler:
+        def __init__(self):
+            self.set_data_product = "Product"
+            self.set_table = "Table"
+            self.remote_files = [str(first), str(second)]
+
+        def _check_args(self, files):
+            return files, []
+
+        def _get_file(self, file):
+            return file, True
+
+    monkeypatch.setattr(
+        "moodys_datahub.tools.copy.deepcopy", lambda obj: FakeProfiler()
+    )
+
+    with pytest.raises(ValueError, match="Schema drift"):
+        Sftp.profile_table(
+            object(),
+            file_scope="all_files",
+            profile_sample_rows=1,
+            profile_chunk_rows=1,
+            scratch_dir=tmp_path,
+        )
+
+    assert not list(tmp_path.glob(".profile-*.sqlite3"))
+
+
 def test_profile_tables_accepts_multiple_data_products(monkeypatch):
     calls = []
 
@@ -1055,6 +1145,48 @@ def test_profile_tables_accepts_multiple_data_products(monkeypatch):
         ("Product B", "table_3", True),
     ]
     assert result["table"].tolist() == ["table_1", "table_2", "table_3"]
+
+
+def test_profile_tables_preserves_all_files_table_summaries(monkeypatch):
+    def fake_profile_table(self, **kwargs):
+        profile = pd.DataFrame(
+            {
+                "data_product": [kwargs["data_product"]],
+                "table": [kwargs["table"]],
+                "column": ["id"],
+            }
+        )
+        profile.attrs["table_summary"] = {
+            "scan_scope": kwargs["file_scope"],
+            "status": "passed",
+            "data_product": kwargs["data_product"],
+            "table": kwargs["table"],
+        }
+        return profile
+
+    monkeypatch.setattr(Sftp, "profile_table", fake_profile_table)
+
+    result = Sftp.profile_tables(
+        object.__new__(Sftp),
+        selections={"Product": ["table_1", "table_2"]},
+        file_scope="all_files",
+    )
+
+    assert result.attrs["profile_scope"] == "all_files"
+    assert result.attrs["table_summaries"] == [
+        {
+            "scan_scope": "all_files",
+            "status": "passed",
+            "data_product": "Product",
+            "table": "table_1",
+        },
+        {
+            "scan_scope": "all_files",
+            "status": "passed",
+            "data_product": "Product",
+            "table": "table_2",
+        },
+    ]
 
 
 def test_offline_constructor_does_not_connect_and_metadata_helpers_work(monkeypatch):

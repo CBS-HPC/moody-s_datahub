@@ -49,10 +49,11 @@ public API is `moodys_datahub.Sftp` / `moodys_datahub.tools.Sftp`.
 - `polars_all()`: force the native Polars backend explicitly and return Polars.
 - `download_all()`: download missing files into the local cache.
 - `download_all(dry_run=True)`: validate which files would be downloaded.
-- `profile_table()`: inspect the first file for one table and return a
-  privacy-safe column profile.
+- `profile_table()`: inspect one first file by default, or use
+  `file_scope="all_files"` for bounded aggregate profiling across every source
+  file for one table.
 - `profile_tables()`: profile multiple tables, including tables across multiple
-  data products.
+  data products, with the same `file_scope` option.
 
 ### Diagnostics and state
 
@@ -84,8 +85,9 @@ The BvD-ID heuristic is conservative: it only flags values that look like a
 country-code prefix followed by digits, which avoids common name/address false
 positives.
 
-The reports do not contain source values, examples, top values, or actual
-min/max values.
+The reports do not contain source values, examples, or top values. All-files
+summaries may include aggregate date min/max values, total rows, and exact
+canonical BvD-ID cardinality, but never the underlying identifiers.
 
 ```python
 profile = SFTP.profile_tables(

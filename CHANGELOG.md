@@ -2,6 +2,14 @@
 
 All notable changes to this project should be documented in this file.
 
+## [Unreleased]
+
+### Added
+- `file_scope="all_files"` for `profile_table()` and `profile_tables()`.
+  It scans CSV, Parquet, and Avro source files sequentially, removes newly
+  staged files, and exposes privacy-safe complete table aggregates through
+  DataFrame attributes and Excel report summaries.
+
 ## [1.4.4] - 2026-08-18
 
 ### Fixed
