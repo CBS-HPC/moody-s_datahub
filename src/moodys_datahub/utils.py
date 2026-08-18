@@ -1,3 +1,4 @@
+import json
 import os
 import posixpath
 import re
@@ -2292,13 +2293,27 @@ def save_profile_report(
             profile[operation_cols].to_excel(
                 writer, sheet_name="operation_hints", index=False
             )
+            table_summaries = profile.attrs.get("table_summaries")
+            if table_summaries is None:
+                table_summary = profile.attrs.get("table_summary")
+                table_summaries = [table_summary] if table_summary is not None else []
+            if table_summaries:
+                pd.DataFrame(table_summaries).to_excel(
+                    writer, sheet_name="table_summary", index=False
+                )
             info = {
                 "profile_created_at": datetime.now().isoformat(timespec="seconds"),
                 "privacy": "No source values, examples, top values, or min/max values are included.",
             }
             if report_info:
                 info.update(report_info)
-            pd.DataFrame([info]).to_excel(writer, sheet_name="report_info", index=False)
+            safe_info = {
+                key: json.dumps(value, default=str)
+                if isinstance(value, (dict, list))
+                else value
+                for key, value in info.items()
+            }
+            pd.DataFrame([safe_info]).to_excel(writer, sheet_name="report_info", index=False)
     else:
         raise ValueError("Report path must end with .xlsx, .csv, or .parquet.")
 

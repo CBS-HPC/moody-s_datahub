@@ -12,6 +12,11 @@ import pyarrow.parquet as pq
 
 from .load_data import _table_dictionary
 from .process import _Process
+from .profile_scan import (
+    DEFAULT_PROFILE_CHUNK_ROWS,
+    DEFAULT_PROFILE_SAMPLE_ROWS,
+    profile_all_files,
+)
 from .utils import (
     SaveFormat,
     _bvd_changes_ray,
@@ -371,12 +376,29 @@ class Sftp(_Process):
         data_product: str = None,
         table: str = None,
         file: str | int = None,
+        file_scope: str = "first_file",
         operation_hints: bool = True,
         save_report: bool = False,
         report_path: str = None,
         dry_run: bool = False,
+        canonical_bvd_column: str = None,
+        profile_sample_rows: int = DEFAULT_PROFILE_SAMPLE_ROWS,
+        profile_chunk_rows: int = DEFAULT_PROFILE_CHUNK_ROWS,
+        strict_schema: bool = True,
+        scratch_dir: str = None,
     ):
-        """Profile the first file for a table without exposing source values."""
+        """Profile one first file or aggregate every file without source values.
+
+        ``file_scope="first_file"`` retains the historical behavior and
+        profiles the complete first source file. ``file_scope="all_files"``
+        creates a bounded first-file schema sample and scans every source file
+        sequentially for privacy-safe aggregate metadata. The latter stores its
+        table summary in ``DataFrame.attrs["table_summary"]``.
+        """
+        if file_scope not in {"first_file", "all_files"}:
+            raise ValueError("file_scope must be 'first_file' or 'all_files'.")
+        if file_scope == "all_files" and file is not None:
+            raise ValueError("file cannot be combined with file_scope='all_files'.")
 
         profiler = copy.deepcopy(self)
         if data_product is not None:
@@ -407,7 +429,10 @@ class Sftp(_Process):
                         "data_product": profiler.set_data_product,
                         "table": profiler.set_table,
                         "file_name": os.path.basename(selected_file),
-                        "sample_strategy": "first_file",
+                        "sample_strategy": file_scope,
+                        "source_file_count": len(profiler.remote_files)
+                        if file_scope == "all_files"
+                        else 1,
                         "would_download": selected_file in profiler.remote_files,
                         "would_profile": True,
                         "would_write_report": bool(save_report or report_path),
@@ -423,17 +448,38 @@ class Sftp(_Process):
                 ]
             )
 
-        files, _ = profiler._check_args([selected_file])
-        local_file, _ = profiler._get_file(files[0])
-        df = profiler._read_profile_file(local_file)
-        profile = profile_dataframe(
-            df,
-            data_product=profiler.set_data_product,
-            table=profiler.set_table,
-            file_name=os.path.basename(local_file),
-            sample_strategy="first_file",
-            operation_hints=operation_hints,
-        )
+        if file_scope == "all_files":
+            def resolve_file(candidate: str) -> tuple[Path, bool]:
+                files, _ = profiler._check_args([candidate])
+                local_file, preexisting = profiler._get_file(files[0])
+                return Path(local_file), bool(preexisting)
+
+            profile, table_summary = profile_all_files(
+                list(profiler.remote_files),
+                data_product=profiler.set_data_product,
+                table=profiler.set_table,
+                resolve_file=resolve_file,
+                operation_hints=operation_hints,
+                sample_rows=profile_sample_rows,
+                chunk_rows=profile_chunk_rows,
+                canonical_bvd_column=canonical_bvd_column,
+                strict_schema=strict_schema,
+                scratch_dir=scratch_dir,
+            )
+            profile.attrs["table_summary"] = table_summary
+            profile.attrs["profile_scope"] = "all_files"
+        else:
+            files, _ = profiler._check_args([selected_file])
+            local_file, _ = profiler._get_file(files[0])
+            df = profiler._read_profile_file(local_file)
+            profile = profile_dataframe(
+                df,
+                data_product=profiler.set_data_product,
+                table=profiler.set_table,
+                file_name=os.path.basename(local_file),
+                sample_strategy="first_file",
+                operation_hints=operation_hints,
+            )
 
         if save_report or report_path:
             if report_path is None:
@@ -446,7 +492,8 @@ class Sftp(_Process):
                 report_info={
                     "data_product": profiler.set_data_product,
                     "table": profiler.set_table,
-                    "sample_strategy": "first_file",
+                    "sample_strategy": file_scope,
+                    "table_summary": profile.attrs.get("table_summary"),
                 },
             )
             profile.attrs["report_path"] = written_path
@@ -459,12 +506,25 @@ class Sftp(_Process):
         data_product: str = None,
         data_products: list = None,
         tables: list | str = None,
+        file_scope: str = "first_file",
         operation_hints: bool = True,
         save_report: bool = False,
         report_path: str = None,
         dry_run: bool = False,
+        canonical_bvd_columns: dict | None = None,
+        profile_sample_rows: int = DEFAULT_PROFILE_SAMPLE_ROWS,
+        profile_chunk_rows: int = DEFAULT_PROFILE_CHUNK_ROWS,
+        strict_schema: bool = True,
+        scratch_dir: str = None,
     ):
-        """Profile first files across one or more data products and tables."""
+        """Profile first files or all files across products and tables.
+
+        The returned column profile keeps the historical DataFrame contract.
+        All-files table summaries are available in
+        ``DataFrame.attrs["table_summaries"]``.
+        """
+        if file_scope not in {"first_file", "all_files"}:
+            raise ValueError("file_scope must be 'first_file' or 'all_files'.")
 
         def tables_for_product(product):
             if tables == "all":
@@ -497,19 +557,34 @@ class Sftp(_Process):
             resolved = {product: tables_for_product(product)}
 
         profiles = []
+        table_summaries = []
         for product, product_tables in resolved.items():
             for table in product_tables:
-                profiles.append(
-                    self.profile_table(
-                        data_product=product,
-                        table=table,
-                        operation_hints=operation_hints,
-                        save_report=False,
-                        dry_run=dry_run,
-                    )
+                canonical_bvd_column = None
+                if canonical_bvd_columns is not None:
+                    canonical_bvd_column = canonical_bvd_columns.get(table)
+                profile = self.profile_table(
+                    data_product=product,
+                    table=table,
+                    file_scope=file_scope,
+                    operation_hints=operation_hints,
+                    save_report=False,
+                    dry_run=dry_run,
+                    canonical_bvd_column=canonical_bvd_column,
+                    profile_sample_rows=profile_sample_rows,
+                    profile_chunk_rows=profile_chunk_rows,
+                    strict_schema=strict_schema,
+                    scratch_dir=scratch_dir,
                 )
+                profiles.append(profile)
+                summary = profile.attrs.get("table_summary")
+                if summary is not None:
+                    table_summaries.append(summary)
 
         combined = pd.concat(profiles, ignore_index=True) if profiles else pd.DataFrame()
+        if table_summaries:
+            combined.attrs["table_summaries"] = table_summaries
+            combined.attrs["profile_scope"] = "all_files"
         if (save_report or report_path) and not dry_run:
             if report_path is None:
                 product_name = next(iter(resolved.keys())) if len(resolved) == 1 else None
@@ -521,7 +596,8 @@ class Sftp(_Process):
                 report_path,
                 report_info={
                     "profile_scope": "multiple_tables",
-                    "sample_strategy": "first_file",
+                    "sample_strategy": file_scope,
+                    "table_summaries": table_summaries or None,
                 },
             )
             combined.attrs["report_path"] = written_path
