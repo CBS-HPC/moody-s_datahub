@@ -188,6 +188,8 @@ def profile_all_files(
         canonical_bvd_column is not None
         and canonical_bvd_column not in expected_columns
     ):
+        if not first_preexisting:
+            first_path.unlink(missing_ok=True)
         raise ValueError(
             f"canonical_bvd_column {canonical_bvd_column!r} is not present in the first file."
         )

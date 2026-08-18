@@ -7,25 +7,25 @@ https://github.com/CBS-HPC/moody-s_datahub/blob/main/mkdocs/how_to_get_started.i
 
 **The pip wheel can be manually downloaded using the link below:**
 
-https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.5/moodys_datahub-1.4.5-py3-none-any.whl
+https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.6/moodys_datahub-1.4.6-py3-none-any.whl
 
 
 Or directly to the working folder by running the line below:
 
 
 ```python
-!curl -s -L -o moodys_datahub-1.4.5-py3-none-any.whl https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.5/moodys_datahub-1.4.5-py3-none-any.whl
+!curl -s -L -o moodys_datahub-1.4.6-py3-none-any.whl https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.6/moodys_datahub-1.4.6-py3-none-any.whl
 ```
 
 ## Installation
 
-Install the package "moodys_datahub-1.4.5-py3-none-any.whl":
+Install the package "moodys_datahub-1.4.6-py3-none-any.whl":
 
 
 
 ```python
 
-!pip install moodys_datahub-1.4.5-py3-none-any.whl
+!pip install moodys_datahub-1.4.6-py3-none-any.whl
 ```
 
 The package pins `paramiko==3.5.1` because the current `pysftp` dependency is
@@ -384,7 +384,7 @@ Use `profile_table()` or `profile_tables()` to inspect the first file for one
 or more tables before running a large extraction. The profile is privacy-safe:
 it reports metadata such as dtypes, missingness, uniqueness, date formats,
 BvD-ID-like value counts, and operation-readiness hints, but does not include
-source values, examples, top values, or actual min/max values.
+source values, examples, top values, or non-date min/max values.
 
 The BvD-ID detection is conservative and only flags values that look like a
 country-code prefix followed by digits, so names and addresses are not marked

@@ -1118,6 +1118,39 @@ def test_profile_table_all_files_rejects_schema_drift_and_cleans_scratch(tmp_pat
     assert not list(tmp_path.glob(".profile-*.sqlite3"))
 
 
+def test_profile_table_all_files_invalid_canonical_column_cleans_staged_file(
+    tmp_path, monkeypatch
+):
+    first = tmp_path / "first.csv"
+    first.write_text("bvd_id_number\nDK123\n", encoding="utf-8")
+
+    class FakeProfiler:
+        def __init__(self):
+            self.set_data_product = "Product"
+            self.set_table = "Table"
+            self.remote_files = ["remote_first.csv"]
+
+        def _check_args(self, files):
+            return files, []
+
+        def _get_file(self, file):
+            return str(first), False
+
+    monkeypatch.setattr(
+        "moodys_datahub.tools.copy.deepcopy", lambda obj: FakeProfiler()
+    )
+
+    with pytest.raises(ValueError, match="canonical_bvd_column"):
+        Sftp.profile_table(
+            object(),
+            file_scope="all_files",
+            canonical_bvd_column="missing_column",
+            scratch_dir=tmp_path,
+        )
+
+    assert not first.exists()
+
+
 def test_profile_tables_accepts_multiple_data_products(monkeypatch):
     calls = []
 

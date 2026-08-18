@@ -166,7 +166,7 @@ SFTP.bvd_list = [["custom-id-that-fails-the-format-check"], "bvd_id_number"]
 and return a privacy-safe first-file column profile. The report includes dtypes,
 missingness, uniqueness, date-format detection, BvD-ID-like value counts, and
 operation-readiness hints without exposing source values, examples, top values,
-or min/max values.
+or non-date min/max values.
 
 Use `file_scope="all_files"` when you need a bounded complete scan. It stages
 one CSV, Parquet, or Avro file at a time, removes newly downloaded files after
@@ -231,7 +231,7 @@ If you want a pinned wheel from a specific GitHub release, install it directly
 from the release assets:
 
 ```bash
-pip install https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.5/moodys_datahub-1.4.5-py3-none-any.whl
+pip install https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.6/moodys_datahub-1.4.6-py3-none-any.whl
 ```
 
 ### Install from a local wheel
@@ -240,7 +240,7 @@ Build the package locally and install the wheel from `dist/`:
 
 ```bash
 python -m build
-pip install dist/moodys_datahub-1.4.5-py3-none-any.whl
+pip install dist/moodys_datahub-1.4.6-py3-none-any.whl
 ```
 
 The package pins `paramiko==3.5.1` because the current `pysftp` dependency is

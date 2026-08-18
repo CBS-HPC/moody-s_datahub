@@ -2,6 +2,14 @@
 
 All notable changes to this project should be documented in this file.
 
+## [1.4.6] - 2026-08-18
+
+### Fixed
+- `profile_table(file_scope="all_files")` now removes a newly staged first file
+  when validation fails before the full scan starts.
+- Profile report privacy wording now reflects that all-files summaries may
+  include aggregate date min/max values.
+
 ## [1.4.5] - 2026-08-18
 
 ### Added

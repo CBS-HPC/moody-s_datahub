@@ -2303,7 +2303,10 @@ def save_profile_report(
                 )
             info = {
                 "profile_created_at": datetime.now().isoformat(timespec="seconds"),
-                "privacy": "No source values, examples, top values, or min/max values are included.",
+                "privacy": (
+                    "No example values, top values, or BvD IDs are included. "
+                    "All-files summaries may include aggregate date min/max values."
+                ),
             }
             if report_info:
                 info.update(report_info)
