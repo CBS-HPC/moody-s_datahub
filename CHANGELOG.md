@@ -2,7 +2,7 @@
 
 All notable changes to this project should be documented in this file.
 
-## [Unreleased]
+## [1.4.5] - 2026-08-18
 
 ### Added
 - `file_scope="all_files"` for `profile_table()` and `profile_tables()`.

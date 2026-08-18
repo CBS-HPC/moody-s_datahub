@@ -105,14 +105,24 @@ def _safe_timestamp(value: object) -> str | None:
 
 
 def _summary_columns(profile: pd.DataFrame) -> tuple[list[str], list[str], str | None]:
-    date_columns = profile.loc[
-        profile["can_date_filter"].fillna(False).astype(bool), "column"
-    ].astype(str).tolist()
-    bvd_columns = profile.loc[
-        profile["logical_type"].isin(["identifier", "string", "categorical"]),
-        "column",
-    ].astype(str).tolist()
-    canonical = "bvd_id_number" if "bvd_id_number" in set(profile["column"].astype(str)) else None
+    date_columns = (
+        profile.loc[profile["can_date_filter"].fillna(False).astype(bool), "column"]
+        .astype(str)
+        .tolist()
+    )
+    bvd_columns = (
+        profile.loc[
+            profile["logical_type"].isin(["identifier", "string", "categorical"]),
+            "column",
+        ]
+        .astype(str)
+        .tolist()
+    )
+    canonical = (
+        "bvd_id_number"
+        if "bvd_id_number" in set(profile["column"].astype(str))
+        else None
+    )
     if canonical is not None and canonical not in bvd_columns:
         bvd_columns.append(canonical)
     return date_columns, bvd_columns, canonical
@@ -122,7 +132,9 @@ def _write_unique_bvd_ids(connection: sqlite3.Connection, values: pd.Series) -> 
     normalized = [_normalize_bvd_id(value) for value in values]
     rows = [(value,) for value in set(normalized) if value is not None]
     if rows:
-        connection.executemany("INSERT OR IGNORE INTO canonical_bvd_ids(value) VALUES (?)", rows)
+        connection.executemany(
+            "INSERT OR IGNORE INTO canonical_bvd_ids(value) VALUES (?)", rows
+        )
 
 
 def profile_all_files(
@@ -172,7 +184,10 @@ def profile_all_files(
     expected_columns = _column_names(sample)
     date_columns, bvd_columns, default_canonical = _summary_columns(profile)
     canonical_bvd_column = canonical_bvd_column or default_canonical
-    if canonical_bvd_column is not None and canonical_bvd_column not in expected_columns:
+    if (
+        canonical_bvd_column is not None
+        and canonical_bvd_column not in expected_columns
+    ):
         raise ValueError(
             f"canonical_bvd_column {canonical_bvd_column!r} is not present in the first file."
         )
@@ -226,19 +241,30 @@ def profile_all_files(
                         values = chunk[column].dropna().astype(str).str.strip()
                         values = values[values != ""]
                         matches = values.map(_looks_like_bvd_id)
-                        column_statistics[column]["bvd_id_like_count"] += int(matches.sum())
+                        column_statistics[column]["bvd_id_like_count"] += int(
+                            matches.sum()
+                        )
 
-                    if canonical_bvd_column is not None and canonical_bvd_column in chunk.columns:
-                        _write_unique_bvd_ids(connection, chunk[canonical_bvd_column].dropna())
+                    if (
+                        canonical_bvd_column is not None
+                        and canonical_bvd_column in chunk.columns
+                    ):
+                        _write_unique_bvd_ids(
+                            connection, chunk[canonical_bvd_column].dropna()
+                        )
 
                     for column in date_columns:
                         if column not in chunk.columns:
                             continue
-                        parsed = pd.to_datetime(chunk[column], errors="coerce", utc=True)
+                        parsed = pd.to_datetime(
+                            chunk[column], errors="coerce", utc=True
+                        )
                         parseable = int(parsed.notna().sum())
                         non_null = int(chunk[column].notna().sum())
                         column_statistics[column]["date_parseable_count"] += parseable
-                        column_statistics[column]["date_invalid_count"] += non_null - parseable
+                        column_statistics[column]["date_invalid_count"] += (
+                            non_null - parseable
+                        )
                         if parseable:
                             minimum = parsed.min()
                             maximum = parsed.max()
@@ -254,7 +280,11 @@ def profile_all_files(
                     local_path.unlink(missing_ok=True)
         connection.commit()
         unique_bvd_ids = (
-            int(connection.execute("SELECT COUNT(*) FROM canonical_bvd_ids").fetchone()[0])
+            int(
+                connection.execute("SELECT COUNT(*) FROM canonical_bvd_ids").fetchone()[
+                    0
+                ]
+            )
             if canonical_bvd_column is not None
             else None
         )
@@ -268,16 +298,24 @@ def profile_all_files(
         non_null_count = statistics["non_null_count"]
         profile.loc[index, "full_non_null_count"] = non_null_count
         profile.loc[index, "full_missing_count"] = statistics["missing_count"]
-        profile.loc[index, "full_missing_pct"] = statistics["missing_count"] / row_count if row_count else 0.0
+        profile.loc[index, "full_missing_pct"] = (
+            statistics["missing_count"] / row_count if row_count else 0.0
+        )
         profile.loc[index, "full_bvd_id_like_count"] = statistics["bvd_id_like_count"]
         profile.loc[index, "full_bvd_id_like_pct"] = (
             statistics["bvd_id_like_count"] / non_null_count if non_null_count else 0.0
         )
-        profile.loc[index, "full_date_parseable_count"] = statistics["date_parseable_count"]
+        profile.loc[index, "full_date_parseable_count"] = statistics[
+            "date_parseable_count"
+        ]
         profile.loc[index, "full_date_invalid_count"] = statistics["date_invalid_count"]
         if column in date_statistics:
-            profile.loc[index, "full_date_min"] = _safe_timestamp(date_statistics[column]["minimum"])
-            profile.loc[index, "full_date_max"] = _safe_timestamp(date_statistics[column]["maximum"])
+            profile.loc[index, "full_date_min"] = _safe_timestamp(
+                date_statistics[column]["minimum"]
+            )
+            profile.loc[index, "full_date_max"] = _safe_timestamp(
+                date_statistics[column]["maximum"]
+            )
 
     summary = {
         "scan_scope": "all_files",
