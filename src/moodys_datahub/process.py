@@ -1102,6 +1102,7 @@ class _Process(_Selection):
                         bvd_query,
                         query,
                         query_args,
+                        1,
                     )
                     for file in batch
                 ]
@@ -1671,9 +1672,22 @@ class _Process(_Selection):
         return df
 
     def _process_parallel(self, inputs_args: list):
-        file, destination, select_cols, date_query, bvd_query, query, query_args = (
-            inputs_args
-        )
+        if len(inputs_args) == 7:
+            file, destination, select_cols, date_query, bvd_query, query, query_args = (
+                inputs_args
+            )
+            num_workers = -1
+        else:
+            (
+                file,
+                destination,
+                select_cols,
+                date_query,
+                bvd_query,
+                query,
+                query_args,
+                num_workers,
+            ) = inputs_args
         local_file, flag = self._get_file(file)
         df, file_name = self._curate_file(
             flag=flag,
@@ -1684,6 +1698,7 @@ class _Process(_Selection):
             bvd_query=bvd_query,
             query=query,
             query_args=query_args,
+            num_workers=num_workers,
         )
 
         return [df, file_name, flag]

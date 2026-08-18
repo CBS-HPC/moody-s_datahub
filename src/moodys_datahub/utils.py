@@ -654,8 +654,9 @@ def _read_csv_chunk(params):
         query_args,
     ) = params
     try:
+        skiprows = 0 if chunk_size is None else chunk_idx * chunk_size
         df = pd.read_csv(
-            file, low_memory=False, skiprows=chunk_idx * chunk_size, nrows=chunk_size
+            file, low_memory=False, skiprows=skiprows, nrows=chunk_size
         )
     except Exception as e:
         raise ValueError(f"Error while reading chunk: {e}") from e
@@ -742,6 +743,21 @@ def _load_csv_table(
 
     # check if the requested columns exist
     select_cols, col_index = check_cols(file, select_cols)
+
+    if num_workers == 1:
+        return _read_csv_chunk(
+            (
+                file,
+                0,
+                None,
+                select_cols,
+                col_index,
+                date_query,
+                bvd_query,
+                query,
+                query_args,
+            )
+        )
 
     # Step 1: Determine the total number of rows using subprocess
     if sys.platform.startswith("linux") or sys.platform == "darwin":

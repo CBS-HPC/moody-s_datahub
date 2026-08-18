@@ -1035,6 +1035,7 @@ def test_pandas_all_parallel_batches_and_saves(monkeypatch):
     df, file_names = proc.pandas_all(files=["a.csv", "b.csv", "c.csv"], num_workers=2)
 
     assert len(run_calls) == 2
+    assert all(params[-1] == 1 for call in run_calls for params in call["params_list"])
     assert df["value"].tolist() == [1, 2, 3]
     assert file_names == ["joined.csv"]
     assert proc.last_process_engine == "pandas"

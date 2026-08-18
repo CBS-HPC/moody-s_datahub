@@ -500,6 +500,28 @@ def test_load_csv_table_validates_columns_and_uses_parallel_reader(monkeypatch, 
     }
 
 
+def test_load_csv_table_single_worker_reads_in_process(monkeypatch, tmp_path):
+    file_path = tmp_path / "table.csv"
+    pd.DataFrame(
+        {
+            "bvd_id": ["A1", "B2"],
+            "value": [1, 2],
+        }
+    ).to_csv(file_path, index=False)
+
+    monkeypatch.setattr(
+        "moodys_datahub.utils._run_parallel",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("_run_parallel should not be used with one CSV worker")
+        ),
+    )
+
+    result = _load_csv_table(str(file_path), select_cols=["bvd_id", "value"], num_workers=1)
+
+    assert result["bvd_id"].tolist() == ["A1", "B2"]
+    assert result["value"].tolist() == [1, 2]
+
+
 def test_load_csv_table_raises_for_missing_columns(tmp_path):
     file_path = tmp_path / "table.csv"
     pd.DataFrame({"bvd_id": ["A1"], "value": [1]}).to_csv(file_path, index=False)

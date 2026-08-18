@@ -2,6 +2,14 @@
 
 All notable changes to this project should be documented in this file.
 
+## [1.4.4] - 2026-08-18
+
+### Fixed
+- Bounded pandas CSV fallback parallelism so multi-file processing uses the
+  outer file worker pool without spawning unrestricted inner CSV worker pools.
+- Single-worker CSV processing now reads in-process instead of creating a
+  one-worker child pool.
+
 ## [1.4.3] - 2026-08-18
 
 ### Fixed
