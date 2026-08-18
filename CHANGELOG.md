@@ -2,6 +2,12 @@
 
 All notable changes to this project should be documented in this file.
 
+## [1.4.3] - 2026-08-18
+
+### Fixed
+- `polars_all(num_workers=...)` now applies the resolved worker budget to the
+  Polars download phase as well as output saving.
+
 ## [1.4.0] - 2026-06-10
 
 ### Added

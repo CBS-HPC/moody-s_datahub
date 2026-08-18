@@ -1391,6 +1391,9 @@ class _Process(_Selection):
             )
 
             print(f"Processing  {len(files)} files using polars")
+            # Resolve once so downloads and saving use the same worker budget.
+            num_workers = set_workers(num_workers, int(cpu_count() - 2))
+
             dfs = self._process_polars(
                 files,
                 destination,
@@ -1399,11 +1402,9 @@ class _Process(_Selection):
                 polars_bvd_query,
                 query,
                 query_args,
+                num_workers=num_workers,
                 row_limit=row_limit,
             )
-
-            # Set num_workers
-            num_workers = set_workers(num_workers, int(cpu_count() - 2))
 
             # Concatenate and save
             self.dfs, file_names = _save_chunks(
