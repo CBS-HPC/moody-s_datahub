@@ -11,12 +11,12 @@ import polars as pl
 import pyarrow.parquet as pq
 
 from .load_data import _table_dictionary
+from .process import _Process
 from .profile_scan import (
     DEFAULT_PROFILE_CHUNK_ROWS,
     DEFAULT_PROFILE_SAMPLE_ROWS,
     profile_all_files,
 )
-from .process import _Process
 from .utils import (
     SaveFormat,
     _bvd_changes_ray,

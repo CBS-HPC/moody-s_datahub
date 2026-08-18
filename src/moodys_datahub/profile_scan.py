@@ -14,8 +14,7 @@ import fastavro
 import pandas as pd
 import pyarrow.parquet as pq
 
-from .utils import _looks_like_bvd_id, _profile_date_format, profile_dataframe
-
+from .utils import _looks_like_bvd_id, profile_dataframe
 
 DEFAULT_PROFILE_SAMPLE_ROWS = 250_000
 DEFAULT_PROFILE_CHUNK_ROWS = 100_000
