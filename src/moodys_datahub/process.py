@@ -1855,7 +1855,9 @@ class _Process(_Selection):
 
 
 def set_workers(num_workers, default_value: int):
-    if isinstance(num_workers, (int, float, complex)) and num_workers != 1:
+    if isinstance(num_workers, bool):
+        num_workers = -1
+    elif isinstance(num_workers, (int, float)) and num_workers >= 1:
         num_workers = int(num_workers)
     else:
         num_workers = -1

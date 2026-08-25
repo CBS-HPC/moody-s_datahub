@@ -2,6 +2,12 @@
 
 All notable changes to this project should be documented in this file.
 
+## [1.4.7] - 2026-08-25
+
+### Fixed
+- `num_workers=1` is now preserved as an explicit single-worker setting instead
+  of being treated as automatic worker selection.
+
 ## [1.4.6] - 2026-08-18
 
 ### Fixed

@@ -609,9 +609,13 @@ def test_validate_args_passes_generation_flag_to_check_args(monkeypatch):
     assert captured["flag"] == [".csv"]
 
 
-def test_set_workers_casts_values_and_falls_back_for_one():
+def test_set_workers_casts_values_and_preserves_one():
     assert set_workers(4.0, 2) == 4
-    assert set_workers(1, 3) == 3
+    assert set_workers(1, 3) == 1
+    assert set_workers(0, 3) == 3
+    assert set_workers(-1, 3) == 3
+    assert set_workers(None, 3) == 3
+    assert set_workers(True, 3) == 3
 
 
 def test_check_args_rejects_empty_file_list():
@@ -1363,6 +1367,7 @@ def test_download_all_sync_preserves_flags_and_marks_finished(monkeypatch):
     proc.download_all(async_mode=False, num_workers=1)
 
     assert calls["kwargs"]["msg"] == "Downloading"
+    assert calls["kwargs"]["num_workers"] == 1
     assert proc.delete_files is True
     assert proc.concat_files is True
     assert proc._download_finished is True

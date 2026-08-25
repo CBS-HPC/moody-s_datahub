@@ -1202,7 +1202,6 @@ def test_polars_all_saves_results_and_restores_concat_files(monkeypatch):
         return pl.DataFrame({"value": [1, 2]})
 
     monkeypatch.setattr(DummyProcess, "_process_polars", fake_process_polars)
-    monkeypatch.setattr("moodys_datahub.process.set_workers", lambda num_workers, default: 2)
 
     def fake_save_chunks(**kwargs):
         captured["save_workers"] = kwargs["num_workers"]
@@ -1219,6 +1218,39 @@ def test_polars_all_saves_results_and_restores_concat_files(monkeypatch):
     assert proc.concat_files is False
     assert proc.last_process_engine == "polars"
     assert proc.last_process_reason == "direct"
+
+
+def test_polars_all_preserves_single_worker_budget(monkeypatch):
+    proc = _make_dummy_process()
+    proc.concat_files = False
+    proc.output_format = [".parquet"]
+    captured = {}
+
+    monkeypatch.setattr(DummyProcess, "_check_download", lambda self, files: True)
+    monkeypatch.setattr(
+        DummyProcess,
+        "_validate_args",
+        lambda self, **kwargs: (
+            kwargs["select_cols"],
+            kwargs["files"],
+            kwargs["destination"],
+        ),
+    )
+
+    def fake_process_polars(self, *args, **kwargs):
+        captured["process_workers"] = kwargs["num_workers"]
+        return pl.DataFrame({"value": [1]})
+
+    def fake_save_chunks(**kwargs):
+        captured["save_workers"] = kwargs["num_workers"]
+        return kwargs["dfs"], ["polars.parquet"]
+
+    monkeypatch.setattr(DummyProcess, "_process_polars", fake_process_polars)
+    monkeypatch.setattr("moodys_datahub.process._save_chunks", fake_save_chunks)
+
+    proc.polars_all(files=["sample.csv"], num_workers=1)
+
+    assert captured == {"process_workers": 1, "save_workers": 1}
 
 
 def test_polars_all_restores_concat_files_on_timeout(monkeypatch):
