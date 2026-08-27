@@ -2,6 +2,14 @@
 
 All notable changes to this project should be documented in this file.
 
+## [1.4.8] - 2026-08-27
+
+### Fixed
+- Parallel download failures now raise instead of being printed and ignored.
+- Per-file downloads now retry transient failures, remove partial/zero-byte
+  files, and verify non-empty/local-vs-remote size before processing.
+- Async download readiness now requires local files to exist with non-zero size.
+
 ## [1.4.7] - 2026-08-25
 
 ### Fixed

@@ -657,7 +657,8 @@ def test_check_download_marks_finished_when_files_are_ready(monkeypatch):
     proc = _make_dummy_process()
     proc._download_finished = False
     proc._remote_files = ["sample.csv"]
-    monkeypatch.setattr(DummyProcess, "local_files", property(lambda self: ["sample.csv"]))
+    monkeypatch.setattr(DummyProcess, "_file_exist", lambda self, file: (file, True))
+    monkeypatch.setattr(DummyProcess, "_local_file_ready", staticmethod(lambda file: True))
 
     assert proc._check_download(["sample.csv"]) is True
     assert proc.download_finished is True
@@ -667,7 +668,8 @@ def test_check_download_times_out_when_local_files_never_appear(monkeypatch, cap
     proc = _make_dummy_process()
     proc._download_finished = False
     proc._remote_files = ["sample.csv"]
-    monkeypatch.setattr(DummyProcess, "local_files", property(lambda self: []))
+    monkeypatch.setattr(DummyProcess, "_file_exist", lambda self, file: (file, False))
+    monkeypatch.setattr(DummyProcess, "_local_file_ready", staticmethod(lambda file: False))
 
     timeline = iter([0.0, 5.1])
     monkeypatch.setattr("moodys_datahub.process.time.sleep", lambda _: None)
@@ -1373,6 +1375,27 @@ def test_download_all_sync_preserves_flags_and_marks_finished(monkeypatch):
     assert proc._download_finished is True
 
 
+def test_download_all_sync_marks_failed_when_parallel_download_raises(monkeypatch):
+    proc = _make_dummy_process()
+    proc._set_data_product = "Dummy Product"
+    proc._set_table = "dummy_table"
+    proc.remote_files = ["remote.csv"]
+
+    monkeypatch.setattr("moodys_datahub.process.os.fork", lambda: None, raising=False)
+    monkeypatch.setattr(DummyProcess, "_check_args", lambda self, files: (files, None))
+    monkeypatch.setattr(DummyProcess, "_file_exist", lambda self, file: (file, False))
+    monkeypatch.setattr(DummyProcess, "_local_file_ready", staticmethod(lambda file: False))
+    monkeypatch.setattr(
+        "moodys_datahub.process._run_parallel",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("download failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="download failed"):
+        proc.download_all(async_mode=False, num_workers=1)
+
+    assert proc._download_finished is False
+
+
 def test_download_all_async_preserves_flags_and_marks_in_progress(monkeypatch):
     proc = _make_dummy_process()
     proc._set_data_product = "Dummy Product"
@@ -1415,7 +1438,7 @@ def test_download_all_marks_finished_when_files_are_already_local(monkeypatch, c
     monkeypatch.setattr("moodys_datahub.process.os.fork", lambda: None, raising=False)
     monkeypatch.setattr(DummyProcess, "_check_args", lambda self, files: (files, None))
     monkeypatch.setattr(DummyProcess, "_file_exist", lambda self, file: (file, True))
-    monkeypatch.setattr("moodys_datahub.process.os.path.exists", lambda path: True)
+    monkeypatch.setattr(DummyProcess, "_local_file_ready", staticmethod(lambda file: True))
 
     proc.download_all(async_mode=False, num_workers=1)
 

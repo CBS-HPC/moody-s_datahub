@@ -858,6 +858,77 @@ def test_get_file_downloads_remote_file_and_applies_timestamp(monkeypatch, tmp_p
     assert touched == {"path": str(tmp_path / "sample.csv"), "times": (123, 123)}
 
 
+def test_get_file_removes_zero_byte_download_and_raises(monkeypatch, tmp_path):
+    class FakeStat:
+        st_mtime = 123
+        st_size = 10
+
+    class FakeSftp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, remote_file, local_file):
+            Path(local_file).write_bytes(b"")
+
+        def stat(self, remote_file):
+            return FakeStat()
+
+    proc = _make_dummy_process()
+    proc._local_path = str(tmp_path)
+    proc._remote_path = "remote/base"
+    proc._download_retries = 1
+    proc._download_retry_backoff = 0
+
+    monkeypatch.setattr(DummyProcess, "_connect", lambda self: FakeSftp())
+
+    with pytest.raises(ValueError, match="Downloaded file is empty"):
+        proc._get_file("sample.parquet")
+
+    assert not (tmp_path / "sample.parquet").exists()
+
+
+def test_get_file_retries_transient_download_failure(monkeypatch, tmp_path):
+    class FakeStat:
+        st_mtime = 123
+        st_size = 5
+
+    class FakeSftp:
+        attempts = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, remote_file, local_file):
+            FakeSftp.attempts += 1
+            if FakeSftp.attempts == 1:
+                Path(local_file).write_bytes(b"")
+                raise OSError("Service Unavailable")
+            Path(local_file).write_bytes(b"valid")
+
+        def stat(self, remote_file):
+            return FakeStat()
+
+    proc = _make_dummy_process()
+    proc._local_path = str(tmp_path)
+    proc._remote_path = "remote/base"
+    proc._download_retries = 2
+    proc._download_retry_backoff = 0
+
+    monkeypatch.setattr(DummyProcess, "_connect", lambda self: FakeSftp())
+
+    local_file, flag = proc._get_file("sample.parquet")
+
+    assert flag is False
+    assert FakeSftp.attempts == 2
+    assert Path(local_file).read_bytes() == b"valid"
+
+
 def test_curate_file_saves_split_outputs_and_deletes_new_files(monkeypatch, tmp_path):
     proc = _make_dummy_process()
     proc.concat_files = False
@@ -1321,6 +1392,8 @@ def test_choose_process_engine_routes_unsupported_format_to_pandas():
 def test_get_file_wraps_remote_read_errors(tmp_path, monkeypatch):
     proc = _make_dummy_process()
     proc.remote_path = "remote/base"
+    proc._download_retries = 1
+    proc._download_retry_backoff = 0
     local_file = tmp_path / "sample.csv"
 
     class FailingSftp:
@@ -1336,7 +1409,7 @@ def test_get_file_wraps_remote_read_errors(tmp_path, monkeypatch):
     monkeypatch.setattr(DummyProcess, "_file_exist", lambda self, file: (str(local_file), False))
     monkeypatch.setattr(DummyProcess, "_connect", lambda self: FailingSftp())
 
-    with pytest.raises(ValueError, match="Error reading remote file: boom"):
+    with pytest.raises(ValueError, match="Error reading remote file after 1 attempt"):
         proc._get_file("sample.csv")
 
 

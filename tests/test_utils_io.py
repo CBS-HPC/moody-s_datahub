@@ -161,7 +161,7 @@ def test_run_parallel_thread_branch_maps_without_chunksize(monkeypatch):
     assert result == [2, 3, 4]
 
 
-def test_run_parallel_returns_empty_on_worker_error(monkeypatch, capsys):
+def test_run_parallel_raises_on_worker_error(monkeypatch):
     class FailingPool:
         def __enter__(self):
             return self
@@ -187,10 +187,8 @@ def test_run_parallel_returns_empty_on_worker_error(monkeypatch, capsys):
         lambda iterable, total, mininterval: iterable,
     )
 
-    result = _run_parallel(lambda value: value, [1, 2], n_total=2)
-
-    assert result == []
-    assert "Error occurred: pool failed" in capsys.readouterr().out
+    with pytest.raises(RuntimeError, match="Parallel Process failed"):
+        _run_parallel(lambda value: value, [1, 2], n_total=2)
 
 
 def test_save_to_writes_pandas_and_polars_csv(monkeypatch, tmp_path, capsys):

@@ -1451,7 +1451,7 @@ class _Process(_Selection):
         self._download_finished = None
 
         missing_files = [
-            file for file in files if not os.path.exists(self._file_exist(file)[0])
+            file for file in files if not self._local_file_ready(self._file_exist(file)[0])
         ]
 
         if missing_files:
@@ -1471,15 +1471,19 @@ class _Process(_Selection):
                 process.start()
                 self._download_finished = False
             else:
-                _run_parallel(
-                    fnc=self._get_file,
-                    params_list=[(file) for file in missing_files],
-                    n_total=len(missing_files),
-                    num_workers=num_workers,
-                    pool_method=pool_method,
-                    msg="Downloading",
-                )
-                self._download_finished = True
+                try:
+                    _run_parallel(
+                        fnc=self._get_file,
+                        params_list=[(file) for file in missing_files],
+                        n_total=len(missing_files),
+                        num_workers=num_workers,
+                        pool_method=pool_method,
+                        msg="Downloading",
+                    )
+                    self._download_finished = True
+                except Exception:
+                    self._download_finished = False
+                    raise
         else:
             print("All files are already downloaded")
             self._download_finished = True
@@ -1513,20 +1517,58 @@ class _Process(_Selection):
 
         return file, flag
 
+    @staticmethod
+    def _local_file_ready(file: str) -> bool:
+        return os.path.isfile(file) and os.path.getsize(file) > 0
+
     def _get_file(self, file: str):
         local_file, flag = self._file_exist(file)
 
+        if os.path.exists(local_file) and os.path.getsize(local_file) == 0:
+            os.remove(local_file)
+            flag = False
+
         if not os.path.exists(local_file):
-            try:
-                with self._connect() as sftp:
-                    remote_file = str(self.remote_path + "/" + os.path.basename(file))
-                    # remote_file = os.path.normpath(os.path.join(self.remote_path,os.path.basename(file)))
-                    sftp.get(remote_file, local_file)
-                    file_attributes = sftp.stat(remote_file)
-                    time_stamp = file_attributes.st_mtime
-                    os.utime(local_file, (time_stamp, time_stamp))
-            except Exception as e:
-                raise ValueError(f"Error reading remote file: {e}") from e
+            retries = max(1, int(getattr(self, "_download_retries", 3)))
+            backoff = max(0.0, float(getattr(self, "_download_retry_backoff", 1.0)))
+            last_error = None
+            for attempt in range(1, retries + 1):
+                try:
+                    with self._connect() as sftp:
+                        remote_file = str(
+                            self.remote_path + "/" + os.path.basename(file)
+                        )
+                        # remote_file = os.path.normpath(os.path.join(self.remote_path,os.path.basename(file)))
+                        sftp.get(remote_file, local_file)
+                        file_attributes = sftp.stat(remote_file)
+                        local_size = os.path.getsize(local_file)
+                        remote_size = getattr(file_attributes, "st_size", None)
+                        if local_size == 0:
+                            os.remove(local_file)
+                            raise ValueError(
+                                f"Downloaded file is empty: {local_file}"
+                            )
+                        if remote_size is not None and local_size != remote_size:
+                            os.remove(local_file)
+                            raise ValueError(
+                                "Downloaded file size mismatch: "
+                                f"{local_file} ({local_size} bytes) != remote "
+                                f"{remote_file} ({remote_size} bytes)"
+                            )
+                        time_stamp = file_attributes.st_mtime
+                        os.utime(local_file, (time_stamp, time_stamp))
+                    break
+                except Exception as e:
+                    last_error = e
+                    if not flag and os.path.exists(local_file):
+                        os.remove(local_file)
+                    if attempt < retries:
+                        time.sleep(backoff * attempt)
+            else:
+                raise ValueError(
+                    f"Error reading remote file after {retries} attempt(s): "
+                    f"{last_error}"
+                ) from last_error
 
         return local_file, flag
 
@@ -1809,15 +1851,18 @@ class _Process(_Selection):
 
     def _check_download(self, files):
         # To handle executing when download_all() have not finished!
+        def files_are_ready():
+            return all(self._local_file_ready(self._file_exist(file)[0]) for file in files)
+
         if self._download_finished is False and all(
             file in self._remote_files for file in files
         ):
             start_time = time.time()
             timeout = 5
-            files_not_ready = not all(file in self.local_files for file in files)
+            files_not_ready = not files_are_ready()
             while files_not_ready:
                 time.sleep(0.1)
-                files_not_ready = not all(file in self.local_files for file in files)
+                files_not_ready = not files_are_ready()
                 if time.time() - start_time >= timeout:
                     print(
                         f"Files have not finished downloading within the timeout period of {timeout} seconds."

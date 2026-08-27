@@ -133,7 +133,7 @@ def _run_parallel(
                     tqdm(pool.map(fnc, params_list), total=n_total, mininterval=0.1)
                 )
     except Exception as e:
-        print(f"Error occurred: {e}")
+        raise RuntimeError(f"Parallel {msg} failed: {e}") from e
 
     finally:
         if method == "process":
