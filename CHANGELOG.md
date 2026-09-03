@@ -2,6 +2,16 @@
 
 All notable changes to this project should be documented in this file.
 
+## [1.4.9] - 2026-09-03
+
+### Fixed
+- Cached remote files are now validated against remote sizes when available,
+  so non-zero truncated files are re-downloaded before processing.
+- Sequential pandas processing now raises aggregated file failures instead of
+  printing errors and returning partial output.
+- Polars processing now raises when any requested local input is missing or
+  incomplete after download instead of silently dropping that file.
+
 ## [1.4.8] - 2026-08-27
 
 ### Fixed

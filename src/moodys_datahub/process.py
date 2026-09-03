@@ -1450,8 +1450,14 @@ class _Process(_Selection):
 
         self._download_finished = None
 
+        remote_sizes = self._remote_file_sizes(files)
         missing_files = [
-            file for file in files if not self._local_file_ready(self._file_exist(file)[0])
+            file
+            for file in files
+            if not self._local_file_ready(
+                self._file_exist(file)[0],
+                remote_size=remote_sizes.get(os.path.basename(file)),
+            )
         ]
 
         if missing_files:
@@ -1461,7 +1467,10 @@ class _Process(_Selection):
                     target=_run_parallel,
                     kwargs={
                         "fnc": self._get_file,
-                        "params_list": [(file) for file in missing_files],
+                        "params_list": [
+                            (file, remote_sizes.get(os.path.basename(file)))
+                            for file in missing_files
+                        ],
                         "n_total": len(missing_files),
                         "num_workers": num_workers,
                         "pool_method": pool_method,
@@ -1474,7 +1483,10 @@ class _Process(_Selection):
                 try:
                     _run_parallel(
                         fnc=self._get_file,
-                        params_list=[(file) for file in missing_files],
+                        params_list=[
+                            (file, remote_sizes.get(os.path.basename(file)))
+                            for file in missing_files
+                        ],
                         n_total=len(missing_files),
                         num_workers=num_workers,
                         pool_method=pool_method,
@@ -1518,13 +1530,39 @@ class _Process(_Selection):
         return file, flag
 
     @staticmethod
-    def _local_file_ready(file: str) -> bool:
-        return os.path.isfile(file) and os.path.getsize(file) > 0
+    def _local_file_ready(file: str, remote_size: int | None = None) -> bool:
+        if not os.path.isfile(file) or os.path.getsize(file) == 0:
+            return False
+        return remote_size is None or os.path.getsize(file) == remote_size
 
-    def _get_file(self, file: str):
+    def _remote_file_sizes(self, files: list | None = None) -> dict[str, int]:
+        remote_path = getattr(self, "_remote_path", None)
+        if remote_path is None:
+            return {}
+        expected = {os.path.basename(file) for file in files or []}
+        try:
+            with self._connect() as sftp:
+                return {
+                    attr.filename: int(attr.st_size)
+                    for attr in sftp.listdir_attr(remote_path)
+                    if getattr(attr, "filename", None)
+                    and getattr(attr, "st_size", None) is not None
+                    and (not expected or attr.filename in expected)
+                }
+        except Exception:
+            return {}
+
+    def _get_file(self, file):
+        remote_size = None
+        if isinstance(file, tuple):
+            file, remote_size = file
         local_file, flag = self._file_exist(file)
+        if remote_size is None:
+            remote_size = self._remote_file_sizes([file]).get(os.path.basename(file))
 
-        if os.path.exists(local_file) and os.path.getsize(local_file) == 0:
+        if os.path.exists(local_file) and not self._local_file_ready(
+            local_file, remote_size=remote_size
+        ):
             os.remove(local_file)
             flag = False
 
@@ -1542,18 +1580,26 @@ class _Process(_Selection):
                         sftp.get(remote_file, local_file)
                         file_attributes = sftp.stat(remote_file)
                         local_size = os.path.getsize(local_file)
-                        remote_size = getattr(file_attributes, "st_size", None)
+                        actual_remote_size = getattr(file_attributes, "st_size", None)
+                        expected_remote_size = (
+                            remote_size
+                            if remote_size is not None
+                            else actual_remote_size
+                        )
                         if local_size == 0:
                             os.remove(local_file)
                             raise ValueError(
                                 f"Downloaded file is empty: {local_file}"
                             )
-                        if remote_size is not None and local_size != remote_size:
+                        if (
+                            expected_remote_size is not None
+                            and local_size != expected_remote_size
+                        ):
                             os.remove(local_file)
                             raise ValueError(
                                 "Downloaded file size mismatch: "
                                 f"{local_file} ({local_size} bytes) != remote "
-                                f"{remote_file} ({remote_size} bytes)"
+                                f"{remote_file} ({expected_remote_size} bytes)"
                             )
                         time_stamp = file_attributes.st_mtime
                         os.utime(local_file, (time_stamp, time_stamp))
@@ -1646,6 +1692,7 @@ class _Process(_Selection):
         dfs = []
         file_names = []
         flags = []
+        errors = []
         total_files = len(files)
         for i, file in enumerate(files, start=1):
             if total_files > 1:
@@ -1670,7 +1717,12 @@ class _Process(_Selection):
                 else:
                     file_names.append(file_name)
             except ValueError as e:
-                print(e)
+                errors.append(f"{file}: {e}")
+
+        if errors:
+            raise ValueError(
+                "Failed to process one or more files:\n" + "\n".join(errors)
+            )
 
         return dfs, file_names, flags
 
@@ -1695,11 +1747,19 @@ class _Process(_Selection):
 
         print("### Start processing files with polars")
 
-        local_files = [
-            self._file_exist(file)[0]
-            for file in files
-            if os.path.exists(self._file_exist(file)[0])
-        ]
+        local_files = []
+        missing_files = []
+        for file in files:
+            local_file = self._file_exist(file)[0]
+            if self._local_file_ready(local_file):
+                local_files.append(local_file)
+            else:
+                missing_files.append(file)
+        if missing_files:
+            raise ValueError(
+                "Missing or incomplete local files after download: "
+                + ", ".join(map(str, missing_files))
+            )
 
         df = _load_pl(
             file_list=local_files,
@@ -1851,8 +1911,16 @@ class _Process(_Selection):
 
     def _check_download(self, files):
         # To handle executing when download_all() have not finished!
+        remote_sizes = self._remote_file_sizes(files)
+
         def files_are_ready():
-            return all(self._local_file_ready(self._file_exist(file)[0]) for file in files)
+            return all(
+                self._local_file_ready(
+                    self._file_exist(file)[0],
+                    remote_size=remote_sizes.get(os.path.basename(file)),
+                )
+                for file in files
+            )
 
         if self._download_finished is False and all(
             file in self._remote_files for file in files

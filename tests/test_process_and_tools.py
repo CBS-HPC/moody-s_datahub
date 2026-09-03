@@ -989,14 +989,28 @@ def test_process_sequential_collects_dataframes_filenames_and_flags(monkeypatch)
     monkeypatch.setattr(DummyProcess, "_get_file", fake_get_file)
     monkeypatch.setattr(DummyProcess, "_curate_file", fake_curate_file)
 
-    dfs, file_names, flags = proc._process_sequential(
-        ["new.csv", "existing.csv", "broken.csv"]
-    )
+    dfs, file_names, flags = proc._process_sequential(["new.csv", "existing.csv"])
 
     assert len(dfs) == 1
     assert dfs[0]["value"].tolist() == [1]
     assert file_names == ["saved.csv"]
     assert flags == [False, True]
+
+
+def test_process_sequential_raises_aggregated_file_errors(monkeypatch):
+    proc = _make_dummy_process()
+
+    def fake_get_file(self, file):
+        raise ValueError("cannot read")
+
+    def fake_curate_file(self, **kwargs):  # pragma: no cover - should not be hit
+        raise AssertionError("failed downloads should not be curated")
+
+    monkeypatch.setattr(DummyProcess, "_get_file", fake_get_file)
+    monkeypatch.setattr(DummyProcess, "_curate_file", fake_curate_file)
+
+    with pytest.raises(ValueError, match="broken.csv: cannot read"):
+        proc._process_sequential(["broken.csv"])
 
 
 def test_process_parallel_curates_single_input(monkeypatch):

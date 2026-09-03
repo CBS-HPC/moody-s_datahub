@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pandas as pd
 import polars as pl
 import pytest
@@ -658,7 +660,7 @@ def test_check_download_marks_finished_when_files_are_ready(monkeypatch):
     proc._download_finished = False
     proc._remote_files = ["sample.csv"]
     monkeypatch.setattr(DummyProcess, "_file_exist", lambda self, file: (file, True))
-    monkeypatch.setattr(DummyProcess, "_local_file_ready", staticmethod(lambda file: True))
+    monkeypatch.setattr(DummyProcess, "_local_file_ready", staticmethod(lambda file, remote_size=None: True))
 
     assert proc._check_download(["sample.csv"]) is True
     assert proc.download_finished is True
@@ -669,7 +671,7 @@ def test_check_download_times_out_when_local_files_never_appear(monkeypatch, cap
     proc._download_finished = False
     proc._remote_files = ["sample.csv"]
     monkeypatch.setattr(DummyProcess, "_file_exist", lambda self, file: (file, False))
-    monkeypatch.setattr(DummyProcess, "_local_file_ready", staticmethod(lambda file: False))
+    monkeypatch.setattr(DummyProcess, "_local_file_ready", staticmethod(lambda file, remote_size=None: False))
 
     timeline = iter([0.0, 5.1])
     monkeypatch.setattr("moodys_datahub.process.time.sleep", lambda _: None)
@@ -1375,6 +1377,156 @@ def test_download_all_sync_preserves_flags_and_marks_finished(monkeypatch):
     assert proc._download_finished is True
 
 
+def test_download_all_redownloads_cached_file_when_remote_size_differs(
+    monkeypatch, tmp_path
+):
+    proc = _make_dummy_process()
+    proc._set_data_product = "Dummy Product"
+    proc._set_table = "dummy_table"
+    proc._remote_path = "remote/base"
+    proc.remote_files = ["sample.csv"]
+    proc._download_retries = 1
+    proc._download_retry_backoff = 0
+    local_file = tmp_path / "sample.csv"
+    local_file.write_bytes(b"x")
+
+    class Attr:
+        filename = "sample.csv"
+        st_size = 5
+        st_mtime = 123
+
+    class FakeSftp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def listdir_attr(self, path):
+            assert path == "remote/base"
+            return [Attr()]
+
+        def get(self, remote_file, destination):
+            assert remote_file == "remote/base/sample.csv"
+            Path(destination).write_bytes(b"valid")
+
+        def stat(self, remote_file):
+            assert remote_file == "remote/base/sample.csv"
+            return Attr()
+
+    calls = {}
+
+    def fake_run_parallel(**kwargs):
+        calls["params_list"] = kwargs["params_list"]
+        for param in kwargs["params_list"]:
+            kwargs["fnc"](param)
+        return []
+
+    monkeypatch.setattr("moodys_datahub.process.os.fork", lambda: None, raising=False)
+    monkeypatch.setattr(DummyProcess, "_check_args", lambda self, files: (files, None))
+    monkeypatch.setattr(
+        DummyProcess, "_file_exist", lambda self, file: (str(local_file), True)
+    )
+    monkeypatch.setattr(DummyProcess, "_connect", lambda self: FakeSftp())
+    monkeypatch.setattr("moodys_datahub.process._run_parallel", fake_run_parallel)
+    monkeypatch.setattr("moodys_datahub.process.os.utime", lambda *args: None)
+
+    proc.download_all(async_mode=False, num_workers=1)
+
+    assert calls["params_list"] == [("sample.csv", 5)]
+    assert local_file.read_bytes() == b"valid"
+    assert proc._download_finished is True
+
+
+def test_get_file_redownloads_existing_nonzero_partial_file(monkeypatch, tmp_path):
+    proc = _make_dummy_process()
+    proc._remote_path = "remote/base"
+    proc._download_retries = 1
+    proc._download_retry_backoff = 0
+    local_file = tmp_path / "sample.csv"
+    local_file.write_bytes(b"x")
+
+    class Attr:
+        filename = "sample.csv"
+        st_size = 5
+        st_mtime = 123
+
+    class FakeSftp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def listdir_attr(self, path):
+            assert path == "remote/base"
+            return [Attr()]
+
+        def get(self, remote_file, destination):
+            assert remote_file == "remote/base/sample.csv"
+            Path(destination).write_bytes(b"valid")
+
+        def stat(self, remote_file):
+            assert remote_file == "remote/base/sample.csv"
+            return Attr()
+
+    monkeypatch.setattr(
+        DummyProcess, "_file_exist", lambda self, file: (str(local_file), True)
+    )
+    monkeypatch.setattr(DummyProcess, "_connect", lambda self: FakeSftp())
+    monkeypatch.setattr("moodys_datahub.process.os.utime", lambda *args: None)
+
+    downloaded_file, was_cached = proc._get_file("sample.csv")
+
+    assert downloaded_file == str(local_file)
+    assert was_cached is False
+    assert local_file.read_bytes() == b"valid"
+
+
+def test_get_file_removes_partial_file_when_download_size_mismatches(
+    monkeypatch, tmp_path
+):
+    proc = _make_dummy_process()
+    proc._remote_path = "remote/base"
+    proc._download_retries = 1
+    proc._download_retry_backoff = 0
+    local_file = tmp_path / "sample.csv"
+
+    class Attr:
+        filename = "sample.csv"
+        st_size = 5
+        st_mtime = 123
+
+    class FakeSftp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def listdir_attr(self, path):
+            assert path == "remote/base"
+            return [Attr()]
+
+        def get(self, remote_file, destination):
+            assert remote_file == "remote/base/sample.csv"
+            Path(destination).write_bytes(b"bad")
+
+        def stat(self, remote_file):
+            assert remote_file == "remote/base/sample.csv"
+            return Attr()
+
+    monkeypatch.setattr(
+        DummyProcess, "_file_exist", lambda self, file: (str(local_file), False)
+    )
+    monkeypatch.setattr(DummyProcess, "_connect", lambda self: FakeSftp())
+
+    with pytest.raises(ValueError, match="Downloaded file size mismatch"):
+        proc._get_file("sample.csv")
+
+    assert not local_file.exists()
+
+
 def test_download_all_sync_marks_failed_when_parallel_download_raises(monkeypatch):
     proc = _make_dummy_process()
     proc._set_data_product = "Dummy Product"
@@ -1384,7 +1536,7 @@ def test_download_all_sync_marks_failed_when_parallel_download_raises(monkeypatc
     monkeypatch.setattr("moodys_datahub.process.os.fork", lambda: None, raising=False)
     monkeypatch.setattr(DummyProcess, "_check_args", lambda self, files: (files, None))
     monkeypatch.setattr(DummyProcess, "_file_exist", lambda self, file: (file, False))
-    monkeypatch.setattr(DummyProcess, "_local_file_ready", staticmethod(lambda file: False))
+    monkeypatch.setattr(DummyProcess, "_local_file_ready", staticmethod(lambda file, remote_size=None: False))
     monkeypatch.setattr(
         "moodys_datahub.process._run_parallel",
         lambda **kwargs: (_ for _ in ()).throw(RuntimeError("download failed")),
@@ -1438,12 +1590,70 @@ def test_download_all_marks_finished_when_files_are_already_local(monkeypatch, c
     monkeypatch.setattr("moodys_datahub.process.os.fork", lambda: None, raising=False)
     monkeypatch.setattr(DummyProcess, "_check_args", lambda self, files: (files, None))
     monkeypatch.setattr(DummyProcess, "_file_exist", lambda self, file: (file, True))
-    monkeypatch.setattr(DummyProcess, "_local_file_ready", staticmethod(lambda file: True))
+    monkeypatch.setattr(DummyProcess, "_local_file_ready", staticmethod(lambda file, remote_size=None: True))
 
     proc.download_all(async_mode=False, num_workers=1)
 
     assert proc._download_finished is True
     assert "already downloaded" in capsys.readouterr().out
+
+
+def test_pandas_all_raises_when_sequential_download_fails(monkeypatch):
+    proc = _make_dummy_process()
+    proc.remote_files = ["sample.csv"]
+    proc._remote_files = ["sample.csv"]
+    proc._download_finished = True
+
+    monkeypatch.setattr(DummyProcess, "_check_download", lambda self, files: True)
+    monkeypatch.setattr(
+        DummyProcess,
+        "_validate_args",
+        lambda self, **kwargs: (
+            kwargs["select_cols"],
+            kwargs["files"],
+            kwargs["destination"],
+        ),
+    )
+    monkeypatch.setattr(
+        DummyProcess,
+        "_get_file",
+        lambda self, file: (_ for _ in ()).throw(ValueError("download failed")),
+    )
+    monkeypatch.setattr(
+        "moodys_datahub.process._save_chunks",
+        lambda **kwargs: (_ for _ in ()).throw(
+            AssertionError("partial output should not be saved")
+        ),
+    )
+
+    with pytest.raises(ValueError, match="Failed to process one or more files"):
+        proc.pandas_all(files=["sample.csv"], num_workers=1)
+
+
+def test_process_polars_raises_when_download_left_missing_file(monkeypatch, tmp_path):
+    proc = _make_dummy_process()
+    existing_file = tmp_path / "first.csv"
+    existing_file.write_text("value\n1\n", encoding="utf-8")
+    missing_file = tmp_path / "missing.csv"
+
+    monkeypatch.setattr(DummyProcess, "download_all", lambda self, **kwargs: None)
+    monkeypatch.setattr(
+        DummyProcess,
+        "_file_exist",
+        lambda self, file: (
+            str(existing_file if file == "first.csv" else missing_file),
+            True,
+        ),
+    )
+    monkeypatch.setattr(
+        "moodys_datahub.process._load_pl",
+        lambda **kwargs: (_ for _ in ()).throw(
+            AssertionError("missing files must fail before scan")
+        ),
+    )
+
+    with pytest.raises(ValueError, match="Missing or incomplete local files"):
+        proc._process_polars(files=["first.csv", "missing.csv"])
 
 
 def test_download_finished_property_exposes_download_state():
