@@ -7,25 +7,25 @@ https://github.com/CBS-HPC/moody-s_datahub/blob/main/mkdocs/how_to_get_started.i
 
 **The pip wheel can be manually downloaded using the link below:**
 
-https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.10/moodys_datahub-1.4.10-py3-none-any.whl
+https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.11/moodys_datahub-1.4.11-py3-none-any.whl
 
 
 Or directly to the working folder by running the line below:
 
 
 ```python
-!curl -s -L -o moodys_datahub-1.4.10-py3-none-any.whl https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.10/moodys_datahub-1.4.10-py3-none-any.whl
+!curl -s -L -o moodys_datahub-1.4.11-py3-none-any.whl https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.11/moodys_datahub-1.4.11-py3-none-any.whl
 ```
 
 ## Installation
 
-Install the package "moodys_datahub-1.4.10-py3-none-any.whl":
+Install the package "moodys_datahub-1.4.11-py3-none-any.whl":
 
 
 
 ```python
 
-!pip install moodys_datahub-1.4.10-py3-none-any.whl
+!pip install moodys_datahub-1.4.11-py3-none-any.whl
 ```
 
 The package pins `paramiko==3.5.1` because the current `pysftp` dependency is
@@ -74,6 +74,12 @@ the root changes: `<download_root>/<data_product>/<table>`.
 If `output_root` is provided, auto-generated processed outputs are written below
 that root. Explicit `destination` values in processing calls still take
 precedence.
+
+Dictionary metadata supplies column definitions when available. For a source
+table absent from that metadata, `select_cols`, `select_columns()`, BvD column
+resolution, and an explicitly named date column can read the first source-file
+schema instead. The fallback supports CSV, Parquet, ORC, Avro, and Excel files;
+file-derived columns do not have dictionary definitions.
 
 For packaged metadata helpers that do not need server access, initialize
 without logging in:
@@ -308,6 +314,11 @@ report = SFTP.process_all(dry_run=True)
 if report.ok:
     results = SFTP.process_all()
 ```
+
+For local source files, dry-run also checks that required selected and filter
+columns exist in the file schema. It deliberately does not download remote
+files only to inspect schemas; the preflight report warns when that check is
+deferred.
 
 
 ```python

@@ -80,6 +80,16 @@ When `output_root` is set, auto-generated processed outputs are written below
 that root. Explicit `destination` values in `process_all()` still take
 precedence and keep the existing behavior.
 
+Packaged dictionary metadata is preferred for column definitions. If it is not
+available for a selected table, column selection, BvD column resolution, and
+an explicitly named `time_period` date column can inspect the first source
+file instead. CSV, Parquet, ORC, Avro, and Excel schemas are supported; columns
+found this way have no packaged definitions.
+
+For local source files, `dry_run=True` also validates selected and filter
+columns against the source schema. It never downloads remote files merely to
+inspect their schema, and reports a warning when that validation is deferred.
+
 ## Processing backends
 
 Use `process_all()` as the default high-level API. It auto-selects the backend
@@ -231,7 +241,7 @@ If you want a pinned wheel from a specific GitHub release, install it directly
 from the release assets:
 
 ```bash
-pip install https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.10/moodys_datahub-1.4.10-py3-none-any.whl
+pip install https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.11/moodys_datahub-1.4.11-py3-none-any.whl
 ```
 
 ### Install from a local wheel
@@ -240,7 +250,7 @@ Build the package locally and install the wheel from `dist/`:
 
 ```bash
 python -m build
-pip install dist/moodys_datahub-1.4.10-py3-none-any.whl
+pip install dist/moodys_datahub-1.4.11-py3-none-any.whl
 ```
 
 The package pins `paramiko==3.5.1` because the current `pysftp` dependency is

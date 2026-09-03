@@ -2,6 +2,7 @@ import asyncio
 import json
 from pathlib import PureWindowsPath
 
+import fastavro
 import pandas as pd
 import pytest
 
@@ -348,6 +349,26 @@ def test_get_column_names_reads_csv_schema_from_files(tmp_path):
     sftp._remote_files = [str(file_path)]
     sftp._check_args = lambda files: (files, None)
     sftp._get_file = lambda file: (file, False)
+
+    out = Sftp.get_column_names(sftp, files=[str(file_path)])
+
+    assert out == ["col_a", "col_b"]
+
+
+def test_get_column_names_reads_avro_schema_from_files(tmp_path):
+    file_path = tmp_path / "sample.avro"
+    schema = {
+        "type": "record",
+        "name": "sample",
+        "fields": [
+            {"name": "col_a", "type": "string"},
+            {"name": "col_b", "type": "long"},
+        ],
+    }
+    with file_path.open("wb") as handle:
+        fastavro.writer(handle, schema, [{"col_a": "value", "col_b": 1}])
+
+    sftp = object.__new__(Sftp)
 
     out = Sftp.get_column_names(sftp, files=[str(file_path)])
 

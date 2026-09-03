@@ -29,6 +29,8 @@ public API is `moodys_datahub.Sftp` / `moodys_datahub.tools.Sftp`.
 
 - `select_columns()`: open the interactive column selector.
 - `select_cols`: set selected columns directly.
+- `get_column_names()`: return bundled dictionary columns, or source-file
+  columns when dictionary metadata is unavailable.
 - `bvd_list`: define exact BvD ID filtering or prefix/country-code filtering.
 - `AND_bvd_list` / `OR_bvd_list`: add layered BvD clauses that narrow or widen
   the base `bvd_list` filter.
@@ -38,6 +40,12 @@ public API is `moodys_datahub.Sftp` / `moodys_datahub.tools.Sftp`.
 - `search_dictionary()`: search the packaged data dictionary.
 - `table_dates()`: inspect date-like columns for the active table.
 - `search_country_codes()`: search packaged country-code metadata.
+
+Dictionary metadata is preferred for column definitions. When it has no entry
+for a source table, column selection and explicit BvD/date settings can inspect
+the first CSV, Parquet, ORC, Avro, or Excel source file. File-derived columns
+have no packaged definitions. An explicitly requested date column must exist;
+processing raises rather than returning unfiltered data when it does not.
 
 ### Processing
 
@@ -205,6 +213,10 @@ if report.ok:
 The returned report includes the selected backend, resolved files, missing
 files, warnings, errors, destination, required columns, and flags such as
 `would_prompt`, `would_download`, and `would_write`.
+
+For local source files, dry-run also validates required columns against the
+schema. It does not download remote files to inspect schemas and reports that
+limitation as a warning.
 
 ## Backend selection reasons
 

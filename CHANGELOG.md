@@ -2,6 +2,28 @@
 
 All notable changes to this project should be documented in this file.
 
+## [1.4.11] - 2026-09-03
+
+### Fixed
+- Column selection, BvD column resolution, and interactive column selection
+  now fall back to the first source-file schema when bundled dictionary
+  metadata is unavailable.
+- Source schema discovery supports CSV, Parquet, ORC, Avro, and Excel files and
+  now reports discovery or download failures instead of hiding them.
+- `time_period` accepts an explicitly named source date column when packaged
+  date metadata is unavailable.
+- Pandas and Polars date filtering now raises when requested date columns are
+  absent rather than silently returning unfiltered data.
+- `process_all(dry_run=True)` validates required columns for local source files
+  and warns without downloading when remote schema validation is unavailable.
+- `search_dictionary()` and `table_dates()` safely handle quoted search terms
+  and comma-separated table metadata.
+
+### Tests
+- Added regression coverage for source-schema fallbacks, strict date filtering,
+  local preflight schema validation, Avro/CSV schema discovery, and metadata
+  table matching.
+
 ## [1.4.10] - 2026-09-03
 
 ### Fixed

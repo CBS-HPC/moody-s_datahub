@@ -58,8 +58,13 @@ arguments so workbook-driven searches can reuse the layered BvD filter model.
   default remains `Data Products/<data_product>/<table>`.
 - `output_root` controls where auto-generated processed outputs are saved.
   Explicit `destination` values still take precedence.
+- `get_column_names()` uses dictionary metadata first and falls back to the
+  first source-file schema when metadata is unavailable. This fallback supports
+  CSV, Parquet, ORC, Avro, and Excel files; file-derived columns do not include
+  packaged definitions.
 - `dry_run=True` returns a preflight report without downloading, processing,
-  saving, or deleting files.
+  saving, or deleting files. Local source schemas validate selected and filter
+  columns; remote files are not downloaded merely for schema validation.
 
 ## Generated reference
 

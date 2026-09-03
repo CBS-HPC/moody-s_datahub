@@ -82,6 +82,14 @@ When `output_root` is set, auto-generated processed outputs are written below
 that root. Explicit `destination` values in processing calls still take
 precedence.
 
+Dictionary metadata is used for column definitions when available. For a
+source table absent from the packaged metadata, column selection, BvD column
+resolution, and explicitly named date columns can inspect the first CSV,
+Parquet, ORC, Avro, or Excel source file instead. File-derived columns have no
+packaged definitions. For local source files, `dry_run=True` validates required
+columns against that schema; it never downloads remote files merely to inspect
+their schema.
+
 Use `process_all()` when you want automatic backend selection with a pandas
 return type. Use `pandas_all()` when you need pandas-only query semantics
 explicitly, and `polars_all()` when you want the native Polars path and return
