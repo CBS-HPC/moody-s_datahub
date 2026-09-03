@@ -8,7 +8,6 @@ from pathlib import Path
 
 import pandas as pd
 import polars as pl
-import pyarrow.parquet as pq
 
 from .load_data import _table_dictionary
 from .process import _Process
@@ -21,6 +20,7 @@ from .utils import (
     SaveFormat,
     _bvd_changes_ray,
     _letters_only_regex,
+    _read_file_schema,
     _read_pd,
     _read_pl,
     _save_to,
@@ -306,37 +306,33 @@ class Sftp(_Process):
         return found, not_found
 
     def get_column_names(self, save_to: SaveFormat = None, files=None):
-        """Return table column names from dictionary metadata or from parquet file schema."""
+        """Return columns from dictionary metadata or a source-file schema."""
 
         def from_dictionary(self):
             if self.set_table is not None:
                 df = self.search_dictionary(save_to=None)
-                column_names = df["Column"].to_list()
-                return column_names
+                return df["Column"].to_list()
             else:
                 return None
 
         def from_files(self, files):
-            if files is None and self.remote_files is None:
-                raise ValueError("No files were added")
-            elif files is None and self.remote_files is not None:
+            if files is None:
                 files = self.remote_files
+            if not files:
+                raise ValueError("No files were added")
 
-            try:
-                file, _ = self._check_args([files[0]])
-                file, _ = self._get_file(file[0])
-                parquet_file = pq.ParquetFile(file)
-                # Get the column names
-                column_names = parquet_file.schema.names
-                return column_names
-            except ValueError as e:
-                print(e)
-                return None
+            if os.path.isfile(files[0]):
+                return _read_file_schema(files[0])
+            file, _ = self._check_args([files[0]])
+            file, _ = self._get_file(file[0])
+            return _read_file_schema(file)
 
         if files is not None:
             column_names = from_files(self, files)
         else:
             column_names = from_dictionary(self)
+            if not column_names and getattr(self, "remote_files", None):
+                column_names = from_files(self, self.remote_files)
 
         if column_names is not None:
             df = pd.DataFrame({"Column_Names": column_names})

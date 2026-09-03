@@ -8,6 +8,7 @@ from pyarrow.lib import ArrowInvalid
 from moodys_datahub.utils import (
     _create_chunks,
     _create_workers,
+    _date_pd,
     _date_pl,
     _load_csv_table,
     _load_pd,
@@ -386,6 +387,18 @@ def test_date_pl_filters_years_and_keeps_null_rows():
     ).collect()
 
     assert result["value"].to_list() == [2, 3]
+
+
+@pytest.mark.parametrize("backend", ["pandas", "polars"])
+def test_date_filters_raise_when_requested_column_is_missing(backend):
+    if backend == "pandas":
+        df = pd.DataFrame({"actual_date": ["2020-01-01"], "value": [1]})
+        with pytest.raises(ValueError, match="missing_date"):
+            _date_pd(df, date_col="missing_date", start_year=2020, end_year=2020)
+    else:
+        df = pl.DataFrame({"actual_date": ["2020-01-01"], "value": [1]}).lazy()
+        with pytest.raises(ValueError, match="missing_date"):
+            _date_pl(df, date_col="missing_date", start_year=2020, end_year=2020)
 
 
 def test_load_pd_applies_date_bvd_and_query_filters(tmp_path):

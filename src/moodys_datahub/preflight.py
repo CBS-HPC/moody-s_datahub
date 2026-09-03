@@ -250,6 +250,42 @@ def _resolve_required_columns(obj, select_cols=None, date_query=None, bvd_query=
     return required_columns, resolved_date_column, resolved_bvd_columns, warnings, would_prompt, pandas_bvd_query
 
 
+def _validate_local_schema(
+    obj, files: list[str], required_columns: list[str] | None
+) -> tuple[list[str], list[str]]:
+    if not required_columns:
+        return [], []
+
+    local_file = next((Path(file) for file in files if Path(file).is_file()), None)
+    if local_file is None:
+        return [
+            "Required columns were not validated because no source file is local. "
+            "Dry-run does not download remote files."
+        ], []
+
+    get_column_names = getattr(obj, "get_column_names", None)
+    if not callable(get_column_names):
+        return [
+            "Required columns were not validated because schema discovery is unavailable."
+        ], []
+
+    try:
+        available_columns = get_column_names(files=[str(local_file)])
+    except Exception as exc:
+        return [], [f"Unable to inspect local source schema: {exc}"]
+
+    missing_columns = [
+        column for column in required_columns if column not in available_columns
+    ]
+    if missing_columns:
+        return [], [
+            "Required columns were not found in the local source schema: "
+            f"{missing_columns}"
+        ]
+
+    return [], []
+
+
 def validate_backend_compatibility(
     obj,
     *,
@@ -319,6 +355,9 @@ def build_process_preflight(
         date_query=date_query,
         bvd_query=bvd_query,
     )
+    schema_warnings, schema_errors = _validate_local_schema(
+        obj, resolved_files, required_columns
+    )
 
     compose = getattr(obj, "_compose_bvd_filters", None)
     composed_polars_query = None
@@ -347,10 +386,11 @@ def build_process_preflight(
     warnings = [
         *file_warnings,
         *filter_warnings,
+        *schema_warnings,
         *engine_warnings,
         *destination_warnings,
     ]
-    errors = [*file_errors, *missing_files, *engine_errors]
+    errors = [*file_errors, *missing_files, *schema_errors, *engine_errors]
 
     if not effective_files:
         errors.append("No files were provided or available to process.")

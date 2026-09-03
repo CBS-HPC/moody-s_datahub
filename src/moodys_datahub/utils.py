@@ -22,6 +22,8 @@ import pandas as pd
 import polars as pl
 import psutil
 import pyarrow
+import pyarrow.orc as pa_orc
+import pyarrow.parquet as pq
 from rapidfuzz import fuzz, process
 from tqdm import tqdm
 
@@ -65,6 +67,32 @@ def _join_remote_path(*parts):
     if is_absolute:
         joined = f"/{joined}"
     return joined
+
+
+def _read_file_schema(file: str) -> list[str]:
+    """Return top-level source columns without loading table records."""
+    suffix = Path(file).suffix.lower()
+    try:
+        if suffix == ".parquet":
+            return pq.ParquetFile(file).schema.names
+        if suffix == ".csv":
+            return pd.read_csv(file, nrows=0).columns.tolist()
+        if suffix == ".xlsx":
+            return pd.read_excel(file, nrows=0).columns.tolist()
+        if suffix == ".orc":
+            return pa_orc.ORCFile(file).schema.names
+        if suffix == ".avro":
+            with open(file, "rb") as avro_file:
+                schema = fastavro.reader(avro_file).writer_schema
+            return [field["name"] for field in schema.get("fields", [])]
+    except Exception as exc:
+        raise ValueError(
+            f"Unable to read the source schema from '{os.path.basename(file)}': {exc}"
+        ) from exc
+
+    raise ValueError(
+        f"Unsupported file format for schema discovery: {suffix or '<none>'}"
+    )
 
 
 # Dependency functions
@@ -930,8 +958,9 @@ def _date_pd(
     date_col = next((col for col in columns_to_check if col in df.columns), None)
 
     if not date_col:
-        print("No valid date columns found")
-        return df
+        raise ValueError(
+            f"Requested date column(s) {columns_to_check} were not found in the data"
+        )
 
     # Separate rows with NaNs in the date column
     if nan_action == "keep":
@@ -992,8 +1021,9 @@ def _date_pl(
     date_col = next((col for col in columns_to_check if col in available_cols), None)
 
     if not date_col:
-        print("No valid date columns found")
-        return df
+        raise ValueError(
+            f"Requested date column(s) {columns_to_check} were not found in the data"
+        )
 
     df = df.with_columns(
         pl.col(date_col)

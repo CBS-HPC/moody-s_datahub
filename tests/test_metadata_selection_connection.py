@@ -119,6 +119,50 @@ def test_select_cols_resets_to_none_when_column_is_missing(capsys):
     assert "cannot be found" in capsys.readouterr().out
 
 
+def test_select_cols_uses_file_schema_when_dictionary_entry_is_missing(monkeypatch):
+    proc = _make_metadata_process()
+    proc._table_dictionary = pd.DataFrame(
+        {
+            "Data Product": ["Prod"],
+            "Table": ["different_table"],
+            "Column": ["different_column"],
+            "Definition": ["Different column"],
+        }
+    )
+    monkeypatch.setattr(
+        DummyProcess,
+        "get_column_names",
+        lambda self, files=None: ["name", "file_only_column"],
+        raising=False,
+    )
+
+    proc.select_cols = ["name", "file_only_column"]
+
+    assert set(proc.select_cols) == {"name", "file_only_column"}
+
+
+def test_time_period_accepts_explicit_file_schema_column_without_date_metadata(
+    monkeypatch,
+):
+    proc = _make_metadata_process()
+    proc._interactive = False
+    monkeypatch.setattr(
+        DummyProcess,
+        "table_dates",
+        lambda self, **kwargs: pd.DataFrame(columns=["Column"]),
+    )
+    monkeypatch.setattr(
+        DummyProcess,
+        "get_column_names",
+        lambda self, files=None: ["event_date", "value"],
+        raising=False,
+    )
+
+    proc.time_period = [2020, 2021, "event_date"]
+
+    assert proc.time_period == [2020, 2021, "event_date", "remove"]
+
+
 def test_search_dictionary_letters_only_returns_original_values():
     proc = _make_metadata_process()
 
@@ -134,6 +178,31 @@ def test_search_dictionary_letters_only_returns_original_values():
     )
 
     assert out["Column"].tolist() == ["Total Assets"]
+
+
+def test_search_dictionary_supports_quoted_search_words():
+    proc = _make_metadata_process()
+    proc._table_dictionary.loc[0, "Definition"] = "O'Reilly reference"
+
+    out = proc.search_dictionary(search_word="O'Reilly")
+
+    assert out["Column"].tolist() == ["Total Assets"]
+
+
+def test_search_dictionary_resolves_comma_separated_table_metadata():
+    proc = _make_metadata_process()
+    proc._table_dictionary = pd.DataFrame(
+        {
+            "Data Product": ["Prod"],
+            "Table": ["table_2023, table_2024, table_current"],
+            "Column": ["name"],
+            "Definition": ["Company name"],
+        }
+    )
+
+    out = proc.search_dictionary(data_product="Prod", table="table_2024")
+
+    assert out["Column"].tolist() == ["name"]
 
 
 def test_table_dates_supports_partial_table_match():
@@ -270,6 +339,41 @@ def test_get_column_names_reads_parquet_schema_from_files(tmp_path):
 
     assert out == ["col_a", "col_b"]
 
+
+def test_get_column_names_reads_csv_schema_from_files(tmp_path):
+    file_path = tmp_path / "sample.csv"
+    pd.DataFrame({"col_a": [1], "col_b": [2]}).to_csv(file_path, index=False)
+
+    sftp = object.__new__(Sftp)
+    sftp._remote_files = [str(file_path)]
+    sftp._check_args = lambda files: (files, None)
+    sftp._get_file = lambda file: (file, False)
+
+    out = Sftp.get_column_names(sftp, files=[str(file_path)])
+
+    assert out == ["col_a", "col_b"]
+
+
+def test_get_column_names_falls_back_to_file_schema_when_dictionary_is_empty(
+    monkeypatch, tmp_path
+):
+    file_path = tmp_path / "sample.parquet"
+    pd.DataFrame({"col_a": [1], "col_b": [2]}).to_parquet(file_path, index=False)
+
+    sftp = object.__new__(Sftp)
+    sftp._set_table = "unregistered_table"
+    sftp._remote_files = [str(file_path)]
+    sftp._check_args = lambda files: (files, None)
+    sftp._get_file = lambda file: (file, False)
+    monkeypatch.setattr(
+        Sftp,
+        "search_dictionary",
+        lambda self, save_to=None: pd.DataFrame(columns=["Column"]),
+    )
+
+    out = Sftp.get_column_names(sftp)
+
+    assert out == ["col_a", "col_b"]
 
 def test_orbis_to_moodys_maps_known_headers_and_returns_missing(tmp_path, monkeypatch):
     file_path = tmp_path / "orbis.xlsx"

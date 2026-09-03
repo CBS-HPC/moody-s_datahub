@@ -182,6 +182,32 @@ def test_bvd_list_sets_exact_query_and_updates_select_cols(monkeypatch):
     assert "bvd_id_number" in proc.select_cols
 
 
+def test_bvd_list_uses_file_schema_when_dictionary_entry_is_missing(monkeypatch):
+    proc = _make_dummy_process()
+    proc._interactive = False
+    monkeypatch.setattr(
+        DummyProcess,
+        "search_country_codes",
+        lambda self, **kwargs: pd.DataFrame({"Code": ["DK", "SE"]}),
+    )
+    monkeypatch.setattr(
+        DummyProcess,
+        "search_dictionary",
+        lambda self, **kwargs: pd.DataFrame(columns=["Column"]),
+    )
+    monkeypatch.setattr(
+        DummyProcess,
+        "get_column_names",
+        lambda self, files=None: ["bvd_id_number", "name"],
+        raising=False,
+    )
+
+    proc.bvd_list = [["DK12345678"], "bvd_id_number"]
+
+    assert proc.bvd_list[1] == "bvd_id_number"
+    assert "bvd_id_number in" in proc.bvd_list[2]
+
+
 def test_bvd_list_uses_prefix_mode_for_country_codes(monkeypatch):
     proc = _make_dummy_process()
 
@@ -650,17 +676,15 @@ def test_copy_obj_resets_defaults_and_triggers_select_data(monkeypatch):
     assert called == {"defaults": 1, "select_data": 1}
 
 
-def test_get_column_names_returns_none_when_file_lookup_fails(monkeypatch, capsys):
+def test_get_column_names_propagates_file_lookup_failures():
     class FakeSession:
         remote_files = None
 
         def _check_args(self, files):
             raise ValueError("missing files")
 
-    out = Sftp.get_column_names(FakeSession(), files=["missing.parquet"])
-
-    assert out is None
-    assert "missing files" in capsys.readouterr().out
+    with pytest.raises(ValueError, match="missing files"):
+        Sftp.get_column_names(FakeSession(), files=["missing.parquet"])
 
 
 def test_batch_bvd_search_creates_input_templates_when_missing(monkeypatch, tmp_path):
@@ -1140,6 +1164,27 @@ def test_process_all_dry_run_returns_report(tmp_path):
     assert report.missing_files == []
     assert report.would_download is False
     assert report.would_write is False
+
+
+def test_process_all_dry_run_rejects_missing_local_schema_columns(monkeypatch, tmp_path):
+    proc = _make_dummy_process()
+    file_path = tmp_path / "sample.csv"
+    pd.DataFrame({"value": [1]}).to_csv(file_path, index=False)
+    monkeypatch.setattr(
+        DummyProcess,
+        "get_column_names",
+        lambda self, files=None: ["value"],
+        raising=False,
+    )
+
+    report = proc.process_all(
+        files=[str(file_path)],
+        select_cols=["missing_column"],
+        dry_run=True,
+    )
+
+    assert report.ok is False
+    assert any("missing_column" in error for error in report.errors)
 
 
 def test_process_all_dry_run_reports_missing_files():

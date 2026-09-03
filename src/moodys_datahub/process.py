@@ -47,6 +47,29 @@ from .widgets import (
 )
 
 
+def _metadata_table_mask(values: pd.Series, table: str) -> pd.Series:
+    target = str(table).strip().casefold()
+    return values.map(
+        lambda value: target
+        in {
+            item.strip().casefold()
+            for item in str(value).split(",")
+            if item.strip()
+        }
+    )
+
+
+def _filter_metadata_table(df: pd.DataFrame, table: str) -> pd.DataFrame:
+    exact = _metadata_table_mask(df["Table"], table)
+    if exact.any():
+        return df.loc[exact]
+    return df.loc[
+        df["Table"].astype("string").str.contains(
+            str(table), case=False, na=False, regex=False
+        )
+    ]
+
+
 class _Process(_Selection):
     def __init__(self):
         # Initialize mixins
@@ -160,15 +183,31 @@ class _Process(_Selection):
                 )
 
             if bvd_col.empty:
-                raise ValueError("No 'bvd' columns were found for this table")
+                try:
+                    bvd_col = self.get_column_names(files=self.remote_files)
+                except ValueError as exc:
+                    raise ValueError(
+                        "No dictionary metadata was found for this table and source "
+                        "schema discovery failed while resolving BvD columns."
+                    ) from exc
+            else:
+                bvd_col = bvd_col["Column"].unique().tolist()
 
-            bvd_col = bvd_col["Column"].unique().tolist()
+            if not bvd_col:
+                raise ValueError(
+                    "No dictionary metadata or source columns were found for this table"
+                )
+
+            if search_word is not None:
+                if search_word not in bvd_col:
+                    raise ValueError(
+                        f"{search_word} was not found in the table columns: {bvd_col}"
+                    )
+                self._bvd_list[1] = search_word
+                return False
 
             if len(bvd_col) > 1:
-                if isinstance(search_word, str) and search_word in bvd_col:
-                    self._bvd_list[1] = search_word
-                else:
-                    return bvd_col
+                return bvd_col
             else:
                 self._bvd_list[1] = bvd_col[0]
 
@@ -464,14 +503,40 @@ class _Process(_Selection):
                     )
                 self.select_data()
 
-            date_col = self.table_dates(
+            date_metadata = self.table_dates(
                 data_product=self.set_data_product, table=self._set_table, save_to=None
             )
 
-            if date_col.empty:
-                raise ValueError("No data columns were found for this table")
+            if date_metadata.empty:
+                try:
+                    source_columns = self.get_column_names(files=self.remote_files)
+                except ValueError as exc:
+                    raise ValueError(
+                        "No date metadata was found for this table and source schema "
+                        "discovery failed."
+                    ) from exc
 
-            date_col = date_col["Column"].unique().tolist()
+                requested_date_column = self._time_period[2]
+                if requested_date_column is not None:
+                    if requested_date_column not in source_columns:
+                        raise ValueError(
+                            f"{requested_date_column} was not found in the source "
+                            f"columns: {source_columns}"
+                        )
+                    date_col = [requested_date_column]
+                else:
+                    date_col = [
+                        column
+                        for column in source_columns
+                        if "date" in column.casefold()
+                    ]
+                    if not date_col:
+                        raise ValueError(
+                            "No date metadata or date-like source columns were found "
+                            "for this table. Set time_period with an explicit source column."
+                        )
+            else:
+                date_col = date_metadata["Column"].unique().tolist()
 
             if (
                 self._time_period[2] is not None
@@ -517,15 +582,27 @@ class _Process(_Selection):
                 select_cols, self._required_filter_columns()
             )
 
-            table_cols = self.search_dictionary(
+            table_metadata = self.search_dictionary(
                 data_product=self.set_data_product, table=self._set_table, save_to=None
             )
 
-            if table_cols.empty:
-                self._select_cols = None
-                raise ValueError("No columns were found for this table")
+            if table_metadata.empty:
+                try:
+                    table_cols = self.get_column_names(files=self.remote_files)
+                except ValueError as exc:
+                    self._select_cols = None
+                    raise ValueError(
+                        "No dictionary metadata was found for this table and source "
+                        "schema discovery failed."
+                    ) from exc
+            else:
+                table_cols = table_metadata["Column"].unique().tolist()
 
-            table_cols = table_cols["Column"].unique().tolist()
+            if not table_cols:
+                self._select_cols = None
+                raise ValueError(
+                    "No dictionary metadata or source columns were found for this table"
+                )
 
             if not all(element in table_cols for element in select_cols):
                 not_found = [
@@ -610,16 +687,31 @@ class _Process(_Selection):
         if self._set_data_product is None or self._set_table is None:
             self.select_data()
 
-        table_cols = self.search_dictionary(
+        table_metadata = self.search_dictionary(
             data_product=self.set_data_product, table=self._set_table, save_to=None
         )
 
-        if table_cols.empty:
-            self._select_cols = None
-            raise ValueError("No columns were found for this table")
+        if table_metadata.empty:
+            try:
+                column = self.get_column_names(files=self.remote_files)
+            except ValueError as exc:
+                self._select_cols = None
+                raise ValueError(
+                    "No dictionary metadata was found for this table and source "
+                    "schema discovery failed."
+                ) from exc
+            definition = ["Source-schema column; dictionary definition unavailable"] * len(
+                column
+            )
+        else:
+            column = table_metadata["Column"].tolist()
+            definition = table_metadata["Definition"].tolist()
 
-        column = table_cols["Column"].tolist()
-        definition = table_cols["Definition"].tolist()
+        if not column:
+            self._select_cols = None
+            raise ValueError(
+                "No dictionary metadata or source columns were found for this table"
+            )
 
         asyncio.ensure_future(f(self, column, definition))
 
@@ -654,6 +746,8 @@ class _Process(_Selection):
                 "Column": True,
                 "Definition": True,
             }
+        else:
+            search_cols = dict(search_cols)
 
         if data_product is None and self.set_data_product is not None:
             data_product = self.set_data_product
@@ -672,7 +766,7 @@ class _Process(_Selection):
             ]
 
         if data_product is not None:
-            df_product = df.query(f"`Data Product` == '{data_product}'")
+            df_product = df.loc[df["Data Product"].eq(data_product)]
             if df_product.empty:
                 print("No such Data Product was found. Please set right data product")
                 return df_product
@@ -680,36 +774,31 @@ class _Process(_Selection):
                 df = df_product
             search_cols["Data Product"] = False
         if table is not None:
-            df_table = df.query(f"`Table` == '{table}'")
+            df_table = _filter_metadata_table(df, table)
             if df_table.empty:
-                df_table = df.query(
-                    f"`Table`.str.contains('{table}', case=False, na=False,regex=False)"
-                )
-                if df_table.empty:
-                    print("No such Table was found. Please set right table")
-                    return df_table
+                print("No dictionary metadata was found for the requested table")
+                return df_table
             search_cols["Table"] = False
             df = df_table
 
         if search_word is not None:
+            search_frame = df
             if letters_only:
-                df_backup = df.copy()
                 search_word = _letters_only_regex(search_word)
-                df = df.map(_letters_only_regex)
+                search_frame = df.map(_letters_only_regex)
 
-            if extact_match:
-                base_string = "`{col}` ==  '{{search_word}}'"
-            else:
-                base_string = "`{col}`.str.contains('{{search_word}}', case=False, na=False,regex=False)"
-
-            search_conditions = " | ".join(
-                base_string.format(col=col)
-                for col, include in search_cols.items()
-                if include
-            )
-            final_string = search_conditions.format(search_word=search_word)
-
-            df = df.query(final_string)
+            search_mask = pd.Series(False, index=search_frame.index)
+            for column, include in search_cols.items():
+                if not include:
+                    continue
+                values = search_frame[column].astype("string")
+                if extact_match:
+                    search_mask |= values.eq(str(search_word))
+                else:
+                    search_mask |= values.str.contains(
+                        str(search_word), case=False, na=False, regex=False
+                    )
+            df = df.loc[search_mask]
 
             if df.empty:
                 base_string = "'{col}'"
@@ -724,11 +813,8 @@ class _Process(_Selection):
                 )
                 return df
 
-            if letters_only:
-                df = df_backup.loc[df.index]
-
             if save_to:
-                print("The following query was executed:" + final_string)
+                print(f"The following query was executed: dictionary search for {search_word}")
 
         _save_to(df, "dict_search", save_to)
 
@@ -754,21 +840,17 @@ class _Process(_Selection):
             ]
 
         if data_product is not None:
-            df_product = df.query(f"`Data Product` == '{data_product}'")
+            df_product = df.loc[df["Data Product"].eq(data_product)]
             if df_product.empty:
                 print("No such Data Product was found. Please set right data product")
                 return df_product
             else:
                 df = df_product
         if table is not None:
-            df_table = df.query(f"`Table` == '{table}'")
+            df_table = _filter_metadata_table(df, table)
             if df_table.empty:
-                df_table = df.query(
-                    f"`Table`.str.contains('{table}', case=False, na=False,regex=False)"
-                )
-                if df_table.empty:
-                    print("No such Table was found. Please set right table")
-                    return df_table
+                print("No date-column metadata was found for the requested table")
+                return df_table
             df = df_table
 
         _save_to(df, "date_cols_search", save_to)
