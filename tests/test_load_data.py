@@ -1,3 +1,5 @@
+import importlib.resources as pkg_resources
+
 import pandas as pd
 import pytest
 
@@ -14,6 +16,58 @@ def test_table_names_structure():
     df = _table_names()
     assert {"Data Product", "Top-level Directory"}.issubset(df.columns)
     assert len(df) > 0
+
+
+def test_packaged_data_products_have_complete_table_metadata():
+    df = _table_names()
+
+    assert not df[["Data Product", "Top-level Directory"]].isna().any().any()
+
+
+def test_ownership_history_links_have_csv_and_parquet_metadata():
+    file_path = pkg_resources.files("moodys_datahub.data") / "data_products.xlsx"
+    with file_path.open("rb") as handle:
+        df = pd.read_excel(handle)
+    subset = df[
+        (df["Data Product"] == "Ownership History (Semi-Annual)")
+        & (df["Table"].isin(["links_2022", "links_2023", "links_2024"]))
+    ]
+
+    formats_by_table = subset.groupby("Table")["Format"].apply(set).to_dict()
+
+    assert formats_by_table == {
+        "links_2022": {"csv", "parquet"},
+        "links_2023": {"csv", "parquet"},
+        "links_2024": {"csv", "parquet"},
+    }
+    assert not subset[["Top-level Directory", "Format"]].isna().any().any()
+
+
+def test_ownership_history_links_have_date_metadata():
+    df = _table_dates()
+    subset = df[
+        (df["Data Product"] == "Ownership History (Semi-Annual)")
+        & (df["Table"].isin(["links_2022", "links_2023", "links_2024"]))
+    ]
+
+    assert set(subset["Table"]) == {"links_2022", "links_2023", "links_2024"}
+    assert set(subset["Column"]) == {"information_date"}
+    assert not subset[["Data Product", "Table", "Column", "Definition"]].isna().any().any()
+
+
+def test_batch_bvd_search_template_includes_recent_ownership_links():
+    file_path = pkg_resources.files("moodys_datahub.data") / "products.xlsx"
+    with file_path.open("rb") as handle:
+        df = pd.read_excel(handle)
+
+    subset = df[
+        (df["Data Product"] == "Ownership History (Semi-Annual)")
+        & (df["Table"].isin(["links_2022", "links_2023", "links_2024"]))
+    ]
+
+    assert set(subset["Table"]) == {"links_2022", "links_2023", "links_2024"}
+    assert set(subset["Column"]) == {"subsidiary_bvd_id,shareholder_bvd_id"}
+    assert subset["Run"].eq(True).all()
 
 
 def test_table_dictionary_structure():

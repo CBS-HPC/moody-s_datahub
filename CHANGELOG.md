@@ -2,6 +2,20 @@
 
 All notable changes to this project should be documented in this file.
 
+## [1.4.10] - 2026-09-03
+
+### Fixed
+- Packaged metadata now includes complete Ownership History links_2022,
+  links_2023, and links_2024 CSV/parquet entries in data_products.xlsx.
+- Packaged dictionary metadata now includes links_2023 and links_2024
+  in the Ownership History link-table definitions.
+- Packaged date-column and batch-search template metadata now include recent
+  Ownership History link tables.
+
+### Tests
+- Added package-data consistency checks for complete Ownership History link
+  metadata across data_products.xlsx, date_cols.xlsx, and products.xlsx.
+
 ## [1.4.9] - 2026-09-03
 
 ### Fixed
