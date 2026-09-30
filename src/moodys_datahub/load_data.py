@@ -5,10 +5,10 @@ import pandas as pd
 
 
 # Data Related functions
-def _read_excel(file_name):
+def _read_excel(file_name, **kwargs):
     file_path = pkg_resources.files("moodys_datahub.data") / file_name
     with file_path.open("rb") as f:
-        return pd.read_excel(f)
+        return pd.read_excel(f, **kwargs)
 
 
 def _table_names(file_name=None):
@@ -83,11 +83,11 @@ def _table_dictionary(file_name: str = None):
 
 def _country_codes(file_name: str = None):
     if file_name is None:
-        df = _read_excel("country_codes.xlsx")
+        df = _read_excel("country_codes.xlsx", keep_default_na=False)
     else:
         if not os.path.exists(file_name):
             raise ValueError("moody's datahub country codes  file was not detected")
-        df = pd.read_excel(file_name)
+        df = pd.read_excel(file_name, keep_default_na=False)
     return df
 
 

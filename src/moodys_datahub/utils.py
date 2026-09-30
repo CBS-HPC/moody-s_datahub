@@ -1679,6 +1679,17 @@ class CompanyNameFuzzyMatcher:
                     self.return_column,
                 ]
             )
+        if not self.records:
+            return pd.DataFrame(
+                [(name, None, 0.0, None, None) for name in search_names],
+                columns=[
+                    "Search_string",
+                    "BestMatch",
+                    "Score",
+                    self.match_column,
+                    self.return_column,
+                ],
+            )
 
         matches = []
         unresolved = []

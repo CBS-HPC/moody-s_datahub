@@ -9,6 +9,12 @@ from pathlib import Path
 import pandas as pd
 import polars as pl
 
+from .company_country import (
+    country_filter_expr,
+    country_match_query,
+    match_country_candidates,
+    resolve_country_filters,
+)
 from .load_data import _table_dictionary
 from .process import _Process
 from .profile_scan import (
@@ -607,17 +613,25 @@ class Sftp(_Process):
         cut_off: int = 90.1,
         company_suffixes: list = None,
         scorer: str = "WRatio",
+        country: str | None = None,
+        countries_by_name: list[str] | None = None,
     ):
         """Fuzzy-match company names against firmographics.
 
         The Polars path loads only the firm name and BvD ID columns, then uses
         an indexed RapidFuzz matcher with exact-match short-circuiting and
-        prefix/token/length candidate blocking.
+        prefix/token/length candidate blocking. A country filter excludes IDs
+        with another known country prefix while retaining unrecognised IDs.
+        ``countries_by_name`` aligns by position with ``names``.
         """
 
         # Determine the number of workers if not specified
         if not num_workers or num_workers < 0:
             num_workers = max(1, cpu_count() - 2)
+
+        country_codes, known_codes = resolve_country_filters(
+            names, country=country, countries_by_name=countries_by_name
+        )
 
         SFTP = copy.deepcopy(self)
         SFTP._object_defaults()
@@ -626,6 +640,8 @@ class Sftp(_Process):
         SFTP.set_table = "bvd_id_and_name"
         SFTP._select_cols = ["bvd_id_number", "name"]
         SFTP.output_format = None
+        if country_codes is not None:
+            SFTP.query = country_filter_expr(set(country_codes), known_codes)
         try:
             df_polars, _ = SFTP.polars_all(num_workers=num_workers)
         except (
@@ -636,32 +652,56 @@ class Sftp(_Process):
             pl.exceptions.PolarsError,
         ) as exc:
             print(f"Falling back to pandas fuzzy matching: {exc}")
-            SFTP.query = fuzzy_query
-            SFTP.query_args = [
-                names,
-                "name",
-                "bvd_id_number",
-                cut_off,
-                company_suffixes,
-                1,
-                scorer,
-            ]
+            if country_codes is None:
+                SFTP.query = fuzzy_query
+                SFTP.query_args = [
+                    names,
+                    "name",
+                    "bvd_id_number",
+                    cut_off,
+                    company_suffixes,
+                    1,
+                    scorer,
+                ]
+            else:
+                SFTP.query = country_match_query
+                SFTP.query_args = [
+                    names,
+                    country_codes,
+                    known_codes,
+                    cut_off,
+                    company_suffixes,
+                    scorer,
+                ]
             df, _ = SFTP.process_all(num_workers=num_workers, engine="pandas")
         else:
-            df = fuzzy_match_pl(
-                names=names,
-                df=df_polars,
-                match_column="name",
-                return_column="bvd_id_number",
-                cut_off=cut_off,
-                remove_str=company_suffixes,
-                num_workers=num_workers,
-                scorer=scorer,
-            )
+            if country_codes is None:
+                df = fuzzy_match_pl(
+                    names=names,
+                    df=df_polars,
+                    match_column="name",
+                    return_column="bvd_id_number",
+                    cut_off=cut_off,
+                    remove_str=company_suffixes,
+                    num_workers=num_workers,
+                    scorer=scorer,
+                )
+            else:
+                df = match_country_candidates(
+                    df_polars,
+                    names,
+                    country_codes,
+                    known_codes,
+                    cut_off,
+                    company_suffixes,
+                    scorer,
+                    num_workers=num_workers,
+                )
 
         # Finder de bedste matches på tværs af "file parts"
-        max_scores = df.groupby("Search_string", as_index=False)["Score"].max()
-        best_matches = pd.merge(df, max_scores, on=["Search_string", "Score"])
+        group_column = "Search_string" if country_codes is None else "Input_index"
+        max_scores = df.groupby(group_column, as_index=False)["Score"].max()
+        best_matches = pd.merge(df, max_scores, on=[group_column, "Score"])
 
         # Keep only unique rows
         best_matches = best_matches.drop_duplicates()
