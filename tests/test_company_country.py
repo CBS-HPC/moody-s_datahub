@@ -62,7 +62,9 @@ def test_country_metadata_preserves_namibia_code():
 
 
 @pytest.mark.parametrize("fail_polars", [False, True])
-def test_single_country_keeps_own_and_unknown_ids(monkeypatch, sample_source, fail_polars):
+def test_single_country_keeps_own_and_unknown_ids(
+    monkeypatch, sample_source, fail_polars
+):
     fake = _search(monkeypatch, sample_source, fail_polars=fail_polars)
 
     result = Sftp.search_company_names(
@@ -164,9 +166,7 @@ def test_country_filter_runs_in_local_parquet_loaders(tmp_path, sample_source):
         ("DK", ["DK", "US"], "either country or countries_by_name"),
     ],
 )
-def test_country_filter_rejects_invalid_selection(
-    country, countries_by_name, message
-):
+def test_country_filter_rejects_invalid_selection(country, countries_by_name, message):
     with pytest.raises(ValueError, match=message):
         Sftp.search_company_names(
             object(),

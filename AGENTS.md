@@ -11,6 +11,7 @@ Moody's DataHub exports over SFTP. The public API is centered on
 Main source files:
 
 - `src/moodys_datahub/tools.py`: public `Sftp` class and helper workflows.
+- `src/moodys_datahub/company_country.py`: country-aware company matching.
 - `src/moodys_datahub/process.py`: filtering, pandas/Polars processing, downloads.
 - `src/moodys_datahub/preflight.py`: dry-run/preflight report helpers.
 - `src/moodys_datahub/selection.py`: data product/table/path selection.
@@ -140,6 +141,8 @@ changed deliberately.
   affects a release.
 - If changing BvD filtering, test both pandas and Polars paths, including
   multi-column and layered `AND_bvd_list` / `OR_bvd_list` cases.
+- If changing country-aware company matching, test single-country and
+  per-name country selection, unknown prefixes, and both processing paths.
 - If changing `bvd_list` validation, test both strict non-interactive mode and
   `allow_invalid_bvd_ids=True`.
 - If changing download logic, test default `Data Products/...` behavior and

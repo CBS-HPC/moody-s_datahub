@@ -75,12 +75,21 @@ processing raises rather than returning unfiltered data when it does not.
   RapidFuzz matcher. It exact-matches first, narrows candidates with
   prefix/token/length blocking, and accepts scorer names such as `"WRatio"`,
   `"ratio"`, `"token_sort_ratio"`, and `"token_set_ratio"`. Distinct BvD IDs
-  sharing the best normalized name are returned as separate rows.
+  sharing the best normalized name are returned as separate rows. Use
+  `country="DK"` for one country or `countries_by_name=["DK", "SE"]` to
+  pair each input name with a country.
 - `search_bvd_changes()`: resolve BvD lineage.
 - `batch_bvd_search()`: run workbook-driven batch searches. Optional
   `AND_bvd_list` and `OR_bvd_list` arguments apply layered BvD filters to each
   batch run.
 - `orbis_to_moodys()`: map Orbis-style headings to DataHub columns.
+
+Country-filtered company searches exclude BvD IDs with other recognised
+two-letter prefixes before matching. IDs with unrecognised or missing prefixes
+remain candidates, marked by `BvD_prefix_status`. Results also include
+`Input_index`, `Input_name`, and `Requested_country`; the index keeps repeated
+input names with different requested countries separate. Prefixes are a
+heuristic and do not verify a firm's actual country.
 
 ### Table profiling
 

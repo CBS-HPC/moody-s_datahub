@@ -39,14 +39,18 @@ def resolve_country_filters(names, country=None, countries_by_name=None):
         try:
             requested = list(countries_by_name)
         except TypeError as exc:
-            raise ValueError("countries_by_name must align with the names list.") from exc
+            raise ValueError(
+                "countries_by_name must align with the names list."
+            ) from exc
         if len(requested) != len(names):
             raise ValueError("countries_by_name must have one value per name.")
 
     resolved = []
     for value in requested:
         if not isinstance(value, str) or not value.strip():
-            raise ValueError("Every requested country must be a name or two-letter code.")
+            raise ValueError(
+                "Every requested country must be a name or two-letter code."
+            )
         code = code_lookup.get(value.strip().casefold())
         if code is None:
             raise ValueError(f"Unknown country for company-name matching: {value!r}")
@@ -122,9 +126,9 @@ def match_country_candidates(
         identifiers = matched["bvd_id_number"].astype("string")
         prefixes = identifiers.str.slice(0, 2).str.upper()
         status = pd.Series("unrecognized_prefix", index=matched.index)
-        status.loc[identifiers.isna() | identifiers.str.strip().eq("").fillna(False)] = (
-            "missing_id"
-        )
+        status.loc[
+            identifiers.isna() | identifiers.str.strip().eq("").fillna(False)
+        ] = "missing_id"
         status.loc[prefixes.eq(code).fillna(False)] = "requested_prefix"
         matched["BvD_prefix_status"] = status
         results.append(matched)

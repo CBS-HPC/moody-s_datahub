@@ -2,12 +2,22 @@
 
 All notable changes to this project should be documented in this file.
 
-## Unreleased
+## [1.4.12] - 2026-09-30
+
+### Added
+- `search_company_names()` now accepts `country` for all names or
+  `countries_by_name` aligned with the input list. It excludes IDs beginning
+  with other recognised country prefixes before matching while retaining
+  unrecognised prefixes as unverified candidates.
+- Country-filtered results include input positions, requested country codes,
+  and prefix-status labels so repeated names remain distinguishable.
 
 ### Fixed
 - Company-name matching now retains distinct BvD IDs for the same normalized
   name in both the indexed matcher and pandas fallback. Repeated occurrences
   of the same normalized name and BvD ID are returned once.
+- Country-code metadata now preserves Namibia's `NA` code, which pandas had
+  previously interpreted as a missing value.
 
 ## [1.4.11] - 2026-09-03
 

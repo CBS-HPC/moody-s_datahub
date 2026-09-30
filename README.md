@@ -151,6 +151,24 @@ for example `scorer="token_sort_ratio"` or `scorer="token_set_ratio"`. If a
 matching name belongs to several firms, the result includes a row for each
 distinct BvD ID with that name and best score.
 
+To narrow candidates by country, pass one country for all names or a list
+aligned with the names. Country codes and names from the packaged metadata are
+accepted:
+
+```python
+dk_matches = SFTP.search_company_names(names=["Acme"], country="DK")
+mixed_matches = SFTP.search_company_names(
+    names=["Acme", "Beta"], countries_by_name=["DK", "Sweden"]
+)
+```
+
+The filter excludes IDs beginning with another recognised country code and
+retains IDs with unrecognised or missing prefixes. Filtered results include
+`Input_index`, `Input_name`, `Requested_country`, and `BvD_prefix_status`;
+`unrecognized_prefix` does not verify the firm's country. An ID that happens
+to begin with a different recognised code can still be excluded, even if that
+prefix does not represent its country.
+
 Use `Sftp(offline=True)` when you only need packaged metadata and do not want
 to log in to the SFTP server. Offline mode supports helpers such as
 `search_dictionary()`, `table_dates()`, `search_country_codes()`,
@@ -243,7 +261,7 @@ If you want a pinned wheel from a specific GitHub release, install it directly
 from the release assets:
 
 ```bash
-pip install https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.11/moodys_datahub-1.4.11-py3-none-any.whl
+pip install https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.12/moodys_datahub-1.4.12-py3-none-any.whl
 ```
 
 ### Install from a local wheel
@@ -252,7 +270,7 @@ Build the package locally and install the wheel from `dist/`:
 
 ```bash
 python -m build
-pip install dist/moodys_datahub-1.4.11-py3-none-any.whl
+pip install dist/moodys_datahub-1.4.12-py3-none-any.whl
 ```
 
 The package pins `paramiko==3.5.1` because the current `pysftp` dependency is

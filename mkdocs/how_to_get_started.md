@@ -7,25 +7,25 @@ https://github.com/CBS-HPC/moody-s_datahub/blob/main/mkdocs/how_to_get_started.i
 
 **The pip wheel can be manually downloaded using the link below:**
 
-https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.11/moodys_datahub-1.4.11-py3-none-any.whl
+https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.12/moodys_datahub-1.4.12-py3-none-any.whl
 
 
 Or directly to the working folder by running the line below:
 
 
 ```python
-!curl -s -L -o moodys_datahub-1.4.11-py3-none-any.whl https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.11/moodys_datahub-1.4.11-py3-none-any.whl
+!curl -s -L -o moodys_datahub-1.4.12-py3-none-any.whl https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.12/moodys_datahub-1.4.12-py3-none-any.whl
 ```
 
 ## Installation
 
-Install the package "moodys_datahub-1.4.11-py3-none-any.whl":
+Install the package "moodys_datahub-1.4.12-py3-none-any.whl":
 
 
 
 ```python
 
-!pip install moodys_datahub-1.4.11-py3-none-any.whl
+!pip install moodys_datahub-1.4.12-py3-none-any.whl
 ```
 
 The package pins `paramiko==3.5.1` because the current `pysftp` dependency is
@@ -523,7 +523,19 @@ best_matches = SFTP.search_company_names(
     company_suffixes=company_suffixes,
     scorer="token_sort_ratio",
 )
+
+# Limit the search to one country while retaining IDs with unknown prefixes:
+dk_matches = SFTP.search_company_names(names=companies, country="DK")
+
+# Or assign one country to each input name (lists must have equal length):
+country_matches = SFTP.search_company_names(
+    names=["Acme", "Beta"], countries_by_name=["DK", "SE"]
+)
 ```
+
+Country-filtered results include `Input_index`, `Input_name`,
+`Requested_country`, and `BvD_prefix_status`. IDs with unrecognised or missing
+prefixes remain candidates; these prefixes do not verify a firm's country.
 
 ### Find changes in bvd_id over time
 

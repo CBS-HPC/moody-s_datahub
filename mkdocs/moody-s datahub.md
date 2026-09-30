@@ -97,6 +97,11 @@ type. The Polars path supports exact and prefix BvD filtering, multi-column BvD
 matching, layered `AND_bvd_list` / `OR_bvd_list` filtering, and year-based
 `time_period` filtering.
 
+`search_company_names()` can narrow the Firmographics name universe with
+`country="DK"` or align a country to each input using `countries_by_name`.
+Distinct BvD IDs sharing a name remain separate candidates. IDs without a
+recognised country prefix remain in the search and are labelled as unverified.
+
 ## SFTP Access
 
 CBS users should contact [CBS staff](mailto:rdm@cbs.dk) to obtain a personal

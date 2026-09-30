@@ -26,7 +26,10 @@ For the maintained API documentation, see `api_reference.md`.
 `search_company_names()` uses indexed RapidFuzz matching with exact-match
 short-circuiting, prefix/token/length candidate blocking, and optional scorer
 selection through the `scorer` argument. Distinct BvD IDs with the same best
-normalized name are retained as separate result rows.
+normalized name are retained as separate result rows. Use `country="DK"` for a
+single country or `countries_by_name=["DK", "SE"]` to pair each input name with
+its country. Unknown-prefix IDs remain candidates and are labelled as
+unverified by `BvD_prefix_status`.
 
 `profile_table()` and `profile_tables()` inspect the first file for selected
 tables and generate privacy-safe column profiles with dtype, missingness,
