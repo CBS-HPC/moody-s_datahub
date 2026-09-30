@@ -110,6 +110,34 @@ def test_per_name_countries_keep_repeated_names_distinct(
     }
 
 
+def test_country_filter_keeps_same_name_ids_after_suffix_removal(monkeypatch):
+    source = pl.DataFrame(
+        {
+            "name": [
+                "Acme A/S",
+                "Acme GmbH",
+                "Acme Inc",
+                "Acme",
+                "Acme",
+                "Nordic Foods",
+            ],
+            "bvd_id_number": ["DK111", "DE222", "US333", "DK999", "US888", "DK444"],
+        }
+    )
+    _search(monkeypatch, source)
+
+    result = Sftp.search_company_names(
+        object(),
+        names=["Acme"],
+        country="DK",
+        company_suffixes=["A/S", "GmbH", "Inc"],
+        num_workers=1,
+    )
+
+    assert set(result["bvd_id_number"]) == {"DK111", "DK999"}
+    assert result["Score"].tolist() == [100.0, 100.0]
+
+
 def test_country_filter_returns_no_match_when_subset_is_empty(monkeypatch):
     source = pl.DataFrame({"name": ["Acme"], "bvd_id_number": ["US888"]})
     _search(monkeypatch, source)

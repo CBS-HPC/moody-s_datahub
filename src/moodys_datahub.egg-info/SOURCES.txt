@@ -3,6 +3,7 @@ MANIFEST.in
 README.md
 pyproject.toml
 src/moodys_datahub/__init__.py
+src/moodys_datahub/company_country.py
 src/moodys_datahub/connection.py
 src/moodys_datahub/extra.py
 src/moodys_datahub/load_data.py
