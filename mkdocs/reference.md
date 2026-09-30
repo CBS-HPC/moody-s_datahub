@@ -25,7 +25,8 @@ For the maintained API documentation, see `api_reference.md`.
 
 `search_company_names()` uses indexed RapidFuzz matching with exact-match
 short-circuiting, prefix/token/length candidate blocking, and optional scorer
-selection through the `scorer` argument.
+selection through the `scorer` argument. Distinct BvD IDs with the same best
+normalized name are retained as separate result rows.
 
 `profile_table()` and `profile_tables()` inspect the first file for selected
 tables and generate privacy-safe column profiles with dtype, missingness,

@@ -2,6 +2,13 @@
 
 All notable changes to this project should be documented in this file.
 
+## Unreleased
+
+### Fixed
+- Company-name matching now retains distinct BvD IDs for the same normalized
+  name in both the indexed matcher and pandas fallback. Repeated occurrences
+  of the same normalized name and BvD ID are returned once.
+
 ## [1.4.11] - 2026-09-03
 
 ### Fixed

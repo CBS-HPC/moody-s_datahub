@@ -74,7 +74,8 @@ processing raises rather than returning unfiltered data when it does not.
 - `search_company_names()`: fuzzy-match company names with the indexed
   RapidFuzz matcher. It exact-matches first, narrows candidates with
   prefix/token/length blocking, and accepts scorer names such as `"WRatio"`,
-  `"ratio"`, `"token_sort_ratio"`, and `"token_set_ratio"`.
+  `"ratio"`, `"token_sort_ratio"`, and `"token_set_ratio"`. Distinct BvD IDs
+  sharing the best normalized name are returned as separate rows.
 - `search_bvd_changes()`: resolve BvD lineage.
 - `batch_bvd_search()`: run workbook-driven batch searches. Optional
   `AND_bvd_list` and `OR_bvd_list` arguments apply layered BvD filters to each

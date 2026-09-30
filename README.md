@@ -147,7 +147,9 @@ The stable public API is centered on `moodys_datahub.Sftp`:
 `search_company_names()` uses the Firmographics `bvd_id_and_name` table and an
 indexed RapidFuzz matcher. It checks exact matches first, narrows fuzzy
 candidates with prefix/token/length blocking, and supports scorer selection,
-for example `scorer="token_sort_ratio"` or `scorer="token_set_ratio"`.
+for example `scorer="token_sort_ratio"` or `scorer="token_set_ratio"`. If a
+matching name belongs to several firms, the result includes a row for each
+distinct BvD ID with that name and best score.
 
 Use `Sftp(offline=True)` when you only need packaged metadata and do not want
 to log in to the SFTP server. Offline mode supports helpers such as

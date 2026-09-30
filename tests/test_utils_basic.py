@@ -124,6 +124,28 @@ def test_fuzzy_query_remove_str_creates_exact_match_without_pool():
     ]
 
 
+@pytest.mark.parametrize("search_name", ["Acme", "Acmee"])
+def test_fuzzy_query_keeps_distinct_ids_for_same_name(search_name):
+    df = pd.DataFrame(
+        {
+            "name": ["Acme", "Acme", "Acme", "Other"],
+            "bvd_id_number": ["DK999", "US888", "DK999", "DK444"],
+        }
+    )
+
+    out = fuzzy_query(
+        df=df,
+        names=[search_name],
+        match_column="name",
+        return_column="bvd_id_number",
+        cut_off=80,
+        num_workers=1,
+    )
+
+    assert set(out["bvd_id_number"]) == {"DK999", "US888"}
+    assert len(out) == 2
+
+
 def test_fuzzy_query_clamps_auto_workers_and_uses_pool(monkeypatch):
     df = pd.DataFrame(
         {
@@ -784,6 +806,68 @@ def test_fuzzy_match_pl_normalizes_suffixes_for_exact_matches():
     assert result["Score"].tolist() == [100.0]
     assert result["name"].tolist() == ["Acme Ltd"]
     assert result["bvd_id_number"].tolist() == ["BVD1"]
+
+
+@pytest.mark.parametrize("search_name", ["Acme", "Acmee"])
+def test_fuzzy_match_pl_keeps_distinct_ids_for_same_name(search_name):
+    df = pl.DataFrame(
+        {
+            "name": ["Acme", "Acme", "Acme", "Other"],
+            "bvd_id_number": ["DK999", "US888", "DK999", "DK444"],
+        }
+    )
+
+    result = fuzzy_match_pl(
+        names=[search_name],
+        df=df,
+        match_column="name",
+        return_column="bvd_id_number",
+        cut_off=80,
+        num_workers=1,
+    )
+
+    assert set(result["bvd_id_number"]) == {"DK999", "US888"}
+    assert len(result) == 2
+
+
+def test_fuzzy_match_pl_keeps_distinct_ids_after_suffix_removal():
+    df = pl.DataFrame(
+        {
+            "name": ["Acme A/S", "Acme GmbH", "Acme Inc", "Acme"],
+            "bvd_id_number": ["DK111", "DE222", "US333", "DK999"],
+        }
+    )
+
+    result = fuzzy_match_pl(
+        names=["Acme"],
+        df=df,
+        match_column="name",
+        return_column="bvd_id_number",
+        remove_str=["A/S", "GmbH", "Inc"],
+        cut_off=90,
+        num_workers=1,
+    )
+
+    assert set(result["bvd_id_number"]) == {"DK111", "DE222", "US333", "DK999"}
+    assert result["Score"].tolist() == [100.0] * 4
+
+
+def test_fuzzy_match_pl_keeps_distinct_ids_in_large_score_path():
+    df = pl.DataFrame(
+        {"name": ["Acme", "Acme"], "bvd_id_number": ["DK999", "US888"]}
+    )
+
+    result = fuzzy_match_pl(
+        names=["Acmee"],
+        df=df,
+        match_column="name",
+        return_column="bvd_id_number",
+        cut_off=80,
+        max_cdist_cells=0,
+        num_workers=1,
+    )
+
+    assert set(result["bvd_id_number"]) == {"DK999", "US888"}
 
 
 def test_fuzzy_match_pl_returns_best_fuzzy_match_and_no_match_rows():
@@ -1701,6 +1785,31 @@ def test_search_company_names_prefers_polars_without_pandas_fallback(monkeypatch
     assert result["bvd_id_number"].tolist() == ["BVD1"]
     assert fake_search.set_data_product == "Firmographics (Monthly)"
     assert fake_search.set_table == "bvd_id_and_name"
+
+
+def test_search_company_names_returns_all_ids_for_best_name(monkeypatch):
+    class FakeSearch:
+        def _object_defaults(self):
+            pass
+
+        def polars_all(self, num_workers):
+            return (
+                pl.DataFrame(
+                    {
+                        "name": ["Acme", "Acme", "Nordic Foods"],
+                        "bvd_id_number": ["DK999", "US888", "DK444"],
+                    }
+                ),
+                ["firmographics.parquet"],
+            )
+
+    monkeypatch.setattr("moodys_datahub.tools.copy.deepcopy", lambda obj: FakeSearch())
+    monkeypatch.setattr(pd.DataFrame, "to_csv", lambda self, *args, **kwargs: None)
+
+    result = Sftp.search_company_names(object(), names=["Acme"], num_workers=1)
+
+    assert set(result["bvd_id_number"]) == {"DK999", "US888"}
+    assert len(result) == 2
 
 
 def test_search_company_names_falls_back_to_pandas_on_polars_load_error(monkeypatch):

@@ -1328,12 +1328,13 @@ def _fuzzy_match(args):
     for name in name_batch:
         # First, check if an exact match exists in the choices
         if name in choice_to_index:
-            match_index = choice_to_index[name]
-            match_value = df.iloc[match_index][match_column]
-            return_value = df.iloc[match_index][return_column]
-            results.append(
-                (name, name, 100, match_value, return_value)
-            )  # Exact match with score 100
+            match_indices = choice_to_index[name]
+            if isinstance(match_indices, int):
+                match_indices = [match_indices]
+            for match_index in match_indices:
+                match_value = df.iloc[match_index][match_column]
+                return_value = df.iloc[match_index][return_column]
+                results.append((name, name, 100, match_value, return_value))
         else:
             # Perform fuzzy matching if no exact match is found
             match_obj = process.extractOne(
@@ -1341,9 +1342,13 @@ def _fuzzy_match(args):
             )
             if match_obj:
                 match, score, match_index = match_obj
-                match_value = df.iloc[match_index][match_column]
-                return_value = df.iloc[match_index][return_column]
-                results.append((name, match, score, match_value, return_value))
+                match_indices = choice_to_index.get(match, match_index)
+                if isinstance(match_indices, int):
+                    match_indices = [match_indices]
+                for index in match_indices:
+                    match_value = df.iloc[index][match_column]
+                    return_value = df.iloc[index][return_column]
+                    results.append((name, match, score, match_value, return_value))
             else:
                 results.append((name, None, 0, None, None))
 
@@ -1388,8 +1393,14 @@ def fuzzy_query(
         names = remove_suffixes(names, remove_str)
         choices = remove_suffixes(choices, remove_str)
 
-    # Create a mapping of choice to index for fast exact match lookup
-    choice_to_index = {choice: i for i, choice in enumerate(choices)}
+    # Score each name once, while retaining every distinct identifier for it.
+    choice_to_index = defaultdict(list)
+    seen_pairs = set()
+    for index, (choice, identifier) in enumerate(zip(choices, df[return_column])):
+        key = (choice, None if pd.isna(identifier) else identifier)
+        if key not in seen_pairs:
+            seen_pairs.add(key)
+            choice_to_index[choice].append(index)
 
     # Determine the number of workers if not specified
     if not num_workers or num_workers < 0:
@@ -1518,28 +1529,33 @@ class CompanyNameFuzzyMatcher:
             self.normalize_company_name
         )
         source_df = source_df.dropna(subset=["BestMatch"]).reset_index(drop=True)
-        source_df["_prefix3"] = source_df["BestMatch"].map(
-            lambda value: self._block_key(value, 3)
+        source_df = source_df.drop_duplicates(
+            subset=["BestMatch", self.return_column], keep="last"
         )
-        source_df["_prefix1"] = source_df["BestMatch"].map(
-            lambda value: self._block_key(value, 1)
-        )
-        source_df["_name_len"] = source_df["BestMatch"].str.len()
-        source_df["_tokens"] = source_df["BestMatch"].map(self._tokens)
 
-        # Match the pandas exact-match behavior by keeping the last occurrence.
-        source_df = source_df.drop_duplicates(subset=["BestMatch"], keep="last")
-        source_df = source_df.reset_index(drop=True)
-        columns = [
-            self.match_column,
-            self.return_column,
-            "BestMatch",
-            "_prefix3",
-            "_prefix1",
-            "_name_len",
-            "_tokens",
+        records = {}
+        columns = ["BestMatch", self.match_column, self.return_column]
+        for best_match, original_name, identifier in source_df[columns].itertuples(
+            index=False, name=None
+        ):
+            if best_match not in records:
+                records[best_match] = {
+                    "BestMatch": best_match,
+                    "_prefix3": self._block_key(best_match, 3),
+                    "_prefix1": self._block_key(best_match, 1),
+                    "_name_len": len(best_match),
+                    "_tokens": self._tokens(best_match),
+                    "_entities": [],
+                }
+            records[best_match]["_entities"].append((original_name, identifier))
+        return list(records.values())
+
+    @staticmethod
+    def _matched_rows(search_string, candidate, score):
+        return [
+            (search_string, candidate["BestMatch"], score, original_name, identifier)
+            for original_name, identifier in candidate["_entities"]
         ]
-        return source_df[columns].to_dict("records")
 
     @staticmethod
     def _dedupe_indices(indices):
@@ -1607,14 +1623,8 @@ class CompanyNameFuzzyMatcher:
             best_positions = np.flatnonzero(row_scores == best_score)
             for position in best_positions:
                 candidate = self.records[candidate_indices[int(position)]]
-                rows_by_search[search_string].append(
-                    (
-                        search_string,
-                        candidate["BestMatch"],
-                        best_score,
-                        candidate[self.match_column],
-                        candidate[self.return_column],
-                    )
+                rows_by_search[search_string].extend(
+                    self._matched_rows(search_string, candidate, best_score)
                 )
         return rows_by_search
 
@@ -1648,15 +1658,9 @@ class CompanyNameFuzzyMatcher:
                 continue
             _, score, candidate_idx = best_match
             candidate = self.records[candidate_indices[candidate_idx]]
-            rows_by_search[search_string] = [
-                (
-                    search_string,
-                    candidate["BestMatch"],
-                    float(score),
-                    candidate[self.match_column],
-                    candidate[self.return_column],
-                )
-            ]
+            rows_by_search[search_string] = self._matched_rows(
+                search_string, candidate, float(score)
+            )
         return rows_by_search
 
     def search(self, names: list, cut_off: int = 50, num_workers: int = None):
@@ -1682,14 +1686,8 @@ class CompanyNameFuzzyMatcher:
         for search_string in search_names:
             exact_match = self.exact_lookup.get(search_string)
             if exact_match is not None:
-                matches.append(
-                    (
-                        search_string,
-                        search_string,
-                        100.0,
-                        exact_match[self.match_column],
-                        exact_match[self.return_column],
-                    )
+                matches.extend(
+                    self._matched_rows(search_string, exact_match, 100.0)
                 )
             else:
                 tiers = self._candidate_tiers(search_string)
