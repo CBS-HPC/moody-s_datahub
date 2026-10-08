@@ -235,8 +235,8 @@ def _validate_local_schema(
     if not required_columns:
         return [], []
 
-    local_file = next((Path(file) for file in files if Path(file).is_file()), None)
-    if local_file is None:
+    local_files = list(dict.fromkeys(Path(file) for file in files if Path(file).is_file()))
+    if not local_files:
         return [
             "Required columns were not validated because no source file is local. "
             "Dry-run does not download remote files."
@@ -248,21 +248,22 @@ def _validate_local_schema(
             "Required columns were not validated because schema discovery is unavailable."
         ], []
 
-    try:
-        available_columns = get_column_names(files=[str(local_file)])
-    except Exception as exc:
-        return [], [f"Unable to inspect local source schema: {exc}"]
-
-    missing_columns = [
-        column for column in required_columns if column not in available_columns
-    ]
-    if missing_columns:
-        return [], [
-            "Required columns were not found in the local source schema: "
-            f"{missing_columns}"
-        ]
-
-    return [], []
+    errors = []
+    for local_file in local_files:
+        try:
+            available_columns = get_column_names(files=[str(local_file)])
+        except Exception as exc:
+            errors.append(f"Unable to inspect local source schema '{local_file.name}': {exc}")
+            continue
+        missing_columns = [column for column in required_columns if column not in available_columns]
+        if missing_columns:
+            errors.append(
+                f"Required columns were not found in the local source schema '{local_file.name}': {missing_columns}"
+            )
+    warnings = []
+    if len(local_files) < len(set(files)):
+        warnings.append("Only local source schemas were validated; remote schemas are deferred without downloading.")
+    return warnings, errors
 
 
 def validate_backend_compatibility(

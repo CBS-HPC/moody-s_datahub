@@ -1,3 +1,4 @@
+import asyncio
 from copy import deepcopy
 from pathlib import Path
 
@@ -279,3 +280,40 @@ def test_raw_cache_pandas_preflight_does_not_claim_output_write(client, tmp_path
     assert report.ok
     assert not report.would_write
     assert report.destination is None
+
+
+def test_preflight_checks_required_columns_in_every_local_shard(client, tmp_path):
+    first = tmp_path / "first.parquet"
+    second = tmp_path / "second.parquet"
+    pd.DataFrame({"value": [1]}).to_parquet(first, index=False)
+    pd.DataFrame({"other": [2]}).to_parquet(second, index=False)
+    report = client.process_all(files=[str(first), str(second)], select_cols=["value"], dry_run=True)
+    assert not report.ok
+    assert any("second.parquet" in error and "value" in error for error in report.errors)
+    assert first.exists() and second.exists()
+
+
+def test_interactive_bvd_cancel_preserves_previous_filter(client, monkeypatch):
+    client._set_data_product = "Product"
+    client._set_table = "Table"
+    monkeypatch.setattr(client, "search_dictionary", lambda **kwargs: pd.DataFrame({"Column": ["bvd_id"]}))
+    client._select_cols = ["value"]
+    client.bvd_list = [["DK111"], "bvd_id"]
+    previous = deepcopy((client.bvd_list, client.select_cols))
+    client._interactive = True
+
+    class CancelQuestion:
+        def __init__(self, *args):
+            pass
+
+        async def display_widgets(self):
+            return "cancel"
+
+    monkeypatch.setattr("moodys_datahub.process._CustomQuestion", CancelQuestion)
+
+    async def scenario():
+        client.bvd_list = [["12345"], "bvd_id"]
+        await asyncio.sleep(0)
+
+    asyncio.run(scenario())
+    assert (client.bvd_list, client.select_cols) == previous
