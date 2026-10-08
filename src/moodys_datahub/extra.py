@@ -145,7 +145,10 @@ def fuzzy_match(
     matches = []
     if num_workers > 1:
         # Split the DataFrame according to the number of workers
-        df_chunks = np.array_split(df, num_workers)
+        df_chunks = [
+            df.iloc[indices]
+            for indices in np.array_split(np.arange(len(df)), num_workers)
+        ]
 
         # Prepare argument list for each worker (each gets the full names list and its own df_chunk)
         args_list = [

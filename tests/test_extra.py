@@ -53,9 +53,9 @@ def test_fuzzy_match_returns_exact_and_no_match_rows():
     assert exact_row["Score"].tolist() == [100]
     assert exact_row["bvd_id_number"].tolist() == ["BVD1"]
 
-    assert no_match_row["BestMatch"].tolist() == [None]
+    assert no_match_row["BestMatch"].isna().all()
     assert no_match_row["Score"].tolist() == [0]
-    assert no_match_row["bvd_id_number"].tolist() == [None]
+    assert no_match_row["bvd_id_number"].isna().all()
 
 
 def test_fuzzy_match_returns_best_fuzzy_match():
@@ -147,3 +147,41 @@ def test_fuzzy_match_parallel_branch_uses_pool(monkeypatch):
     assert captured == {"processes": 2, "batches": 2}
     assert result["BestMatch"].tolist() == ["acme ltd"]
     assert result["bvd_id_number"].tolist() == ["BVD1"]
+
+
+def test_parallel_fuzzy_chunks_remain_dataframes(monkeypatch):
+    import numpy as np
+
+    split = np.array_split
+
+    def split_indices(values, sections):
+        assert not isinstance(values, pd.DataFrame), (
+            "Split row indices, not a pandas container"
+        )
+        return split(values, sections)
+
+    class InlinePool:
+        def __init__(self, processes):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def map(self, function, arguments):
+            return [function(argument) for argument in arguments]
+
+    monkeypatch.setattr("moodys_datahub.extra.np.array_split", split_indices)
+    monkeypatch.setattr("moodys_datahub.extra.Pool", InlinePool)
+    frame = pd.DataFrame(
+        {"name": ["Acme", "Beta", "Acme"], "bvd_id": ["DK1", "DK2", "DK3"]},
+        index=[9, 3, 7],
+    )
+    options = dict(
+        names=["acme"], match_column="name", return_column="bvd_id", cut_off=100
+    )
+    expected = fuzzy_match(frame, num_workers=1, **options)
+    result = fuzzy_match(frame, num_workers=2, **options)
+    pd.testing.assert_frame_equal(result, expected)

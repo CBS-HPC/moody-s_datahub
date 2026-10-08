@@ -901,10 +901,10 @@ def test_fuzzy_match_pl_returns_best_fuzzy_match_and_no_match_rows():
     assert matched_rows["bvd_id_number"].tolist() == ["BVD1"]
     assert matched_rows["Score"].iloc[0] >= 70
 
-    assert no_match_rows["BestMatch"].tolist() == [None]
+    assert no_match_rows["BestMatch"].isna().all()
     assert no_match_rows["Score"].tolist() == [0.0]
     assert no_match_rows["name"].tolist() == [None]
-    assert no_match_rows["bvd_id_number"].tolist() == [None]
+    assert no_match_rows["bvd_id_number"].isna().all()
 
 
 def test_fuzzy_match_pl_widens_candidates_when_blocked_prefix_misses():

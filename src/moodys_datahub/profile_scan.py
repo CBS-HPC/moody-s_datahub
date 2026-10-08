@@ -285,7 +285,7 @@ def _scan_profile_files(
                             continue
                         values = chunk[column].dropna().astype(str).str.strip()
                         values = values[values != ""]
-                        matches = values.map(_looks_like_bvd_id)
+                        matches = values.map(_looks_like_bvd_id).astype(bool)
                         column_statistics[column]["bvd_id_like_count"] += int(
                             matches.sum()
                         )

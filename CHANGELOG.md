@@ -44,6 +44,8 @@ All notable changes to this project should be documented in this file.
 - Windows downloads use bounded threads. Auto worker defaults never resolve to
   zero on small-memory hosts. Avro projection and Excel/IPC chunk sizing work.
 - Python 3.9 imports no longer evaluate unsupported union annotations.
+- Pandas 3 compatibility: parallel fuzzy helpers split row indices to retain
+  DataFrame chunks, and empty BvD-like profiling aggregates count zero safely.
 
 ### Maintenance
 - Added regression coverage for source ownership, row/filter parity, export
