@@ -360,3 +360,33 @@ def test_csv_projects_columns_and_filters_before_concatenating(tmp_path, monkeyp
 
     pd.testing.assert_frame_equal(result, expected)
     assert concat_sizes == [[0, 2]]
+
+
+@pytest.mark.parametrize("workers", [1, 4])
+def test_mixed_csv_batches_preserve_textual_identifiers(tmp_path, workers):
+    source = tmp_path / "identifiers.csv"
+    source.write_text(
+        "identifier,value\n" + "00123,1\n" * 100_000 + "ABC,2\n", encoding="utf-8"
+    )
+    expected = pd.read_csv(source, low_memory=False).query("identifier == '00123'")
+    result = _load_csv_table(
+        str(source), bvd_query="identifier == '00123'", num_workers=workers
+    )
+    assert len(result) == 100_000
+    assert result["identifier"].eq("00123").all()
+    pd.testing.assert_frame_equal(result, expected)
+
+
+def test_mixed_numeric_csv_batches_match_whole_file_query(tmp_path):
+    source = tmp_path / "numbers.csv"
+    source.write_text("value\n" + "1\n" * 100_000 + "1.5\n", encoding="utf-8")
+    expected = pd.read_csv(source, low_memory=False).query("value >= 1")
+    calls = []
+
+    def query(frame):
+        calls.append(len(frame))
+        return frame.query("value >= 1")
+
+    result = _load_csv_table(str(source), query=query, num_workers=1)
+    pd.testing.assert_frame_equal(result, expected)
+    assert calls == [100_001]

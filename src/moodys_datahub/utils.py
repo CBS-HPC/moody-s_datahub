@@ -773,8 +773,13 @@ def _load_csv_table(
     # check if the requested columns exist
     select_cols, col_index = check_cols(file, select_cols)
 
-    def filtered_chunks(reader):
+    inferred_dtypes = defaultdict(set)
+
+    def filtered_chunks(reader, track_dtypes=False):
         for chunk in reader:
+            if track_dtypes:
+                for column, dtype in chunk.dtypes.items():
+                    inferred_dtypes[column].add(dtype)
             yield _filter_csv_table(
                 chunk, file, select_cols, col_index, date_query, bvd_query, None, None
             )
@@ -784,7 +789,33 @@ def _load_csv_table(
         with pd.read_csv(
             file, low_memory=False, usecols=select_cols or None, chunksize=100_000
         ) as reader:
-            df = pd.concat(filtered_chunks(reader))
+            df = pd.concat(filtered_chunks(reader, track_dtypes=True))
+
+        # Chunk-local inference can turn textual IDs into numbers. If types
+        # differ, reparse source bytes with consistent types before filtering.
+        consistent_dtypes = {}
+        for column, dtypes in inferred_dtypes.items():
+            if len(dtypes) < 2:
+                continue
+            dtype = str
+            if all(
+                pd.api.types.is_numeric_dtype(item)
+                and not pd.api.types.is_bool_dtype(item)
+                for item in dtypes
+            ):
+                dtype = np.result_type(*dtypes)
+                if dtype.kind == "f" and all(item.kind in "iu" for item in dtypes):
+                    dtype = str
+            consistent_dtypes[column] = dtype
+        if consistent_dtypes:
+            with pd.read_csv(
+                file,
+                low_memory=False,
+                usecols=select_cols or None,
+                chunksize=100_000,
+                dtype=consistent_dtypes,
+            ) as reader:
+                df = pd.concat(filtered_chunks(reader))
     except Exception as e:
         raise ValueError(f"Error while reading chunk: {e}") from e
 
