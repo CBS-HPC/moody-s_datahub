@@ -710,7 +710,7 @@ def test_table_overview_reads_sftp_exports_and_resolves_unknown_products(
     assert set(df["Data Product"]) == {"Known Product", "Resolved Product"}
     assert set(df["Table"]) == {"main_table", "interim_usd", "mystery_table"}
     assert "prod_dir/export_old" in to_delete
-    assert "prod_dir/tnfs/old.tnf" in fake_sftp.removed
+    assert fake_sftp.removed == []
 
 
 def test_table_overview_uses_posix_remote_paths_on_windows(monkeypatch, tmp_path):
@@ -781,7 +781,7 @@ def test_table_overview_uses_posix_remote_paths_on_windows(monkeypatch, tmp_path
     assert set(df["Table"]) == {"main_table"}
     assert not df["Base Directory"].str.contains("\\\\").any()
     assert "prod_dir/export_old" in to_delete
-    assert "prod_dir/tnfs/old.tnf" in fake_sftp.removed
+    assert fake_sftp.removed == []
 
 
 def test_table_overview_keeps_product_prefix_for_tnf_datafolder(monkeypatch, tmp_path):

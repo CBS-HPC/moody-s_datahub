@@ -188,9 +188,14 @@ def test_public_selection_switches_table_and_export_cache(client, monkeypatch):
 
     class FakeSftp:
         def exists(self, path):
-            return path in inventory["Base Directory"].values
+            return (
+                path in inventory["Base Directory"].values
+                or path in inventory["Export"].values
+            )
 
         def listdir(self, path):
+            if path in inventory["Export"].values:
+                return inventory.loc[inventory["Export"] == path, "Table"].tolist()
             assert path in inventory["Base Directory"].values
             return ["partition.csv"]
 
@@ -202,10 +207,11 @@ def test_public_selection_switches_table_and_export_cache(client, monkeypatch):
 
     monkeypatch.setattr(client, "_connect", lambda: FakeSftp())
     paths = []
-    for table, timestamp in (
-        ("table_old", "2025-01-01_00-00-00"),
-        ("table_new", "2026-10-08_00-00-00"),
+    for table, version, timestamp in (
+        ("table_old", "old", "2025-01-01_00-00-00"),
+        ("table_new", "new", "2026-10-08_00-00-00"),
     ):
+        client.remote_path = f"/export/{version}"
         client.set_table = table
         assert client.local_path is None
         paths.append(client.resolve_cache_file("partition.csv"))
@@ -217,7 +223,7 @@ def test_public_selection_switches_table_and_export_cache(client, monkeypatch):
         )
         assert client.download_all(dry_run=True).files == [paths[-1]]
         # Runtime initialization for the old table must be invalidated when
-        # the next table is selected through the public setter.
+        # the next export/table is selected through the public setters.
         client._check_args(["partition.csv"])
         assert Path(client.local_path) == Path(paths[-1]).parent
 

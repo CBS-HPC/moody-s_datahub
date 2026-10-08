@@ -8,6 +8,7 @@ import time
 from datetime import datetime
 from multiprocessing import cpu_count
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Literal
 
 import pandas as pd
@@ -142,7 +143,13 @@ class _Connection:
             product_key = product_path.strip("/")
             data_key = data_folder.strip("/")
 
-            if data_key == product_key or data_key.startswith(f"{product_key}/"):
+            if data_folder.startswith("/"):
+                candidates = [
+                    data_folder,
+                    _join_remote_path(product_path, data_folder),
+                    data_key,
+                ]
+            elif data_key == product_key or data_key.startswith(f"{product_key}/"):
                 candidates = [data_folder, data_key]
             else:
                 candidates = [
@@ -209,33 +216,22 @@ class _Connection:
                     mtime = file_attributes.st_mtime
                     if mtime > newest_mtime:
                         newest_mtime = mtime
-                        if newest_tnfs_file is not None:
-                            sftp.remove(newest_tnfs_file)
                         newest_tnfs_file = tnfs_file_path
-                    else:
-                        sftp.remove(tnfs_file_path)
 
                 if newest_tnfs_file:
                     time_stamp.append(
                         time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(newest_mtime))
                     )
-                    if self._local_path is not None:
-                        local_file = str(Path(self._local_path) / "temp.tnf")
-                        # local_file = self._local_path + "/" +  "temp.tnf"
-                    else:
-                        local_file = "temp.tnf"
-                    sftp.get(newest_tnfs_file, local_file)
-
-                    # Read the contents of the newest .tnfs file
-                    with open(local_file, "r") as f:
-                        tnfs_data = json.load(f)
+                    # Own the download location and clean it on success or failure.
+                    with TemporaryDirectory(prefix="moodys-datahub-") as temp_dir:
+                        local_file = str(Path(temp_dir) / "marker.tnf")
+                        sftp.get(newest_tnfs_file, local_file)
+                        with open(local_file, encoding="utf-8") as f:
+                            tnfs_data = json.load(f)
                         newest_export = resolve_export_path(
                             sftp, product_path, tnfs_data.get("DataFolder")
                         )
-                        # newest_export = product_path + "/" + tnfs_data.get('DataFolder')
                         newest_exports.append(newest_export)
-
-                    os.remove(local_file)
 
                     for export_path in export_paths:
                         # export_path = str(Path(product_path) / export_path)
@@ -256,7 +252,11 @@ class _Connection:
             return df, to_delete
 
         def check_local(local_path: str = None):
-            product_paths = os.listdir(local_path)
+            product_paths = [
+                name
+                for name in os.listdir(local_path)
+                if (Path(local_path) / name).is_dir()
+            ]
             newest_exports = []
             time_stamps = []
             data_products = []
@@ -348,7 +348,17 @@ class _Connection:
                     )
 
             # Create a DataFrame from the list of dictionaries
-            df = pd.DataFrame(data)
+            df = pd.DataFrame(
+                data,
+                columns=[
+                    "Data Product",
+                    "Table",
+                    "Base Directory",
+                    "Timestamp",
+                    "Export",
+                    "Top-level Directory",
+                ],
+            )
 
             return df
 

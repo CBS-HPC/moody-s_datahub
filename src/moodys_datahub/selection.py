@@ -53,29 +53,35 @@ class _Selection(_Connection):
         if path is None:
             self._object_defaults()
 
-        elif path is not self.remote_path:
-            self._local_files = []
-            self._local_path = None
-            self._time_stamp = None
-
+        elif path != self.remote_path:
             inventory = self._tables_backup
             if inventory is None:
                 inventory = self._tables_available
             selection_path = (
                 str(Path(path)) if self._local_repo else _normalize_remote_path(path)
             )
+            if selection_path is None and not getattr(self, "_interactive", True):
+                raise ValueError(f"Remote path is invalid: {path!r}")
             metadata = inventory.loc[
                 (inventory["Base Directory"] == selection_path)
                 | (inventory["Export"] == selection_path)
             ]
             # Prefer export metadata before _check_path falls back to file stat.
-            if not metadata.empty:
-                self._time_stamp = metadata["Timestamp"].iloc[0]
+            previous_timestamp = self._time_stamp
+            self._time_stamp = None if metadata.empty else metadata["Timestamp"].iloc[0]
+            try:
+                remote_files, remote_path = self._check_path(
+                    path, None if self._local_repo else "remote"
+                )
+                if remote_path is None and not getattr(self, "_interactive", True):
+                    raise ValueError(f"Remote path is invalid: {path!r}")
+            except Exception:
+                self._time_stamp = previous_timestamp
+                raise
 
-            if self._local_repo:
-                self._remote_files, self._remote_path = self._check_path(path, None)
-            else:
-                self._remote_files, self._remote_path = self._check_path(path, "remote")
+            self._local_files = []
+            self._local_path = None
+            self._remote_files, self._remote_path = remote_files, remote_path
 
             if self._remote_path:
                 df = inventory.loc[inventory["Base Directory"] == self._remote_path]
@@ -84,14 +90,16 @@ class _Selection(_Connection):
                     df = inventory.loc[inventory["Export"] == self._remote_path]
                     self._set_table = None
                 else:
-                    if self._set_data_product not in df["Data Product"].values:
-                        self._set_data_product = df["Data Product"].iloc[0]
-                        self._tables_available = df
-
                     if self._set_table not in df["Table"].values:
                         self._set_table = df["Table"].iloc[0]
 
                 if not df.empty:
+                    if self._set_data_product not in df["Data Product"].values:
+                        self._set_data_product = df["Data Product"].iloc[0]
+                    # Keep every table in the chosen export, not the prior catalog.
+                    self._tables_available = inventory.loc[
+                        inventory["Export"].isin(df["Export"])
+                    ].copy()
                     self._time_stamp = df["Timestamp"].iloc[0]
 
     @property
@@ -110,43 +118,52 @@ class _Selection(_Connection):
     def set_data_product(self, product):
         """Set the current data product and reset dependent state as needed."""
 
-        if (product is None) or (product is not self._set_data_product):
-            self._tables_available = self._tables_backup.copy()
-
         if product is None:
+            self._tables_available = self._tables_backup.copy()
             self._object_defaults()
+            return
 
-        if product is not self._set_data_product:
-            df = self._tables_available.query(f"`Data Product` == '{product}'")
+        if product != self._set_data_product:
+            inventory = self._tables_backup
+            df = inventory.loc[inventory["Data Product"] == product]
 
             if df.empty:
-                df = self._tables_available.query(
-                    f"`Data Product`.str.contains('{product}', case=False, na=False,regex=False)"
-                )
+                df = inventory.loc[
+                    inventory["Data Product"].str.contains(
+                        str(product), case=False, na=False, regex=False
+                    )
+                ]
                 if df.empty:
-                    print(
-                        "No such Data Product was found. Please set right data product"
+                    message = (
+                        f"No such Data Product was found for {product!r}. "
+                        "Please set the right data product."
                     )
                 else:
-                    matches = df[["Data Product"]].drop_duplicates()
-                    if len(matches) > 1:
-                        print(
-                            f"Multiple data products partially match '{product}' : {matches['Data Product'].tolist()}. Please set right data product"
-                        )
-                    else:
-                        print(
-                            f"One data product partially match '{product}' : {matches['Data Product'].tolist()}. Please set right data product"
-                        )
+                    matches = df["Data Product"].drop_duplicates().tolist()
+                    match_description = (
+                        "Multiple data products partially match"
+                        if len(matches) > 1
+                        else "One data product partially match"
+                    )
+                    message = (
+                        f"{match_description} '{product}' : {matches}. "
+                        "Please set right data product"
+                    )
+                if not getattr(self, "_interactive", True):
+                    raise ValueError(message)
+                self._tables_available = inventory.copy()
+                print(message)
 
             elif len(df["Export"].unique()) > 1:
                 matches = df[["Data Product", "Export"]].drop_duplicates()
-
-                print(
-                    f"Multiple version of '{product}' are detected: {matches['Data Product'].tolist()} with export paths ('Export') {matches['Export'].tolist()} .Please Set the '.remote_path' property with the correct 'Export' Path"
-                )
+                message = f"Multiple version of '{product}' are detected: {matches['Data Product'].tolist()} with export paths ('Export') {matches['Export'].tolist()} .Please Set the '.remote_path' property with the correct 'Export' Path"
+                if not getattr(self, "_interactive", True):
+                    raise ValueError(message)
+                self._tables_available = inventory.copy()
+                print(message)
             else:
                 self._object_defaults()
-                self._tables_available = df
+                self._tables_available = df.copy()
                 self._set_data_product = product
                 self._time_stamp = df["Timestamp"].iloc[0]
 
@@ -160,18 +177,23 @@ class _Selection(_Connection):
 
         if table is None:
             self._object_defaults()
-        elif table is not self._set_table:
-            if self._set_data_product is None:
-                df = self._tables_available.query(f"`Table` == '{table}'")
-            else:
-                df = self._tables_available.query(
-                    f"`Table` == '{table}' &  `Data Product` == '{self._set_data_product}'"
-                )
+        elif table != self._set_table:
+            df = self._tables_available.loc[self._tables_available["Table"] == table]
+            if self._set_data_product is not None:
+                df = df.loc[df["Data Product"] == self._set_data_product]
 
             if df.empty:
-                df = self._tables_available.query(
-                    f"`Table`.str.contains('{table}', case=False, na=False,regex=False)"
-                )
+                if not getattr(self, "_interactive", True):
+                    raise ValueError(
+                        f"No exact Table match was found for {table!r} in the active "
+                        "catalog. Choose an exact table name from tables_available(); "
+                        "to change exports, set remote_path explicitly first."
+                    )
+                df = self._tables_available.loc[
+                    self._tables_available["Table"].str.contains(
+                        str(table), case=False, na=False, regex=False
+                    )
+                ]
                 if len(df) > 1:
                     matches = df[["Data Product", "Table"]].drop_duplicates()
                     print(
@@ -181,6 +203,11 @@ class _Selection(_Connection):
                     print("No such Table was found. Please set right table")
                 self._set_table = None
             elif len(df) > 1:
+                if not getattr(self, "_interactive", True):
+                    raise ValueError(
+                        f"Multiple tables match {table!r}. Set set_data_product and "
+                        "remote_path explicitly to select one export."
+                    )
                 if self._set_data_product is None:
                     matches = df[["Data Product", "Table"]].drop_duplicates()
                     print(
@@ -276,16 +303,9 @@ class _Selection(_Connection):
                     print(f"Remote path is invalid: '{path}'")
                     path = None
 
-            if len(files) > 1 and any(file.endswith(".csv") for file in files):
-                if self._set_table:
-                    matched_file = next(
-                        (
-                            file
-                            for file in files
-                            if os.path.splitext(file)[0] == self._set_table
-                        ),
-                        None,
-                    )
+            if len(files) > 1 and self._set_table:
+                matched_file = f"{self._set_table}.csv"
+                if matched_file in files:
                     files = [matched_file]
 
             if mode == "remote" and not self._time_stamp:
