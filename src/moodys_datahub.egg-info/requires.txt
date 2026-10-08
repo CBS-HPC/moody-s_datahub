@@ -14,5 +14,5 @@ tqdm
 [dev]
 build
 pytest
-ruff
+ruff==0.16.10
 twine
