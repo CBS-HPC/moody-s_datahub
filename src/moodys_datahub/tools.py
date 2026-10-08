@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import copy
 import importlib.resources as pkg_resources
 import os

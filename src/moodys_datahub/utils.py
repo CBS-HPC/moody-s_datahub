@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import os
 import posixpath
@@ -10,7 +12,7 @@ from functools import lru_cache
 from math import ceil
 from multiprocessing import Pool, cpu_count
 from pathlib import Path
-from typing import Callable, Literal
+from typing import Callable, Literal, Optional
 
 import fastavro
 import numpy as np
@@ -25,7 +27,7 @@ from tqdm import tqdm
 
 from .load_data import _country_codes
 
-SaveFormat = Literal["xlsx", "csv"] | None
+SaveFormat = Optional[Literal["xlsx", "csv"]]
 
 
 def _normalize_remote_path(path):
