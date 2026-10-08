@@ -277,7 +277,9 @@ first file and accepts a filename, `Path`, list, or file index.
   permits cleanup of managed inputs after successful processing.
 - `file_scope="all_files"` profiling preserves preexisting files, cleans its own
   staged downloads and scratch database on failure, and checks schema drift in
-  empty Parquet shards too.
+  empty Parquet shards too. Once a staged path is released, later files created
+  at that path are not reclaimed. Profiling dry-run uses the selected export
+  when changing tables within the same product.
 - Remote discovery preserves marker files and uses a unique local temporary
   directory. Export deletion remains a separately authorized cleanup operation.
 - Invalid or ambiguous non-interactive selections raise rather than retaining
@@ -289,6 +291,9 @@ first file and accepts a filename, `Path`, list, or file index.
 
 Pandas CSV parsing uses logical-record batches in the current file worker, not
 nested row-parser pools. Multiple files can still use bounded file workers.
+Mixed inferred types cause a second bounded parse with consistent column types,
+preserving leading zeros in textual identifiers. Projection keeps the columns
+needed by structured BvD filters on both pandas and Polars paths.
 Windows downloads use bounded threads; Unix downloads retain process workers.
 Polars' process-wide native thread pool is not resized by `num_workers`: set
 `POLARS_MAX_THREADS` before import if an explicit CPU cap is required. Avoid

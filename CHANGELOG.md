@@ -19,6 +19,8 @@ All notable changes to this project should be documented in this file.
   local inputs are no longer deleted or replaced by unrelated remote size checks.
 - All-files profiling preserves preexisting managed caches, cleans only owned
   staging on success/failure, and checks schema drift in empty Parquet shards.
+  Cleanup relinquishes each staged path after release, preserving later files
+  created at that path. Profiling dry-run retains the selected export catalog.
 - Discovery uses an owned temporary marker file and no longer deletes remote
   marker files before cleanup authorization. Local discovery accepts empty
   repositories and ignores ordinary root files.
@@ -29,6 +31,10 @@ All notable changes to this project should be documented in this file.
   and final rows using bounded logical-record batches without nested pools.
   Projection and date/BvD filters are applied before retained chunks are
   concatenated; custom queries run on the retained whole-file table.
+  Mixed inferred column types trigger a consistent-type re-read so filtering
+  does not lose leading zeros in textual identifiers across parser batches.
+- Structured BvD queries retain their required columns during pandas projection,
+  matching the Polars path and preflight reports.
 - Batch AND/OR filters survive product/table resets. Missing templates are
   created at their requested paths without overwriting unrelated defaults.
 - Non-interactive invalid/ambiguous selections fail explicitly, failed BvD/date

@@ -134,7 +134,9 @@ with no table selection uses `<output_root>/<timestamp>_output` unless an explic
 The pandas CSV fallback parses logical records in bounded batches within each
 file worker, without nested parser pools. It retains quoted multiline records,
 headers, and final/remainder rows. `num_workers` is an upper worker budget, not a
-promise to use every CPU. Prefer Polars for supported high-volume workloads;
+promise to use every CPU. If column types differ between parser batches, the
+file is re-read with consistent types to preserve textual identifiers such as
+IDs with leading zeros. Prefer Polars for supported high-volume workloads;
 its native CPU pool is configured separately with `POLARS_MAX_THREADS` before
 importing Polars or this package. Concurrent extractions sharing a cache are not
 yet supported.
