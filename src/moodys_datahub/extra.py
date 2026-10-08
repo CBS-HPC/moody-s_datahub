@@ -61,8 +61,10 @@ def national_identifer(obj, national_ids: list = None, num_workers: int = -1):
     new_obj.set_table = "key_financials_eur"
 
     select_cols = ["bvd_id_number", "national_id_number"]
-    query = pl.col("national_id_number").cast(pl.Utf8, strict=False).is_in(
-        [str(item) for item in national_ids]
+    query = (
+        pl.col("national_id_number")
+        .cast(pl.Utf8, strict=False)
+        .is_in([str(item) for item in national_ids])
     )
 
     # Execute

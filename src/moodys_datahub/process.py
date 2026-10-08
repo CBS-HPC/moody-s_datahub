@@ -56,12 +56,14 @@ from .widgets import (
 def _metadata_table_mask(values: pd.Series, table: str) -> pd.Series:
     target = str(table).strip().casefold()
     return values.map(
-        lambda value: target
-        in {
-            item.strip().casefold()
-            for item in str(value).split(",")
-            if item.strip()
-        }
+        lambda value: (
+            target
+            in {
+                item.strip().casefold()
+                for item in str(value).split(",")
+                if item.strip()
+            }
+        )
     )
 
 
@@ -70,9 +72,9 @@ def _filter_metadata_table(df: pd.DataFrame, table: str) -> pd.DataFrame:
     if exact.any():
         return df.loc[exact]
     return df.loc[
-        df["Table"].astype("string").str.contains(
-            str(table), case=False, na=False, regex=False
-        )
+        df["Table"]
+        .astype("string")
+        .str.contains(str(table), case=False, na=False, regex=False)
     ]
 
 
@@ -96,6 +98,7 @@ class _Process(_Selection):
 
     def _set_bvd_list(self, bvd_list=None):
         previous = deepcopy((self._bvd_list, self._select_cols))
+
         def load_bvd_list(file_path, df_bvd, delimiter="\t"):
             # Get the file extension
             file_extension = file_path.split(".")[-1].lower()
@@ -372,7 +375,8 @@ class _Process(_Selection):
 
         mode = "prefix"
         if not (
-            isinstance(self._bvd_list[2], str) and ".str.startswith(" in self._bvd_list[2]
+            isinstance(self._bvd_list[2], str)
+            and ".str.startswith(" in self._bvd_list[2]
         ):
             mode = "exact"
 
@@ -400,7 +404,9 @@ class _Process(_Selection):
         return list(dict.fromkeys(columns)) if columns else None
 
     def _required_filter_columns(self, bvd_query=None):
-        columns = _check_list_format(None, self._active_bvd_columns(), self._time_period[2])
+        columns = _check_list_format(
+            None, self._active_bvd_columns(), self._time_period[2]
+        )
 
         if isinstance(bvd_query, dict):
             if any(key in bvd_query for key in ("base", "and", "or")):
@@ -425,7 +431,9 @@ class _Process(_Selection):
 
         if previous_required:
             self._select_cols = [
-                column for column in self._select_cols if column not in previous_required
+                column
+                for column in self._select_cols
+                if column not in previous_required
             ]
 
         self._select_cols = _check_list_format(
@@ -582,7 +590,11 @@ class _Process(_Selection):
                     "Columns:",
                     'Select "date" Column to filtrate',
                     _select_date,
-                    [self._time_period, self._select_cols, self._required_filter_columns()],
+                    [
+                        self._time_period,
+                        self._select_cols,
+                        self._required_filter_columns(),
+                    ],
                 )
                 return
 
@@ -724,9 +736,9 @@ class _Process(_Selection):
                     "No dictionary metadata was found for this table and source "
                     "schema discovery failed."
                 ) from exc
-            definition = ["Source-schema column; dictionary definition unavailable"] * len(
-                column
-            )
+            definition = [
+                "Source-schema column; dictionary definition unavailable"
+            ] * len(column)
         else:
             column = table_metadata["Column"].tolist()
             definition = table_metadata["Definition"].tolist()
@@ -838,7 +850,9 @@ class _Process(_Selection):
                 return df
 
             if save_to:
-                print(f"The following query was executed: dictionary search for {search_word}")
+                print(
+                    f"The following query was executed: dictionary search for {search_word}"
+                )
 
         _save_to(df, "dict_search", save_to)
 
@@ -930,7 +944,9 @@ class _Process(_Selection):
 
         default_selection = files is None
         if files is None:
-            if not dry_run and (self._set_data_product is None or self._set_table is None):
+            if not dry_run and (
+                self._set_data_product is None or self._set_table is None
+            ):
                 self.select_data()
             files = list(getattr(self, "_remote_files", []))[:1]
         elif isinstance(files, int):
@@ -1002,7 +1018,10 @@ class _Process(_Selection):
             return None
 
         mode = "exact"
-        if isinstance(self._bvd_list[2], str) and ".str.startswith(" in self._bvd_list[2]:
+        if (
+            isinstance(self._bvd_list[2], str)
+            and ".str.startswith(" in self._bvd_list[2]
+        ):
             mode = "prefix"
 
         return [self._bvd_list[0], self._bvd_list[1], mode]
@@ -1046,7 +1065,9 @@ class _Process(_Selection):
         if mode not in ["exact", "prefix"]:
             raise ValueError("BvD filter mode must be 'exact' or 'prefix'.")
 
-        pandas_bvd_query = _construct_query(columns, values, search_type=mode == "prefix")
+        pandas_bvd_query = _construct_query(
+            columns, values, search_type=mode == "prefix"
+        )
         polars_bvd_query = [values, columns, mode]
 
         return pandas_bvd_query, polars_bvd_query
@@ -1212,7 +1233,8 @@ class _Process(_Selection):
             file_names = [elem[1] for elem in lists]
             file_names = [
                 path
-                for file_name in file_names if file_name is not None
+                for file_name in file_names
+                if file_name is not None
                 for path in (file_name if isinstance(file_name, list) else [file_name])
             ]
 
@@ -1546,7 +1568,9 @@ class _Process(_Selection):
             for file in files
             if not self._local_file_ready(
                 self._file_exist(file)[0],
-                remote_size=remote_sizes.get(os.path.basename(file)) if file in managed_files else None,
+                remote_size=remote_sizes.get(os.path.basename(file))
+                if file in managed_files
+                else None,
             )
         ]
 
@@ -1659,7 +1683,9 @@ class _Process(_Selection):
         local_file, flag = self._file_exist(file)
         if flag:
             if not self._local_file_ready(local_file):
-                raise ValueError(f"Explicit local source is empty or incomplete: {local_file}")
+                raise ValueError(
+                    f"Explicit local source is empty or incomplete: {local_file}"
+                )
             return local_file, flag
         if remote_size is None:
             remote_size = self._remote_file_sizes([file]).get(os.path.basename(file))
@@ -1692,9 +1718,7 @@ class _Process(_Selection):
                         )
                         if local_size == 0:
                             os.remove(local_file)
-                            raise ValueError(
-                                f"Downloaded file is empty: {local_file}"
-                            )
+                            raise ValueError(f"Downloaded file is empty: {local_file}")
                         if (
                             expected_remote_size is not None
                             and local_size != expected_remote_size
@@ -1819,7 +1843,9 @@ class _Process(_Selection):
                 if df is not None:
                     dfs.append(df)
                 elif file_name is not None:
-                    file_names.extend(file_name if isinstance(file_name, list) else [file_name])
+                    file_names.extend(
+                        file_name if isinstance(file_name, list) else [file_name]
+                    )
             except ValueError as e:
                 errors.append(f"{file}: {e}")
 
@@ -1913,15 +1939,22 @@ class _Process(_Selection):
         if isinstance(files, (str, os.PathLike)):
             files = [files]
         if not isinstance(files, (list, tuple)) or not files:
-            raise ValueError("'files' must be a non-empty filename or list of filenames")
+            raise ValueError(
+                "'files' must be a non-empty filename or list of filenames"
+            )
         files = [os.fspath(file) for file in files]
         _, missing_files, _, errors = _resolve_files(self, files)
         if missing_files or errors:
-            raise ValueError("Requested files cannot be resolved: " + "; ".join([*errors, *missing_files]))
+            raise ValueError(
+                "Requested files cannot be resolved: "
+                + "; ".join([*errors, *missing_files])
+            )
         if not self._local_path and any(not os.path.exists(file) for file in files):
             self.local_path = _candidate_local_path(self, required=True)
 
-        destination, _, _ = _resolve_destination(self, destination, write_required=bool(flag))
+        destination, _, _ = _resolve_destination(
+            self, destination, write_required=bool(flag)
+        )
 
         if self.concat_files is False and destination is not None:
             if not os.path.exists(destination):
@@ -1986,8 +2019,15 @@ class _Process(_Selection):
         has_bvd_query = bvd_query is not None
 
         flag = (
-            any([has_select_cols, has_query, has_date_query, has_bvd_query,
-                 any(os.path.isfile(file) for file in files)])
+            any(
+                [
+                    has_select_cols,
+                    has_query,
+                    has_date_query,
+                    has_bvd_query,
+                    any(os.path.isfile(file) for file in files),
+                ]
+            )
             and self.output_format
         )
         files, destination = self._check_args(files, destination, flag)

@@ -396,6 +396,7 @@ def test_get_column_names_falls_back_to_file_schema_when_dictionary_is_empty(
 
     assert out == ["col_a", "col_b"]
 
+
 def test_orbis_to_moodys_maps_known_headers_and_returns_missing(tmp_path, monkeypatch):
     file_path = tmp_path / "orbis.xlsx"
     pd.DataFrame(
@@ -429,9 +430,7 @@ def test_search_country_codes_filters_with_custom_columns(monkeypatch, capsys):
 
     monkeypatch.setattr(
         "moodys_datahub.process._country_codes",
-        lambda: pd.DataFrame(
-            {"Country": ["Denmark", "Congo"], "Code": ["DK", "CG"]}
-        ),
+        lambda: pd.DataFrame({"Country": ["Denmark", "Congo"], "Code": ["DK", "CG"]}),
     )
 
     out = proc.search_country_codes(

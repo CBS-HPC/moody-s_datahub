@@ -278,7 +278,9 @@ def test_csv_reader_is_bounded_and_does_not_create_nested_pools(
 
 
 def _keep_global_maximum(frame, minimum):
-    return frame.loc[(frame["value"] == frame["value"].max()) & (frame["id"] >= minimum)]
+    return frame.loc[
+        (frame["value"] == frame["value"].max()) & (frame["id"] >= minimum)
+    ]
 
 
 @pytest.mark.parametrize("query", ["value >= 99998", _keep_global_maximum])
@@ -341,7 +343,9 @@ def test_csv_projects_columns_and_filters_before_concatenating(tmp_path, monkeyp
 
     def selective_concat(frames, *args, **kwargs):
         batches = list(frames)
-        assert all(set(batch.columns) <= set(options["select_cols"]) for batch in batches)
+        assert all(
+            set(batch.columns) <= set(options["select_cols"]) for batch in batches
+        )
         assert all(
             batch.empty or batch.columns.tolist() == options["select_cols"]
             for batch in batches

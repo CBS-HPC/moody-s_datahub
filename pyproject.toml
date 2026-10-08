@@ -53,7 +53,7 @@ Issues = "https://github.com/CBS-HPC/moody-s_datahub/issues"
 dev = [
     "build",
     "pytest",
-    "ruff",
+    "ruff==0.16.10",
     "twine",
 ]
 

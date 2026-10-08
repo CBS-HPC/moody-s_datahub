@@ -155,6 +155,7 @@ def profile_all_files(
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Profile all shards, preserving existing files and cleaning owned staging."""
     with ExitStack() as cleanup:
+
         def resolve_owned_file(file: str) -> tuple[Path, bool]:
             path, preexisting = resolve_file(file)
             if not preexisting:

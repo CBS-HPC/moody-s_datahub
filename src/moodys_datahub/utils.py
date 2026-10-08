@@ -675,9 +675,7 @@ def _read_csv_chunk(params):
     ) = params
     try:
         skiprows = 0 if chunk_size is None else chunk_idx * chunk_size
-        df = pd.read_csv(
-            file, low_memory=False, skiprows=skiprows, nrows=chunk_size
-        )
+        df = pd.read_csv(file, low_memory=False, skiprows=skiprows, nrows=chunk_size)
     except Exception as e:
         raise ValueError(f"Error while reading chunk: {e}") from e
 
@@ -1046,7 +1044,9 @@ def _normalize_bvd_clause(clause):
         columns = [columns]
 
     values = [value for value in values if value is not None and str(value).strip()]
-    columns = [column for column in columns if column is not None and str(column).strip()]
+    columns = [
+        column for column in columns if column is not None and str(column).strip()
+    ]
 
     if not values or not columns:
         return None
@@ -1141,7 +1141,9 @@ def _build_bvd_filter_query(base_clause=None, and_clauses=None, or_clauses=None)
     and_query = _build_bvd_clause_group_and_query(and_clauses)
     or_query = _build_bvd_clause_group_query(or_clauses)
 
-    base_parts = [f"({query})" for query in [base_query, and_query] if query is not None]
+    base_parts = [
+        f"({query})" for query in [base_query, and_query] if query is not None
+    ]
     base_and_query = " & ".join(base_parts) if base_parts else None
 
     if base_and_query is not None and or_query is not None:
@@ -1175,7 +1177,9 @@ def _build_bvd_clause_expr(clause):
         if clause["mode"] == "exact":
             exprs.append(col_expr.is_in(clause["values"]))
         else:
-            exprs.extend([col_expr.str.starts_with(value) for value in clause["values"]])
+            exprs.extend(
+                [col_expr.str.starts_with(value) for value in clause["values"]]
+            )
 
     if not exprs:
         return None
@@ -1191,7 +1195,10 @@ def _build_bvd_filter_expr(base_clause=None, and_clauses=None, or_clauses=None):
         clause_exprs.append(base_expr)
     clause_exprs.extend(
         expr
-        for expr in (_build_bvd_clause_expr(clause) for clause in _normalize_bvd_clause_group(and_clauses))
+        for expr in (
+            _build_bvd_clause_expr(clause)
+            for clause in _normalize_bvd_clause_group(and_clauses)
+        )
         if expr is not None
     )
 
@@ -1203,7 +1210,10 @@ def _build_bvd_filter_expr(base_clause=None, and_clauses=None, or_clauses=None):
 
     or_exprs = [
         expr
-        for expr in (_build_bvd_clause_expr(clause) for clause in _normalize_bvd_clause_group(or_clauses))
+        for expr in (
+            _build_bvd_clause_expr(clause)
+            for clause in _normalize_bvd_clause_group(or_clauses)
+        )
         if expr is not None
     ]
 
@@ -1249,7 +1259,9 @@ def _resolve_fuzzy_scorer(scorer: str | Callable | None) -> Callable:
         return _FUZZY_SCORERS[scorer]
     except KeyError as exc:
         valid = ", ".join(sorted(_FUZZY_SCORERS))
-        raise ValueError(f"Unknown fuzzy scorer '{scorer}'. Valid scorers: {valid}.") from exc
+        raise ValueError(
+            f"Unknown fuzzy scorer '{scorer}'. Valid scorers: {valid}."
+        ) from exc
 
 
 def _fuzzy_match(args):
@@ -1257,7 +1269,15 @@ def _fuzzy_match(args):
     Worker function to perform fuzzy matching for each batch of names.
     """
     if len(args) == 7:
-        name_batch, choices, cut_off, df, match_column, return_column, choice_to_index = args
+        (
+            name_batch,
+            choices,
+            cut_off,
+            df,
+            match_column,
+            return_column,
+            choice_to_index,
+        ) = args
         scorer = fuzz.WRatio
     else:
         (
@@ -1644,9 +1664,7 @@ class CompanyNameFuzzyMatcher:
         for search_string in search_names:
             exact_match = self.exact_lookup.get(search_string)
             if exact_match is not None:
-                matches.extend(
-                    self._matched_rows(search_string, exact_match, 100.0)
-                )
+                matches.extend(self._matched_rows(search_string, exact_match, 100.0))
             else:
                 tiers = self._candidate_tiers(search_string)
                 tier_lookup[search_string] = tiers
@@ -1749,7 +1767,10 @@ def fuzzy_match_pl(
         )
         return matcher.search(names=names, cut_off=cut_off, num_workers=num_workers)
     except Exception as e:
-        raise RuntimeError(f"Error processing fuzzy company matching: {file_list}") from e
+        raise RuntimeError(
+            f"Error processing fuzzy company matching: {file_list}"
+        ) from e
+
 
 def _bvd_changes_ray(initial_ids, df, num_workers: int = -1):
     """Resolve connected BvD ID lineage and map each ID to its terminal newest ID.
@@ -2158,7 +2179,9 @@ def profile_dataframe(
             date_profile["date_parseable_pct"] >= 0.9
             or date_profile["date_filter_strategy"] == "native"
         )
-        can_numeric_aggregate = logical_type in {"integer", "float"} and non_null_count > 0
+        can_numeric_aggregate = (
+            logical_type in {"integer", "float"} and non_null_count > 0
+        )
         can_filter_prefix = logical_type in {"string", "identifier", "categorical"}
         can_join_key = (
             logical_type in {"identifier", "integer", "string"}
@@ -2304,7 +2327,9 @@ def save_profile_report(
                 else value
                 for key, value in info.items()
             }
-            pd.DataFrame([safe_info]).to_excel(writer, sheet_name="report_info", index=False)
+            pd.DataFrame([safe_info]).to_excel(
+                writer, sheet_name="report_info", index=False
+            )
     else:
         raise ValueError("Report path must end with .xlsx, .csv, or .parquet.")
 

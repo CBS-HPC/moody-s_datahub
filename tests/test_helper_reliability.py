@@ -67,9 +67,7 @@ def fake_downloads(monkeypatch, payloads, *, fail_on=None):
                 raise OSError("fixture download failed")
 
         def stat(self, remote):
-            return SimpleNamespace(
-                st_size=len(payloads[Path(remote).name]), st_mtime=0
-            )
+            return SimpleNamespace(st_size=len(payloads[Path(remote).name]), st_mtime=0)
 
     monkeypatch.setattr(Sftp, "_connect", lambda self: Remote())
 
@@ -104,7 +102,9 @@ def test_all_files_preserves_preexisting_managed_cache(tmp_path, failure):
     assert not list(tmp_path.glob(".profile-*.sqlite3*"))
 
 
-@pytest.mark.parametrize("failure", [None, "sample", "canonical", "scratch", "download"])
+@pytest.mark.parametrize(
+    "failure", [None, "sample", "canonical", "scratch", "download"]
+)
 def test_all_files_cleans_only_newly_staged_files(tmp_path, monkeypatch, failure):
     obj, cache = profile_sftp(tmp_path, ["first.csv"])
     obj._download_retries = 1
@@ -194,7 +194,9 @@ def selection_sftp(tmp_path, selections, frame):
 
 
 @pytest.mark.parametrize("engine", ["pandas", "polars"])
-def test_batch_bvd_filters_survive_real_selection_setters(tmp_path, monkeypatch, engine):
+def test_batch_bvd_filters_survive_real_selection_setters(
+    tmp_path, monkeypatch, engine
+):
     monkeypatch.chdir(tmp_path)
     frame = pd.DataFrame(
         {
@@ -204,12 +206,21 @@ def test_batch_bvd_filters_survive_real_selection_setters(tmp_path, monkeypatch,
             "marker": ["base_and", "base_only", "or_only", "neither"],
         }
     )
-    selections = [("Product A", "first"), ("Product A", "second"), ("Product B", "third")]
+    selections = [
+        ("Product A", "first"),
+        ("Product A", "second"),
+        ("Product B", "third"),
+    ]
     obj = selection_sftp(tmp_path, selections, frame)
     workbook = tmp_path / "batch.xlsx"
     pd.DataFrame(
         [
-            {"Data Product": product, "Table": table, "Column": "bvd_id_number", "Run": True}
+            {
+                "Data Product": product,
+                "Table": table,
+                "Column": "bvd_id_number",
+                "Run": True,
+            }
             for product, table in selections
         ]
     ).to_excel(workbook, index=False)
@@ -383,7 +394,13 @@ def test_profile_dry_run_resolves_inventory_without_setters_or_network(
     def forbidden(*args, **kwargs):
         pytest.fail("Dry-run must not select, deep-copy, stage, or read sources")
 
-    for name in ("select_data", "_check_path", "_get_file", "_check_args", "_read_profile_file"):
+    for name in (
+        "select_data",
+        "_check_path",
+        "_get_file",
+        "_check_args",
+        "_read_profile_file",
+    ):
         monkeypatch.setattr(Sftp, name, forbidden)
     monkeypatch.setattr("moodys_datahub.tools.copy.deepcopy", forbidden)
     report_path = tmp_path / "report.xlsx"
@@ -409,7 +426,9 @@ def test_profile_dry_run_resolves_inventory_without_setters_or_network(
 
 
 @pytest.mark.parametrize("file_scope", ["first_file", "all_files"])
-def test_profile_dry_run_download_plan_uses_physical_cache_presence(tmp_path, file_scope):
+def test_profile_dry_run_download_plan_uses_physical_cache_presence(
+    tmp_path, file_scope
+):
     obj, cache = profile_sftp(tmp_path, ["first.csv", "missing.csv"])
     first = cache / "first.csv"
     first.write_text("bvd_id_number\nDK123\n", encoding="ascii")
@@ -447,7 +466,9 @@ def test_all_files_cleans_partial_staging_if_resolver_raises(tmp_path, monkeypat
     assert not list(tmp_path.glob(".profile-*.sqlite3*"))
 
 
-def test_all_files_cleans_staging_and_scratch_if_sqlite_open_fails(tmp_path, monkeypatch):
+def test_all_files_cleans_staging_and_scratch_if_sqlite_open_fails(
+    tmp_path, monkeypatch
+):
     obj, cache = profile_sftp(tmp_path, ["first.csv"])
     fake_downloads(monkeypatch, {"first.csv": b"bvd_id_number\nDK123\n"})
 
@@ -484,9 +505,7 @@ def test_all_files_cleans_staged_empty_parquet_on_schema_drift(tmp_path, monkeyp
 
 
 def test_profile_dry_run_can_plan_local_repo_inventory(tmp_path):
-    obj = selection_sftp(
-        tmp_path, [("Product", "table")], pd.DataFrame({"value": [1]})
-    )
+    obj = selection_sftp(tmp_path, [("Product", "table")], pd.DataFrame({"value": [1]}))
     plan = obj.profile_table(data_product="Product", table="table", dry_run=True)
 
     assert plan.loc[0, "file_name"] == "part.parquet"

@@ -52,7 +52,9 @@ def test_ownership_history_links_have_date_metadata():
 
     assert set(subset["Table"]) == {"links_2022", "links_2023", "links_2024"}
     assert set(subset["Column"]) == {"information_date"}
-    assert not subset[["Data Product", "Table", "Column", "Definition"]].isna().any().any()
+    assert (
+        not subset[["Data Product", "Table", "Column", "Definition"]].isna().any().any()
+    )
 
 
 def test_batch_bvd_search_template_includes_recent_ownership_links():

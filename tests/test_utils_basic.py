@@ -683,7 +683,11 @@ def test_check_download_marks_finished_when_files_are_ready(monkeypatch):
     proc._download_finished = False
     proc._remote_files = ["sample.csv"]
     monkeypatch.setattr(DummyProcess, "_file_exist", lambda self, file: (file, True))
-    monkeypatch.setattr(DummyProcess, "_local_file_ready", staticmethod(lambda file, remote_size=None: True))
+    monkeypatch.setattr(
+        DummyProcess,
+        "_local_file_ready",
+        staticmethod(lambda file, remote_size=None: True),
+    )
 
     assert proc._check_download(["sample.csv"]) is True
     assert proc.download_finished is True
@@ -694,7 +698,11 @@ def test_check_download_times_out_when_local_files_never_appear(monkeypatch, cap
     proc._download_finished = False
     proc._remote_files = ["sample.csv"]
     monkeypatch.setattr(DummyProcess, "_file_exist", lambda self, file: (file, False))
-    monkeypatch.setattr(DummyProcess, "_local_file_ready", staticmethod(lambda file, remote_size=None: False))
+    monkeypatch.setattr(
+        DummyProcess,
+        "_local_file_ready",
+        staticmethod(lambda file, remote_size=None: False),
+    )
 
     timeline = iter([0.0, 5.1])
     monkeypatch.setattr("moodys_datahub.process.time.sleep", lambda _: None)
@@ -854,9 +862,7 @@ def test_fuzzy_match_pl_keeps_distinct_ids_after_suffix_removal():
 
 
 def test_fuzzy_match_pl_keeps_distinct_ids_in_large_score_path():
-    df = pl.DataFrame(
-        {"name": ["Acme", "Acme"], "bvd_id_number": ["DK999", "US888"]}
-    )
+    df = pl.DataFrame({"name": ["Acme", "Acme"], "bvd_id_number": ["DK999", "US888"]})
 
     result = fuzzy_match_pl(
         names=["Acmee"],
@@ -986,7 +992,11 @@ def test_profile_dataframe_returns_privacy_safe_operation_hints():
             "beneficial_owner_salutation": ["Ms", "Mr", "Dr"],
             "beneficial_owner_fist_name": ["Anna", "Peter", "Li"],
             "beneficial_owner_last_name": ["Jensen", "Hansen", "Wei"],
-            "beneficial_owner_address": ["Main Street 1", "Second Street 2", "Third Street 3"],
+            "beneficial_owner_address": [
+                "Main Street 1",
+                "Second Street 2",
+                "Third Street 3",
+            ],
             "beneficial_owner_city": ["Copenhagen", "Aarhus", "Odense"],
             "beneficial_owner_postcode": ["1000", "8000", "5000"],
             "beneficial_owner_country": ["DK", "DK", "DK"],
@@ -1121,7 +1131,9 @@ def test_profile_table_profiles_first_file_without_values(monkeypatch):
     assert "B" not in profile.to_string()
 
 
-def test_profile_table_all_files_aggregates_without_retaining_values(tmp_path, monkeypatch):
+def test_profile_table_all_files_aggregates_without_retaining_values(
+    tmp_path, monkeypatch
+):
     first = tmp_path / "first.csv"
     second = tmp_path / "second.csv"
     first.write_text(
@@ -1173,11 +1185,20 @@ def test_profile_table_all_files_aggregates_without_retaining_values(tmp_path, m
         }
     ]
     assert "DK123" not in str(summary)
-    assert int(profile.loc[profile["column"] == "bvd_id_number", "full_non_null_count"].iloc[0]) == 4
+    assert (
+        int(
+            profile.loc[
+                profile["column"] == "bvd_id_number", "full_non_null_count"
+            ].iloc[0]
+        )
+        == 4
+    )
     assert not list(tmp_path.glob(".profile-*.sqlite3"))
 
 
-def test_profile_table_all_files_rejects_schema_drift_and_cleans_scratch(tmp_path, monkeypatch):
+def test_profile_table_all_files_rejects_schema_drift_and_cleans_scratch(
+    tmp_path, monkeypatch
+):
     first = tmp_path / "first.csv"
     second = tmp_path / "second.csv"
     first.write_text("bvd_id_number\nDK123\n", encoding="utf-8")
@@ -1332,11 +1353,14 @@ def test_offline_constructor_does_not_connect_and_metadata_helpers_work(monkeypa
     assert not country_codes.empty
     assert isinstance(dates, pd.DataFrame)
     assert "search_dictionary" in capabilities["method"].tolist()
-    assert bool(
-        capabilities.loc[
-            capabilities["method"] == "download_all", "server_required"
-        ].iloc[0]
-    ) is True
+    assert (
+        bool(
+            capabilities.loc[
+                capabilities["method"] == "download_all", "server_required"
+            ].iloc[0]
+        )
+        is True
+    )
 
 
 def test_offline_mode_exposes_packaged_table_catalog(monkeypatch):
@@ -1364,7 +1388,9 @@ def test_process_one_uses_polars_row_limit_for_single_compatible_file(monkeypatc
         return pl.DataFrame({"value": [1, 2]}), ["polars.csv"]
 
     def fail_process_all(*args, **kwargs):  # pragma: no cover - should not be hit
-        raise AssertionError("process_all() should not be used for the Polars fast path")
+        raise AssertionError(
+            "process_all() should not be used for the Polars fast path"
+        )
 
     monkeypatch.setattr(DummyProcess, "polars_all", fake_polars_all)
     monkeypatch.setattr(DummyProcess, "process_all", fail_process_all)
@@ -1405,7 +1431,9 @@ def test_process_one_falls_back_to_process_all_for_pandas_only_workloads(monkeyp
         return pd.DataFrame({"value": [1, 2, 3]}), ["pandas.csv"]
 
     def fail_polars_all(*args, **kwargs):  # pragma: no cover - should not be hit
-        raise AssertionError("polars_all() should not be used for pandas-only workloads")
+        raise AssertionError(
+            "polars_all() should not be used for pandas-only workloads"
+        )
 
     monkeypatch.setattr(DummyProcess, "process_all", fake_process_all)
     monkeypatch.setattr(DummyProcess, "polars_all", fail_polars_all)
@@ -1617,7 +1645,11 @@ def test_download_all_sync_marks_failed_when_parallel_download_raises(monkeypatc
     monkeypatch.setattr("moodys_datahub.process.os.fork", lambda: None, raising=False)
     monkeypatch.setattr(DummyProcess, "_check_args", lambda self, files: (files, None))
     monkeypatch.setattr(DummyProcess, "_file_exist", lambda self, file: (file, False))
-    monkeypatch.setattr(DummyProcess, "_local_file_ready", staticmethod(lambda file, remote_size=None: False))
+    monkeypatch.setattr(
+        DummyProcess,
+        "_local_file_ready",
+        staticmethod(lambda file, remote_size=None: False),
+    )
     monkeypatch.setattr(
         "moodys_datahub.process._run_parallel",
         lambda **kwargs: (_ for _ in ()).throw(RuntimeError("download failed")),
@@ -1671,7 +1703,11 @@ def test_download_all_marks_finished_when_files_are_already_local(monkeypatch, c
     monkeypatch.setattr("moodys_datahub.process.os.fork", lambda: None, raising=False)
     monkeypatch.setattr(DummyProcess, "_check_args", lambda self, files: (files, None))
     monkeypatch.setattr(DummyProcess, "_file_exist", lambda self, file: (file, True))
-    monkeypatch.setattr(DummyProcess, "_local_file_ready", staticmethod(lambda file, remote_size=None: True))
+    monkeypatch.setattr(
+        DummyProcess,
+        "_local_file_ready",
+        staticmethod(lambda file, remote_size=None: True),
+    )
 
     proc.download_all(async_mode=False, num_workers=1)
 
@@ -1761,6 +1797,7 @@ def test_search_company_names_prefers_polars_without_pandas_fallback(monkeypatch
 
     monkeypatch.setattr("moodys_datahub.tools.copy.deepcopy", lambda obj: fake_search)
     monkeypatch.setattr(pd.DataFrame, "to_csv", lambda self, *args, **kwargs: None)
+
     def fake_fuzzy_match_pl(**kwargs):
         assert kwargs["scorer"] == "token_set_ratio"
         return pd.DataFrame(
@@ -1982,9 +2019,7 @@ def test_batch_bvd_search_uses_structured_exact_bvd_query(monkeypatch, tmp_path)
             "Run": [True],
         }
     ).to_excel(products_path, index=False)
-    pd.DataFrame(["DK1", "SE2"]).to_csv(
-        bvd_numbers_path, index=False, header=False
-    )
+    pd.DataFrame(["DK1", "SE2"]).to_csv(bvd_numbers_path, index=False, header=False)
 
     class FakeSearch:
         def __init__(self):

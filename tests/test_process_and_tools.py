@@ -485,7 +485,9 @@ def test_search_country_codes_reports_no_match_columns(capsys):
     )
 
     assert result.empty
-    assert "No such 'search word' was detected across columns" in capsys.readouterr().out
+    assert (
+        "No such 'search word' was detected across columns" in capsys.readouterr().out
+    )
 
 
 def test_choose_process_engine_detects_mixed_formats():
@@ -522,8 +524,7 @@ def test_normalize_bvd_queries_builds_prefix_query():
     )
 
     assert pandas_query == (
-        "bvd_id.str.startswith('DK', na=False) | "
-        "bvd_id.str.startswith('SE', na=False)"
+        "bvd_id.str.startswith('DK', na=False) | bvd_id.str.startswith('SE', na=False)"
     )
     assert polars_query == [["DK", "SE"], "bvd_id", "prefix"]
 
@@ -539,7 +540,11 @@ def test_bvd_layer_setters_refresh_required_columns():
     proc = _make_dummy_process()
     proc._select_cols = ["row_id"]
     proc._time_period = [None, None, None, "remove"]
-    proc._bvd_list = [["B1"], ["base_a", "base_b"], "base_a in ['B1'] | base_b in ['B1']"]
+    proc._bvd_list = [
+        ["B1"],
+        ["base_a", "base_b"],
+        "base_a in ['B1'] | base_b in ['B1']",
+    ]
 
     proc.AND_bvd_list = [
         [["A1"], ["and_a", "and_b"], "exact"],
@@ -706,20 +711,33 @@ def test_batch_bvd_search_creates_input_templates_when_missing(monkeypatch, tmp_
             return open(self.path, mode)
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr("moodys_datahub.tools.pkg_resources.files", lambda _: FakeResource(tmp_path))
+    monkeypatch.setattr(
+        "moodys_datahub.tools.pkg_resources.files", lambda _: FakeResource(tmp_path)
+    )
 
-    Sftp.batch_bvd_search(object(), products="missing_products.xlsx", bvd_numbers="missing_ids.txt")
+    Sftp.batch_bvd_search(
+        object(), products="missing_products.xlsx", bvd_numbers="missing_ids.txt"
+    )
 
-    assert (tmp_path / "missing_products.xlsx").read_bytes() == products_template.read_bytes()
+    assert (
+        tmp_path / "missing_products.xlsx"
+    ).read_bytes() == products_template.read_bytes()
     assert (tmp_path / "missing_ids.txt").read_bytes() == bvd_template.read_bytes()
     assert not (tmp_path / "products.xlsx").exists()
     assert not (tmp_path / "bvd_numbers.txt").exists()
 
 
 def test_sftp_init_uses_cbs_fallback_credentials(monkeypatch):
-    monkeypatch.setattr("moodys_datahub.connection.pysftp.CnOpts", lambda: type("C", (), {"hostkeys": None})())
+    monkeypatch.setattr(
+        "moodys_datahub.connection.pysftp.CnOpts",
+        lambda: type("C", (), {"hostkeys": None})(),
+    )
     monkeypatch.setattr(Sftp, "_object_defaults", lambda self: None)
-    monkeypatch.setattr(Sftp, "tables_available", lambda self, product_overview=None: (pd.DataFrame(), []))
+    monkeypatch.setattr(
+        Sftp,
+        "tables_available",
+        lambda self, product_overview=None: (pd.DataFrame(), []),
+    )
     monkeypatch.setattr(
         Sftp,
         "_server_clean_up",
@@ -739,7 +757,9 @@ def test_sftp_init_uses_cbs_fallback_credentials(monkeypatch):
     sftp = Sftp(privatekey="key.pem")
 
     assert attempts == ["D2vdz8elTWKyuOcC2kMSnw", "aN54UkFxQPCOIEtmr0FmAQ"]
-    assert sftp.hostname == "s-f2112b8b980e44f9a.server.transfer.eu-west-1.amazonaws.com"
+    assert (
+        sftp.hostname == "s-f2112b8b980e44f9a.server.transfer.eu-west-1.amazonaws.com"
+    )
     assert sftp.username == "aN54UkFxQPCOIEtmr0FmAQ"
 
 
@@ -880,7 +900,9 @@ def test_get_file_downloads_remote_file_and_applies_timestamp(monkeypatch, tmp_p
 
     assert flag is False
     assert local_file == str(tmp_path / "sample.csv")
-    assert fake_sftp.downloads == [("remote/base/sample.csv", str(tmp_path / "sample.csv"))]
+    assert fake_sftp.downloads == [
+        ("remote/base/sample.csv", str(tmp_path / "sample.csv"))
+    ]
     assert touched == {"path": str(tmp_path / "sample.csv"), "times": (123, 123)}
 
 
@@ -973,10 +995,16 @@ def test_curate_file_saves_split_outputs_and_deletes_new_files(monkeypatch, tmp_
     )
     monkeypatch.setattr(
         "moodys_datahub.process._save_files_pd",
-        lambda df, file_name, output_format: saved.update(
-            {"df": df.copy(), "file_name": file_name, "output_format": output_format}
-        )
-        or "saved.csv",
+        lambda df, file_name, output_format: (
+            saved.update(
+                {
+                    "df": df.copy(),
+                    "file_name": file_name,
+                    "output_format": output_format,
+                }
+            )
+            or "saved.csv"
+        ),
     )
     monkeypatch.setattr(
         "moodys_datahub.process.os.remove",
@@ -1052,7 +1080,15 @@ def test_process_parallel_curates_single_input(monkeypatch):
     )
 
     result = proc._process_parallel(
-        ["sample.csv", "dest", ["value"], [None, None, None, "remove"], None, None, None]
+        [
+            "sample.csv",
+            "dest",
+            ["value"],
+            [None, None, None, "remove"],
+            None,
+            None,
+            None,
+        ]
     )
 
     assert result == [None, "saved.csv", True]
@@ -1081,7 +1117,9 @@ def test_process_polars_downloads_and_loads_existing_local_files(monkeypatch, tm
     )
     monkeypatch.setattr(
         "moodys_datahub.process._load_pl",
-        lambda **kwargs: calls.update({"load": kwargs}) or pl.DataFrame({"value": [1, 2]}),
+        lambda **kwargs: (
+            calls.update({"load": kwargs}) or pl.DataFrame({"value": [1, 2]})
+        ),
     )
 
     result = proc._process_polars(
@@ -1123,9 +1161,15 @@ def test_pandas_all_parallel_batches_and_saves(monkeypatch):
     monkeypatch.setattr(
         DummyProcess,
         "_validate_args",
-        lambda self, **kwargs: (kwargs["select_cols"], kwargs["files"], kwargs["destination"]),
+        lambda self, **kwargs: (
+            kwargs["select_cols"],
+            kwargs["files"],
+            kwargs["destination"],
+        ),
     )
-    monkeypatch.setattr("moodys_datahub.process.set_workers", lambda num_workers, default: 2)
+    monkeypatch.setattr(
+        "moodys_datahub.process.set_workers", lambda num_workers, default: 2
+    )
 
     def fake_run_parallel(**kwargs):
         run_calls.append(kwargs)
@@ -1168,7 +1212,9 @@ def test_process_all_dry_run_returns_report(tmp_path):
     assert report.would_write is False
 
 
-def test_process_all_dry_run_rejects_missing_local_schema_columns(monkeypatch, tmp_path):
+def test_process_all_dry_run_rejects_missing_local_schema_columns(
+    monkeypatch, tmp_path
+):
     proc = _make_dummy_process()
     file_path = tmp_path / "sample.csv"
     pd.DataFrame({"value": [1]}).to_csv(file_path, index=False)
@@ -1244,7 +1290,9 @@ def test_process_all_dry_run_uses_output_root_for_generated_destination(tmp_path
 def test_pandas_all_dry_run_rejects_polars_expression():
     proc = _make_dummy_process()
 
-    report = proc.pandas_all(files=["sample.csv"], query=pl.col("value") > 1, dry_run=True)
+    report = proc.pandas_all(
+        files=["sample.csv"], query=pl.col("value") > 1, dry_run=True
+    )
 
     assert report.ok is False
     assert any("Polars expressions" in error for error in report.errors)
@@ -1297,9 +1345,15 @@ def test_pandas_all_sequential_concat_false_concatenates_frames(monkeypatch):
     monkeypatch.setattr(
         DummyProcess,
         "_validate_args",
-        lambda self, **kwargs: (kwargs["select_cols"], kwargs["files"], kwargs["destination"]),
+        lambda self, **kwargs: (
+            kwargs["select_cols"],
+            kwargs["files"],
+            kwargs["destination"],
+        ),
     )
-    monkeypatch.setattr("moodys_datahub.process.set_workers", lambda num_workers, default: 1)
+    monkeypatch.setattr(
+        "moodys_datahub.process.set_workers", lambda num_workers, default: 1
+    )
     monkeypatch.setattr(
         DummyProcess,
         "_process_sequential",
@@ -1327,8 +1381,13 @@ def test_polars_all_saves_results_and_restores_concat_files(monkeypatch):
     monkeypatch.setattr(
         DummyProcess,
         "_validate_args",
-        lambda self, **kwargs: (kwargs["select_cols"], kwargs["files"], kwargs["destination"]),
+        lambda self, **kwargs: (
+            kwargs["select_cols"],
+            kwargs["files"],
+            kwargs["destination"],
+        ),
     )
+
     def fake_process_polars(self, *args, **kwargs):
         captured["process_workers"] = kwargs["num_workers"]
         return pl.DataFrame({"value": [1, 2]})
@@ -1467,7 +1526,9 @@ def test_get_file_wraps_remote_read_errors(tmp_path, monkeypatch):
         def get(self, remote_file, local_target):
             raise RuntimeError("boom")
 
-    monkeypatch.setattr(DummyProcess, "_file_exist", lambda self, file: (str(local_file), False))
+    monkeypatch.setattr(
+        DummyProcess, "_file_exist", lambda self, file: (str(local_file), False)
+    )
     monkeypatch.setattr(DummyProcess, "_connect", lambda self: FailingSftp())
 
     with pytest.raises(ValueError, match="Error reading remote file after 1 attempt"):
@@ -1480,11 +1541,22 @@ def test_check_args_generates_destination_when_flag_is_true(tmp_path, monkeypatc
     existing_file.write_text("value\n1\n", encoding="utf-8")
     proc._local_path = str(tmp_path / "Dummy Product" / "dummy_table")
 
-    monkeypatch.setattr("moodys_datahub.preflight.datetime", type("FixedDatetime", (), {
-        "now": staticmethod(lambda: pd.Timestamp("2026-03-24 12:34:00").to_pydatetime())
-    }))
+    monkeypatch.setattr(
+        "moodys_datahub.preflight.datetime",
+        type(
+            "FixedDatetime",
+            (),
+            {
+                "now": staticmethod(
+                    lambda: pd.Timestamp("2026-03-24 12:34:00").to_pydatetime()
+                )
+            },
+        ),
+    )
 
-    files, destination = proc._check_args([str(existing_file)], destination=None, flag=True)
+    files, destination = proc._check_args(
+        [str(existing_file)], destination=None, flag=True
+    )
 
     assert files == [str(existing_file)]
     assert destination.endswith("2603241234_base")
@@ -1497,11 +1569,22 @@ def test_check_args_uses_output_root_for_generated_destination(tmp_path, monkeyp
     proc._local_path = str(tmp_path / "Dummy Product" / "dummy_table")
     proc._output_root = str(tmp_path / "outputs")
 
-    monkeypatch.setattr("moodys_datahub.preflight.datetime", type("FixedDatetime", (), {
-        "now": staticmethod(lambda: pd.Timestamp("2026-03-24 12:34:00").to_pydatetime())
-    }))
+    monkeypatch.setattr(
+        "moodys_datahub.preflight.datetime",
+        type(
+            "FixedDatetime",
+            (),
+            {
+                "now": staticmethod(
+                    lambda: pd.Timestamp("2026-03-24 12:34:00").to_pydatetime()
+                )
+            },
+        ),
+    )
 
-    files, destination = proc._check_args([str(existing_file)], destination=None, flag=True)
+    files, destination = proc._check_args(
+        [str(existing_file)], destination=None, flag=True
+    )
 
     assert files == [str(existing_file)]
     assert destination == str(tmp_path / "outputs" / "2603241234_base")

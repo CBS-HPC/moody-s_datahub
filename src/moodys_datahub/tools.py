@@ -378,7 +378,9 @@ class Sftp(_Process):
             char if char.isalnum() or char in "._- " else "_" for char in value
         )
 
-    def _default_profile_report_path(self, data_product=None, table=None, multiple=False):
+    def _default_profile_report_path(
+        self, data_product=None, table=None, multiple=False
+    ):
         base = Path("Table Profiles")
         if multiple:
             name = self._safe_report_name(data_product or "moodys_table_profiles")
@@ -394,15 +396,23 @@ class Sftp(_Process):
         profiler = copy.copy(self)
         product = data_product if data_product is not None else self.set_data_product
         selected_table = table if table is not None else self.set_table
-        if data_product is not None and product != self.set_data_product and table is None:
+        if (
+            data_product is not None
+            and product != self.set_data_product
+            and table is None
+        ):
             selected_table = None
         if selected_table is None:
-            raise ValueError("profile_table() dry-run requires data_product/table selection.")
+            raise ValueError(
+                "profile_table() dry-run requires data_product/table selection."
+            )
 
         if (product, selected_table) != (self.set_data_product, self.set_table):
             inventory = self._tables_backup
             if inventory is None or inventory.empty:
-                raise ValueError("No cached table inventory is available for profiling dry-run.")
+                raise ValueError(
+                    "No cached table inventory is available for profiling dry-run."
+                )
             matches = inventory.loc[inventory["Table"].eq(selected_table)]
             if product is not None:
                 matches = matches.loc[matches["Data Product"].eq(product)]
@@ -443,49 +453,71 @@ class Sftp(_Process):
                     ]
 
         if profiler.set_data_product is None:
-            raise ValueError("profile_table() dry-run requires data_product/table selection.")
+            raise ValueError(
+                "profile_table() dry-run requires data_product/table selection."
+            )
         available = list(profiler._remote_files or profiler._local_files)
         if isinstance(file, int):
             if not available:
-                raise ValueError("Cannot resolve a file index without cached source filenames.")
+                raise ValueError(
+                    "Cannot resolve a file index without cached source filenames."
+                )
             selected_file = available[file]
         else:
-            selected_file = file if file is not None else (available[0] if available else None)
-        files = available if file_scope == "all_files" else (
-            [selected_file] if selected_file is not None else []
+            selected_file = (
+                file if file is not None else (available[0] if available else None)
+            )
+        files = (
+            available
+            if file_scope == "all_files"
+            else ([selected_file] if selected_file is not None else [])
         )
         would_list_remote = bool(
-            profiler._remote_path and not profiler._local_repo
-            and not profiler._remote_files and file is None
+            profiler._remote_path
+            and not profiler._local_repo
+            and not profiler._remote_files
+            and file is None
         )
         if not files and not would_list_remote:
-            raise ValueError("No local or remote source files are known for profiling dry-run.")
+            raise ValueError(
+                "No local or remote source files are known for profiling dry-run."
+            )
         _, missing, warnings, errors = _resolve_files(profiler, files)
         if missing or errors:
             raise ValueError(f"Cannot plan profiling: {errors + missing}")
         would_download = (
             any("would be downloaded" in warning for warning in warnings)
-            if files else None
+            if files
+            else None
         )
         plan = pd.DataFrame(
-            [{
-                "data_product": profiler.set_data_product,
-                "table": profiler.set_table,
-                "file_name": os.path.basename(selected_file) if selected_file is not None else None,
-                "sample_strategy": file_scope,
-                "source_file_count": (
-                    None if would_list_remote and file_scope == "all_files" or not files
-                    else len(files)
-                ),
-                "would_download": would_download,
-                "would_list_remote": would_list_remote,
-                "would_profile": True,
-                "would_write_report": bool(save_report or report_path),
-                "report_path": report_path or (
-                    self._default_profile_report_path(profiler.set_data_product, profiler.set_table)
-                    if save_report else None
-                ),
-            }]
+            [
+                {
+                    "data_product": profiler.set_data_product,
+                    "table": profiler.set_table,
+                    "file_name": os.path.basename(selected_file)
+                    if selected_file is not None
+                    else None,
+                    "sample_strategy": file_scope,
+                    "source_file_count": (
+                        None
+                        if would_list_remote and file_scope == "all_files" or not files
+                        else len(files)
+                    ),
+                    "would_download": would_download,
+                    "would_list_remote": would_list_remote,
+                    "would_profile": True,
+                    "would_write_report": bool(save_report or report_path),
+                    "report_path": report_path
+                    or (
+                        self._default_profile_report_path(
+                            profiler.set_data_product, profiler.set_table
+                        )
+                        if save_report
+                        else None
+                    ),
+                }
+            ]
         )
         plan.attrs["warnings"] = warnings
         return plan
@@ -547,9 +579,12 @@ class Sftp(_Process):
             selected_file = file
 
         if file_scope == "all_files":
+
             def resolve_file(candidate: str) -> tuple[Path, bool]:
                 files, _ = profiler._check_args([candidate])
-                resolve_path = getattr(profiler, "resolve_cache_file", lambda value: value)
+                resolve_path = getattr(
+                    profiler, "resolve_cache_file", lambda value: value
+                )
                 local_path = Path(resolve_path(files[0]))
                 # _get_file's flag describes direct input, not cache ownership.
                 preexisting = local_path.exists()
@@ -653,7 +688,9 @@ class Sftp(_Process):
                 for product, value in selections.items()
             }
         elif data_products is not None:
-            resolved = {product: tables_for_product(product) for product in data_products}
+            resolved = {
+                product: tables_for_product(product) for product in data_products
+            }
         else:
             product = data_product or self.set_data_product
             if product is None:
@@ -688,13 +725,17 @@ class Sftp(_Process):
                 if summary is not None:
                     table_summaries.append(summary)
 
-        combined = pd.concat(profiles, ignore_index=True) if profiles else pd.DataFrame()
+        combined = (
+            pd.concat(profiles, ignore_index=True) if profiles else pd.DataFrame()
+        )
         if table_summaries:
             combined.attrs["table_summaries"] = table_summaries
             combined.attrs["profile_scope"] = "all_files"
         if (save_report or report_path) and not dry_run:
             if report_path is None:
-                product_name = next(iter(resolved.keys())) if len(resolved) == 1 else None
+                product_name = (
+                    next(iter(resolved.keys())) if len(resolved) == 1 else None
+                )
                 report_path = self._default_profile_report_path(
                     data_product=product_name, multiple=True
                 )

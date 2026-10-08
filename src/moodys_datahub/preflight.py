@@ -119,7 +119,9 @@ def _resolve_destination(
     return destination, warnings, True
 
 
-def _resolve_files(obj, files: list[str]) -> tuple[list[str], list[str], list[str], list[str]]:
+def _resolve_files(
+    obj, files: list[str]
+) -> tuple[list[str], list[str], list[str], list[str]]:
     normalized_files = _as_list(files)
     resolved_files: list[str] = []
     missing_files: list[str] = []
@@ -141,16 +143,22 @@ def _resolve_files(obj, files: list[str]) -> tuple[list[str], list[str], list[st
             resolved_files.append(candidate)
         elif explicit:
             errors.append(f"Explicit local source is empty or incomplete: {file}")
-        elif (file in known_remote_files or Path(file).name in known_remote_files) and getattr(obj, "_remote_path", None):
+        elif (
+            file in known_remote_files or Path(file).name in known_remote_files
+        ) and getattr(obj, "_remote_path", None):
             resolved_files.append(candidate)
-            warnings.append(f"'{file}' is missing or incomplete and would be downloaded before processing.")
+            warnings.append(
+                f"'{file}' is missing or incomplete and would be downloaded before processing."
+            )
         else:
             missing_files.append(file)
 
     return resolved_files, missing_files, warnings, errors
 
 
-def _resolve_bvd_state(obj, bvd_query=None) -> tuple[str | None, list[str] | None, list[str], bool]:
+def _resolve_bvd_state(
+    obj, bvd_query=None
+) -> tuple[str | None, list[str] | None, list[str], bool]:
     warnings: list[str] = []
     would_prompt = False
 
@@ -201,7 +209,9 @@ def _resolve_required_columns(obj, select_cols=None, date_query=None, bvd_query=
     warnings: list[str] = []
     would_prompt = False
 
-    current_select_cols = select_cols if select_cols is not None else getattr(obj, "_select_cols", None)
+    current_select_cols = (
+        select_cols if select_cols is not None else getattr(obj, "_select_cols", None)
+    )
     if current_select_cols is not None:
         required_columns.extend(_as_list(current_select_cols))
 
@@ -212,8 +222,8 @@ def _resolve_required_columns(obj, select_cols=None, date_query=None, bvd_query=
         if resolved_date_column is not None:
             required_columns.append(resolved_date_column)
 
-    pandas_bvd_query, resolved_bvd_columns, bvd_warnings, bvd_prompt = _resolve_bvd_state(
-        obj, bvd_query
+    pandas_bvd_query, resolved_bvd_columns, bvd_warnings, bvd_prompt = (
+        _resolve_bvd_state(obj, bvd_query)
     )
     warnings.extend(bvd_warnings)
     would_prompt = would_prompt or bvd_prompt
@@ -226,7 +236,14 @@ def _resolve_required_columns(obj, select_cols=None, date_query=None, bvd_query=
     else:
         required_columns = None
 
-    return required_columns, resolved_date_column, resolved_bvd_columns, warnings, would_prompt, pandas_bvd_query
+    return (
+        required_columns,
+        resolved_date_column,
+        resolved_bvd_columns,
+        warnings,
+        would_prompt,
+        pandas_bvd_query,
+    )
 
 
 def _validate_local_schema(
@@ -235,7 +252,9 @@ def _validate_local_schema(
     if not required_columns:
         return [], []
 
-    local_files = list(dict.fromkeys(Path(file) for file in files if Path(file).is_file()))
+    local_files = list(
+        dict.fromkeys(Path(file) for file in files if Path(file).is_file())
+    )
     if not local_files:
         return [
             "Required columns were not validated because no source file is local. "
@@ -253,16 +272,22 @@ def _validate_local_schema(
         try:
             available_columns = get_column_names(files=[str(local_file)])
         except Exception as exc:
-            errors.append(f"Unable to inspect local source schema '{local_file.name}': {exc}")
+            errors.append(
+                f"Unable to inspect local source schema '{local_file.name}': {exc}"
+            )
             continue
-        missing_columns = [column for column in required_columns if column not in available_columns]
+        missing_columns = [
+            column for column in required_columns if column not in available_columns
+        ]
         if missing_columns:
             errors.append(
                 f"Required columns were not found in the local source schema '{local_file.name}': {missing_columns}"
             )
     warnings = []
     if len(local_files) < len(set(files)):
-        warnings.append("Only local source schemas were validated; remote schemas are deferred without downloading.")
+        warnings.append(
+            "Only local source schemas were validated; remote schemas are deferred without downloading."
+        )
     return warnings, errors
 
 
@@ -309,8 +334,12 @@ def validate_backend_compatibility(
         chooser = copy(obj)
         chooser.concat_files = True
         chosen_engine, reason = chooser._choose_process_engine(
-            files=files, query=query, pool_method=pool_method, n_batches=n_batches,
-            raw_bvd_query=raw_bvd_query, polars_bvd_query=polars_bvd_query,
+            files=files,
+            query=query,
+            pool_method=pool_method,
+            n_batches=n_batches,
+            raw_bvd_query=raw_bvd_query,
+            polars_bvd_query=polars_bvd_query,
         )
 
     if engine == "pandas" and isinstance(query, pl.Expr):
@@ -345,10 +374,21 @@ def build_process_preflight(
     row_limit: int | None = None,
     explicit_polars: bool = False,
 ) -> PreflightReport:
-    effective_files = _as_list(files if files is not None else getattr(obj, "_remote_files", []))
+    effective_files = _as_list(
+        files if files is not None else getattr(obj, "_remote_files", [])
+    )
 
-    resolved_files, missing_files, file_warnings, file_errors = _resolve_files(obj, effective_files)
-    required_columns, resolved_date_column, resolved_bvd_columns, filter_warnings, would_prompt, _pandas_bvd_query = _resolve_required_columns(
+    resolved_files, missing_files, file_warnings, file_errors = _resolve_files(
+        obj, effective_files
+    )
+    (
+        required_columns,
+        resolved_date_column,
+        resolved_bvd_columns,
+        filter_warnings,
+        would_prompt,
+        _pandas_bvd_query,
+    ) = _resolve_required_columns(
         obj,
         select_cols=select_cols,
         date_query=date_query,
@@ -363,20 +403,26 @@ def build_process_preflight(
     if callable(compose):
         _, composed_polars_query = compose(bvd_query)
 
-    chosen_engine, reason, engine_warnings, engine_errors = validate_backend_compatibility(
-        obj,
-        files=effective_files,
-        query=query if query is not None else getattr(obj, "query", None),
-        query_args=query_args if query_args is not None else getattr(obj, "query_args", None),
-        engine=engine,
-        n_batches=n_batches,
-        pool_method=pool_method,
-        raw_bvd_query=bvd_query,
-        polars_bvd_query=composed_polars_query,
-        explicit_polars=explicit_polars,
+    chosen_engine, reason, engine_warnings, engine_errors = (
+        validate_backend_compatibility(
+            obj,
+            files=effective_files,
+            query=query if query is not None else getattr(obj, "query", None),
+            query_args=query_args
+            if query_args is not None
+            else getattr(obj, "query_args", None),
+            engine=engine,
+            n_batches=n_batches,
+            pool_method=pool_method,
+            raw_bvd_query=bvd_query,
+            polars_bvd_query=composed_polars_query,
+            explicit_polars=explicit_polars,
+        )
     )
 
-    effective_date = date_query if date_query is not None else getattr(obj, "_time_period", [])
+    effective_date = (
+        date_query if date_query is not None else getattr(obj, "_time_period", [])
+    )
     effective_query = query if query is not None else getattr(obj, "query", None)
     # Pandas can be used only to fetch raw managed files, without materializing
     # a result. Explicit local inputs and Polars always materialize a table.
@@ -434,8 +480,12 @@ def build_download_preflight(
     *,
     files=None,
 ) -> PreflightReport:
-    effective_files = _as_list(files if files is not None else getattr(obj, "_remote_files", []))
-    resolved_files, missing_files, file_warnings, file_errors = _resolve_files(obj, effective_files)
+    effective_files = _as_list(
+        files if files is not None else getattr(obj, "_remote_files", [])
+    )
+    resolved_files, missing_files, file_warnings, file_errors = _resolve_files(
+        obj, effective_files
+    )
 
     warnings = list(file_warnings)
     errors = [*file_errors, *missing_files]
@@ -449,7 +499,9 @@ def build_download_preflight(
     return PreflightReport(
         ok=ok,
         engine="download",
-        reason=None if ok else (errors[0] if errors else "No files available for download"),
+        reason=None
+        if ok
+        else (errors[0] if errors else "No files available for download"),
         files=resolved_files or effective_files,
         missing_files=missing_files,
         warnings=warnings,

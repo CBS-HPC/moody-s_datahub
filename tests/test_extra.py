@@ -88,9 +88,7 @@ def test_fuzzy_worker_applies_remove_str_before_exact_matching():
         }
     )
 
-    result = _fuzzy_worker(
-        (["acme"], 80, df, "name", "bvd_id_number", [" ltd"])
-    )
+    result = _fuzzy_worker((["acme"], 80, df, "name", "bvd_id_number", [" ltd"]))
 
     assert result == [("acme", "acme", 100, "Acme Ltd", "BVD1")]
 
