@@ -375,7 +375,19 @@ def build_process_preflight(
         explicit_polars=explicit_polars,
     )
 
-    write_required = bool(getattr(obj, "output_format", None))
+    effective_date = date_query if date_query is not None else getattr(obj, "_time_period", [])
+    effective_query = query if query is not None else getattr(obj, "query", None)
+    # Pandas can be used only to fetch raw managed files, without materializing
+    # a result. Explicit local inputs and Polars always materialize a table.
+    materializes = (
+        chosen_engine == "polars"
+        or bool(required_columns)
+        or effective_query is not None
+        or _pandas_bvd_query is not None
+        or bool(effective_date and all(effective_date))
+        or any(Path(file).is_file() for file in effective_files)
+    )
+    write_required = bool(getattr(obj, "output_format", None)) and materializes
     destination, destination_warnings, would_write = _resolve_destination(
         obj,
         destination,

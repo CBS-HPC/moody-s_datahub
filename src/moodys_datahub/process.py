@@ -1248,7 +1248,7 @@ class _Process(_Selection):
             destination=destination,
             select_cols=select_cols,
             date_query=date_query,
-            bvd_query=raw_bvd_query,
+            bvd_query=bvd_query,
             query=query,
         )
 

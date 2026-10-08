@@ -253,3 +253,29 @@ def test_managed_partial_cache_is_still_replaced(client, tmp_path, monkeypatch):
     with pytest.raises(ValueError, match="unavailable"):
         client._get_file("part.csv")
     assert not source.exists()
+
+
+def test_active_filter_generates_destination_for_cached_pandas_input(client, tmp_path, monkeypatch):
+    client.local_path = str(tmp_path / "cache")
+    (Path(client.local_path) / "part.csv").write_text("bvd_id,value\nDK111,1\nDK222,2\n", encoding="utf-8")
+    client._set_data_product = "Product"
+    client._set_table = "Table"
+    monkeypatch.setattr(client, "search_dictionary", lambda **kwargs: pd.DataFrame({"Column": ["bvd_id"]}))
+    client.bvd_list = [["DK111"], "bvd_id"]
+    client.output_format = [".csv"]
+    report = client.pandas_all(files=["part.csv"], dry_run=True)
+    assert report.ok
+    assert report.would_write
+    result, names = client.pandas_all(files=["part.csv"], num_workers=1)
+    assert result["value"].tolist() == [1]
+    assert names == [report.destination + ".csv"]
+
+
+def test_raw_cache_pandas_preflight_does_not_claim_output_write(client, tmp_path):
+    client.local_path = str(tmp_path / "cache")
+    (Path(client.local_path) / "part.csv").write_text("value\n1\n", encoding="utf-8")
+    client.output_format = [".csv"]
+    report = client.pandas_all(files=["part.csv"], dry_run=True)
+    assert report.ok
+    assert not report.would_write
+    assert report.destination is None
