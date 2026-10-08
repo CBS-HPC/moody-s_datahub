@@ -176,7 +176,7 @@ def test_parallel_fuzzy_chunks_remain_dataframes(monkeypatch):
     monkeypatch.setattr("moodys_datahub.extra.np.array_split", split_indices)
     monkeypatch.setattr("moodys_datahub.extra.Pool", InlinePool)
     frame = pd.DataFrame(
-        {"name": ["Acme", "Beta", "Acme"], "bvd_id": ["DK1", "DK2", "DK3"]},
+        {"name": ["Acme", "Beta", "Gamma"], "bvd_id": ["DK1", "DK2", "DK3"]},
         index=[9, 3, 7],
     )
     options = dict(

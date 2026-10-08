@@ -12,6 +12,9 @@
   not proof that another downloader has finished.
 - Extend profiling drift checks to physical dtype changes, including empty
   Avro shards, and preflight remote scratch capacity without exposing records.
+- Align duplicate-name tie behavior in the older `extra.fuzzy_match()` helper
+  across sequential/parallel budgets, or deprecate it in favor of the indexed
+  company matcher. The public `Sftp.search_company_names()` uses the newer path.
 - Enable GitHub repository variable `PYPI_PUBLISH_ENABLED=true` only after
   configuring the PyPI trusted publisher. GitHub release-wheel delivery does
   not depend on PyPI publication.
