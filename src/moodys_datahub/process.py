@@ -14,6 +14,7 @@ import psutil
 from .load_data import _country_codes, _table_dates, _table_dictionary
 from .preflight import (
     PreflightReport,
+    _candidate_local_path,
     build_download_preflight,
     build_process_preflight,
 )
@@ -1582,12 +1583,24 @@ class _Process(_Selection):
             print("All files are already downloaded")
             self._download_finished = True
 
-    def _file_exist(self, file: str):
-        base_path = os.getcwd()
-        base_path = base_path.replace("\\", "/")
+    def resolve_cache_file(self, file: str) -> str:
+        """Return an absolute local source/cache path without side effects.
 
-        if not file.startswith(base_path):
-            file = os.path.join(base_path, file)
+        Existing explicit local files take precedence. Otherwise, use
+        ``local_path`` or the selected product/table's versioned directory
+        under ``download_root`` (``Data Products`` by default). The returned
+        path may not exist; this method does not check download completeness.
+        It never creates directories, downloads, prompts, or changes selection.
+
+        Raises:
+            ValueError: No cache path or complete remote selection is available,
+                or the resolved path exceeds the platform path-length limit.
+        """
+        return self._file_exist(file)[0]
+
+    def _file_exist(self, file: str):
+        """Resolve a file and flag existing explicit input, not managed cache hits."""
+        file = os.path.abspath(file)
 
         if len(file) > self._max_path_length:
             raise ValueError(
@@ -1597,12 +1610,9 @@ class _Process(_Selection):
         if os.path.exists(file):
             flag = True
         else:
-            file = str(Path(self._local_path) / os.path.basename(file))
-            # file = self._local_path + "/" + os.path.basename(file)
+            local_path = _candidate_local_path(self, required=True)
+            file = os.path.abspath(Path(local_path) / os.path.basename(file))
             flag = False
-            if not file.startswith(base_path):
-                file = str(Path(base_path) / file)
-                # file = base_path + "/" + file
 
         if len(file) > self._max_path_length:
             raise ValueError(
@@ -1889,10 +1899,6 @@ class _Process(_Selection):
 
     def _check_args(self, files: list, destination=None, flag: bool = False):
         def _detect_files(files):
-            def format_timestamp(timestamp: str) -> str:
-                formatted_timestamp = timestamp.replace(" ", "_").replace(":", "-")
-                return formatted_timestamp
-
             if isinstance(files, str):
                 files = [files]
             elif isinstance(files, list) and len(files) == 0:
@@ -1920,23 +1926,7 @@ class _Process(_Selection):
                             "before calling process_all (e.g. via define_options/select_columns)."
                         )
 
-                    if self._time_stamp:
-                        folder_name = f"{self.set_data_product}_exported {format_timestamp(self._time_stamp)}"
-                    else:
-                        folder_name = self.set_data_product
-
-                    download_root = getattr(self, "_download_root", None)
-                    if download_root is None:
-                        download_root = "Data Products"
-
-                    path = str(Path(download_root) / folder_name / self.set_table)
-
-                    # if self._time_stamp and self.set_data_product is not None:
-                    #    path = "Data Products" + "/" + self.set_data_product +'_exported '+ format_timestamp(self._time_stamp) + "/" + self.set_table
-                    # else:
-                    #    path = "Data Products" + "/" + self.set_data_product + "/" + self.set_table
-
-                    self.local_path = path
+                    self.local_path = _candidate_local_path(self, required=True)
 
                 missing_files = [
                     file

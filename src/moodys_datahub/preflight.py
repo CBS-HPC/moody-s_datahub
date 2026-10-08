@@ -48,18 +48,27 @@ def _current_time_stamp() -> str:
     return datetime.now().strftime("%y%m%d%H%M")
 
 
-def _candidate_local_path(obj) -> str | None:
+def _candidate_local_path(obj, *, required: bool = False) -> str | None:
+    """Plan the active cache directory without creating it or changing selection."""
     local_path = getattr(obj, "_local_path", None)
-    if local_path is not None:
+    if local_path:
         return str(local_path)
-
-    remote_path = getattr(obj, "_remote_path", None)
-    if remote_path is None:
-        return None
 
     set_data_product = getattr(obj, "_set_data_product", None)
     set_table = getattr(obj, "_set_table", None)
-    if set_data_product is None or set_table is None:
+    missing = [
+        name
+        for name in ("remote_path", "set_data_product", "set_table")
+        if not getattr(obj, f"_{name}", None)
+    ]
+    if missing:
+        if required:
+            raise ValueError(
+                "Cannot resolve a local cache path. Set local_path explicitly, "
+                "or select a remote data product and table using "
+                "set_data_product/set_table or remote_path. "
+                f"Missing selection settings: {', '.join(missing)}."
+            )
         return None
 
     time_stamp = getattr(obj, "_time_stamp", None)

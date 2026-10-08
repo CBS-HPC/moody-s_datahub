@@ -226,6 +226,13 @@ class Sftp(_Process):
                 "notes": "Need local data files or local_repo; otherwise remote files are required.",
             },
             {
+                "method": "resolve_cache_file",
+                "offline_safe": True,
+                "local_repo_safe": True,
+                "server_required": False,
+                "notes": "Read-only path lookup; needs a local file/path or existing remote selection.",
+            },
+            {
                 "method": "download_all",
                 "offline_safe": False,
                 "local_repo_safe": False,

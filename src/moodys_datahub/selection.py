@@ -56,6 +56,21 @@ class _Selection(_Connection):
         elif path is not self.remote_path:
             self._local_files = []
             self._local_path = None
+            self._time_stamp = None
+
+            inventory = self._tables_backup
+            if inventory is None:
+                inventory = self._tables_available
+            selection_path = (
+                str(Path(path)) if self._local_repo else _normalize_remote_path(path)
+            )
+            metadata = inventory.loc[
+                (inventory["Base Directory"] == selection_path)
+                | (inventory["Export"] == selection_path)
+            ]
+            # Prefer export metadata before _check_path falls back to file stat.
+            if not metadata.empty:
+                self._time_stamp = metadata["Timestamp"].iloc[0]
 
             if self._local_repo:
                 self._remote_files, self._remote_path = self._check_path(path, None)
@@ -63,17 +78,10 @@ class _Selection(_Connection):
                 self._remote_files, self._remote_path = self._check_path(path, "remote")
 
             if self._remote_path:
-                if len(self._tables_available) > 1:
-                    df = self._tables_available.query(
-                        f"`Base Directory` == '{self._remote_path}'"
-                    )
-                else:
-                    df = self._tables_available
+                df = inventory.loc[inventory["Base Directory"] == self._remote_path]
 
                 if df.empty:
-                    df = self._tables_available.query(
-                        f"`Export` == '{self._remote_path}'"
-                    )
+                    df = inventory.loc[inventory["Export"] == self._remote_path]
                     self._set_table = None
                 else:
                     if self._set_data_product not in df["Data Product"].values:
@@ -82,6 +90,9 @@ class _Selection(_Connection):
 
                     if self._set_table not in df["Table"].values:
                         self._set_table = df["Table"].iloc[0]
+
+                if not df.empty:
+                    self._time_stamp = df["Timestamp"].iloc[0]
 
     @property
     def remote_files(self):
