@@ -155,11 +155,18 @@ def profile_all_files(
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Profile all shards, preserving existing files and cleaning owned staging."""
     with ExitStack() as cleanup:
+        owned_paths: set[Path] = set()
+
+        def release_file(path: Path) -> None:
+            if path in owned_paths:
+                path.unlink(missing_ok=True)
+                owned_paths.discard(path)
 
         def resolve_owned_file(file: str) -> tuple[Path, bool]:
             path, preexisting = resolve_file(file)
             if not preexisting:
-                cleanup.callback(path.unlink, missing_ok=True)
+                owned_paths.add(path)
+                cleanup.callback(release_file, path)
             return path, preexisting
 
         return _scan_profile_files(
@@ -167,6 +174,7 @@ def profile_all_files(
             data_product=data_product,
             table=table,
             resolve_file=resolve_owned_file,
+            release_file=release_file,
             operation_hints=operation_hints,
             sample_rows=sample_rows,
             chunk_rows=chunk_rows,
@@ -182,6 +190,7 @@ def _scan_profile_files(
     data_product: str | None,
     table: str | None,
     resolve_file: Callable[[str], tuple[Path, bool]],
+    release_file: Callable[[Path], None],
     operation_hints: bool,
     sample_rows: int = DEFAULT_PROFILE_SAMPLE_ROWS,
     chunk_rows: int = DEFAULT_PROFILE_CHUNK_ROWS,
@@ -213,11 +222,11 @@ def _scan_profile_files(
         )
     except Exception:
         if not first_preexisting:
-            first_path.unlink(missing_ok=True)
+            release_file(first_path)
         raise
     if profile.empty:
         if not first_preexisting:
-            first_path.unlink(missing_ok=True)
+            release_file(first_path)
         raise ValueError("The first source file has no columns to profile.")
 
     expected_columns = _column_names(sample)
@@ -228,7 +237,7 @@ def _scan_profile_files(
         and canonical_bvd_column not in expected_columns
     ):
         if not first_preexisting:
-            first_path.unlink(missing_ok=True)
+            release_file(first_path)
         raise ValueError(
             f"canonical_bvd_column {canonical_bvd_column!r} is not present in the first file."
         )
@@ -322,7 +331,7 @@ def _scan_profile_files(
                 scanned_file_count += 1
             finally:
                 if not preexisting:
-                    local_path.unlink(missing_ok=True)
+                    release_file(local_path)
         connection.commit()
         unique_bvd_ids = (
             int(

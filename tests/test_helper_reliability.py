@@ -552,3 +552,135 @@ def test_profile_dry_run_does_not_parse_explicit_local_source(tmp_path):
     assert not plan.loc[0, "would_download"]
     assert not plan.loc[0, "would_list_remote"]
     assert source.read_bytes() == b"no schema or data should be read"
+
+
+@pytest.mark.parametrize("suffix", [".csv", ".parquet"])
+@pytest.mark.parametrize("failure", [None, "schema", "resolve"])
+def test_all_files_retains_foreign_replacement_after_stage_release(
+    tmp_path, suffix, failure
+):
+    from moodys_datahub.profile_scan import profile_all_files
+
+    first = tmp_path / f"first{suffix}"
+    second = tmp_path / f"second{suffix}"
+    replacement = {}
+
+    def write_frame(path, frame):
+        if suffix == ".csv":
+            frame.to_csv(path, index=False)
+        else:
+            frame.to_parquet(path, index=False)
+
+    def resolve(file):
+        if file == "first":
+            assert not first.exists()
+            write_frame(first, pd.DataFrame({"bvd_id_number": ["DK123"]}))
+            return first, False
+        assert not first.exists(), "Each owned shard must be released promptly"
+        write_frame(first, pd.DataFrame({"bvd_id_number": ["FR333"]}))
+        replacement["bytes"] = first.read_bytes()
+        if failure == "resolve":
+            raise OSError("fixture second resolution failed")
+        column = "different_column" if failure == "schema" else "bvd_id_number"
+        write_frame(second, pd.DataFrame({column: ["SE200"]}))
+        return second, False
+
+    kwargs = {
+        "data_product": "Product",
+        "table": "table",
+        "resolve_file": resolve,
+        "operation_hints": False,
+        "scratch_dir": tmp_path,
+    }
+    if failure:
+        message = "Schema drift" if failure == "schema" else "second resolution failed"
+        with pytest.raises((ValueError, OSError), match=message):
+            profile_all_files(["first", "second"], **kwargs)
+    else:
+        _, summary = profile_all_files(["first", "second"], **kwargs)
+        assert summary["row_count"] == 2
+        assert summary["unique_canonical_bvd_ids"] == 2
+
+    assert first.exists(), "Cleanup must not reclaim a released path"
+    assert first.read_bytes() == replacement["bytes"]
+    assert not second.exists()
+    assert not list(tmp_path.glob(".profile-*.sqlite3*"))
+
+
+@pytest.mark.parametrize("data_product", [None, "Product"])
+@pytest.mark.parametrize("file_scope", ["first_file", "all_files"])
+def test_profile_dry_run_keeps_active_export_when_switching_tables(
+    tmp_path, monkeypatch, data_product, file_scope
+):
+    from copy import copy
+
+    obj = make_sftp(tmp_path)
+    obj._local_repo = str(tmp_path)
+    inventory = []
+    for export in ("old", "new"):
+        for table in ("a", "b"):
+            directory = tmp_path / export / table
+            directory.mkdir(parents=True)
+            pd.DataFrame({"bvd_id_number": ["DK123"]}).to_parquet(
+                directory / f"{export}_{table}.parquet", index=False
+            )
+            inventory.append(
+                {
+                    "Data Product": "Product",
+                    "Table": table,
+                    "Base Directory": str(directory),
+                    "Export": str(directory.parent),
+                    "Timestamp": "2026-01-02" if export == "new" else "2025-01-02",
+                    "Top-level Directory": "Product",
+                }
+            )
+    obj._tables_backup = pd.DataFrame(inventory)
+    obj._tables_available = obj._tables_backup.copy()
+    obj.remote_path = str(tmp_path / "new" / "a")
+    assert obj.set_data_product == "Product"
+    assert obj.set_table == "a"
+    assert len(obj._tables_available) == 2
+
+    runtime = copy(obj)
+    if data_product is not None:
+        runtime.set_data_product = data_product
+    runtime.set_table = "b"
+    assert runtime.remote_path == str(tmp_path / "new" / "b")
+    assert runtime.remote_files == ["new_b.parquet"]
+    active_inventory = obj._tables_available.copy(deep=True)
+    backup_inventory = obj._tables_backup.copy(deep=True)
+    original_files = obj.remote_files.copy()
+    original_local_path = obj._local_path
+    original_timestamp = obj._time_stamp
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("Dry-run must not perform selection, staging, or source reads")
+
+    for name in (
+        "_check_path",
+        "_object_defaults",
+        "select_data",
+        "_get_file",
+        "_read_profile_file",
+    ):
+        monkeypatch.setattr(Sftp, name, forbidden)
+
+    plan = obj.profile_table(
+        data_product=data_product, table="b", file_scope=file_scope, dry_run=True
+    )
+
+    assert plan.loc[0, "data_product"] == runtime.set_data_product
+    assert plan.loc[0, "table"] == runtime.set_table
+    assert plan.loc[0, "file_name"] == runtime.remote_files[0]
+    assert plan.loc[0, "source_file_count"] == 1
+    assert not plan.loc[0, "would_download"]
+    assert not plan.loc[0, "would_list_remote"]
+    assert obj.remote_path == str(tmp_path / "new" / "a")
+    assert obj.set_data_product == "Product"
+    assert obj.set_table == "a"
+    assert obj.remote_files == original_files
+    assert obj._local_path == original_local_path
+    assert obj._time_stamp == original_timestamp
+    pd.testing.assert_frame_equal(obj._tables_available, active_inventory)
+    pd.testing.assert_frame_equal(obj._tables_backup, backup_inventory)
+    assert not (tmp_path / "cache").exists()

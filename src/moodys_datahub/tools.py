@@ -408,7 +408,11 @@ class Sftp(_Process):
             )
 
         if (product, selected_table) != (self.set_data_product, self.set_table):
-            inventory = self._tables_backup
+            inventory = (
+                self._tables_available
+                if product is not None and product == self.set_data_product
+                else self._tables_backup
+            )
             if inventory is None or inventory.empty:
                 raise ValueError(
                     "No cached table inventory is available for profiling dry-run."
