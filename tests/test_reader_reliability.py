@@ -135,7 +135,7 @@ def test_csv_reader_retains_every_logical_record(
     tmp_path, monkeypatch, contents, num_workers
 ):
     source = tmp_path / "records.csv"
-    source.write_text(contents, encoding="utf-8", newline="")
+    source.write_bytes(contents.encode("utf-8"))
     expected = pd.read_csv(source, low_memory=False)
     # Exercise real readers without Windows process-spawn overhead in the red run.
     monkeypatch.setattr(utils, "Pool", ThreadPool)
