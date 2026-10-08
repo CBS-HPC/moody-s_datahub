@@ -67,6 +67,8 @@ def test_create_workers_switches_spawn_query_to_thread_pool(monkeypatch):
             created["max_workers"] = max_workers
 
     monkeypatch.setattr("moodys_datahub.utils.ThreadPoolExecutor", FakeExecutor)
+    monkeypatch.delattr("moodys_datahub.utils.os.fork", raising=False)
+    monkeypatch.setattr("moodys_datahub.utils.cpu_count", lambda: 8)
 
     worker_pool, method = _create_workers(
         num_workers=3,
