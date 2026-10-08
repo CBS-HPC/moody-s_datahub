@@ -31,6 +31,7 @@ def _make_dummy_process():
     proc = object.__new__(DummyProcess)
     proc.remote_files = ["sample.csv"]
     proc._local_path = None
+    proc._max_path_length = 10000
     proc._local_files = []
     proc._remote_path = None
     proc._remote_files = ["sample.csv"]
@@ -647,7 +648,7 @@ def test_check_args_rejects_empty_file_list():
     proc.local_files = []
     proc.remote_files = []
 
-    with pytest.raises(ValueError, match="'files' is a empty list"):
+    with pytest.raises(ValueError, match="non-empty"):
         proc._check_args([])
 
 
@@ -659,7 +660,7 @@ def test_check_args_requires_table_before_deriving_local_path():
     proc._remote_path = "remote/base"
     proc._set_table = None
 
-    with pytest.raises(ValueError, match="Table is not set"):
+    with pytest.raises(ValueError, match="set_table"):
         proc._check_args(["remote.csv"])
 
 
@@ -1508,9 +1509,7 @@ def test_download_all_redownloads_cached_file_when_remote_size_differs(
 
     monkeypatch.setattr("moodys_datahub.process.os.fork", lambda: None, raising=False)
     monkeypatch.setattr(DummyProcess, "_check_args", lambda self, files: (files, None))
-    monkeypatch.setattr(
-        DummyProcess, "_file_exist", lambda self, file: (str(local_file), True)
-    )
+    proc._local_path = str(tmp_path)
     monkeypatch.setattr(DummyProcess, "_connect", lambda self: FakeSftp())
     monkeypatch.setattr("moodys_datahub.process._run_parallel", fake_run_parallel)
     monkeypatch.setattr("moodys_datahub.process.os.utime", lambda *args: None)
@@ -1554,9 +1553,7 @@ def test_get_file_redownloads_existing_nonzero_partial_file(monkeypatch, tmp_pat
             assert remote_file == "remote/base/sample.csv"
             return Attr()
 
-    monkeypatch.setattr(
-        DummyProcess, "_file_exist", lambda self, file: (str(local_file), True)
-    )
+    proc._local_path = str(tmp_path)
     monkeypatch.setattr(DummyProcess, "_connect", lambda self: FakeSftp())
     monkeypatch.setattr("moodys_datahub.process.os.utime", lambda *args: None)
 

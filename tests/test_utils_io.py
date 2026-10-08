@@ -422,26 +422,21 @@ def test_load_pd_applies_date_bvd_and_query_filters(tmp_path):
     assert result["bvd_id"].tolist() == ["C3"]
 
 
-def test_load_pd_removes_folder_on_arrow_invalid(monkeypatch, tmp_path):
+def test_load_pd_preserves_folder_on_arrow_invalid(monkeypatch, tmp_path):
     data_dir = tmp_path / "broken_dir"
     data_dir.mkdir()
     file_path = data_dir / "broken.parquet"
-    file_path.write_text("broken", encoding="utf-8")
-    removed = {}
-
+    file_path.write_bytes(b"broken")
+    sibling = data_dir / "notes.txt"
+    sibling.write_bytes(b"keep me")
     monkeypatch.setattr(
         "moodys_datahub.utils._read_pd",
         lambda file, select_cols: (_ for _ in ()).throw(ArrowInvalid("bad parquet")),
     )
-    monkeypatch.setattr(
-        "moodys_datahub.utils.shutil.rmtree",
-        lambda path: removed.update({"path": path}),
-    )
-
-    with pytest.raises(ValueError, match="folder and sub files"):
+    with pytest.raises(ValueError, match="source files were retained"):
         _load_pd(str(file_path))
-
-    assert removed == {"path": str(data_dir)}
+    assert file_path.read_bytes() == b"broken"
+    assert sibling.read_bytes() == b"keep me"
 
 
 def test_read_csv_chunk_applies_selection_and_filters(tmp_path):
@@ -472,43 +467,16 @@ def test_read_csv_chunk_applies_selection_and_filters(tmp_path):
     assert result["value"].tolist() == [2, 3]
 
 
-def test_load_csv_table_validates_columns_and_uses_parallel_reader(monkeypatch, tmp_path):
+def test_load_csv_table_validates_columns_without_nested_pool(monkeypatch, tmp_path):
     file_path = tmp_path / "table.csv"
-    pd.DataFrame(
-        {
-            "bvd_id": ["A1", "B2", "C3", "D4"],
-            "value": [1, 2, 3, 4],
-        }
-    ).to_csv(file_path, index=False)
-    captured = {}
-
-    def fake_run_parallel(fnc, params_list, n_total, num_workers, pool_method, msg):
-        captured.update(
-            {
-                "n_total": n_total,
-                "num_workers": num_workers,
-                "pool_method": pool_method,
-                "msg": msg,
-                "params_len": len(params_list),
-            }
-        )
-        return [
-            pd.DataFrame({"bvd_id": ["A1", "B2"], "value": [1, 2]}),
-            pd.DataFrame({"bvd_id": ["C3", "D4"], "value": [3, 4]}),
-        ]
-
-    monkeypatch.setattr("moodys_datahub.utils._run_parallel", fake_run_parallel)
-
+    pd.DataFrame({"bvd_id": ["A1", "B2", "C3", "D4"], "value": [1, 2, 3, 4]}).to_csv(file_path, index=False)
+    monkeypatch.setattr(
+        "moodys_datahub.utils._run_parallel",
+        lambda *args, **kwargs: pytest.fail("CSV parser must not spawn a nested pool"),
+    )
     result = _load_csv_table(str(file_path), select_cols=["bvd_id", "value"], num_workers=2)
-
     assert result["bvd_id"].tolist() == ["A1", "B2", "C3", "D4"]
-    assert captured == {
-        "n_total": 2,
-        "num_workers": 2,
-        "pool_method": "process",
-        "msg": "Reading chunks",
-        "params_len": 2,
-    }
+    assert result["value"].tolist() == [1, 2, 3, 4]
 
 
 def test_load_csv_table_single_worker_reads_in_process(monkeypatch, tmp_path):

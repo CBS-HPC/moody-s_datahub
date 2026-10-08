@@ -2,10 +2,6 @@ import json
 import os
 import posixpath
 import re
-import shlex
-import shutil
-import subprocess
-import sys
 import warnings
 from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
@@ -54,7 +50,7 @@ def _join_remote_path(*parts):
         text = str(part).replace("\\", "/").strip()
         if not text:
             continue
-        if not normalized_parts:
+        if not normalized_parts and not is_absolute:
             is_absolute = text.startswith("/")
         text = text.strip("/")
         if text:
@@ -100,7 +96,7 @@ def _create_workers(
     num_workers: int = -1, n_total: int = None, pool_method=None, query=None
 ):
     if num_workers < 1:
-        num_workers = int(psutil.virtual_memory().total / (1024**3) / 12)
+        num_workers = max(1, int(psutil.virtual_memory().total / (1024**3) / 12))
 
     if num_workers > int(cpu_count()):
         num_workers = int(cpu_count())
@@ -308,6 +304,7 @@ def _create_chunks(df, output_format: list | None = None, file_size: int = 100):
         chunk_size = 1_000_000  # ValueError: This sheet is too large! Your sheet size is: 1926781, 4 Max sheet size is: 1048576, 1
     else:
         # Rough size factor to assure that compressed files of "file_size" size.
+        size_factor = 1
         if ".dta" in output_format or ".pickle" in output_format:
             size_factor = 1.5
         elif ".csv" in output_format:
@@ -325,14 +322,10 @@ def _create_chunks(df, output_format: list | None = None, file_size: int = 100):
 
         if n_chunks == 0:
             n_chunks = 1
-        chunk_size = int(total_rows / n_chunks)
+        chunk_size = max(1, int(total_rows / n_chunks))
 
-        n_chunks = pd.Series(np.ceil(total_rows / chunk_size)).astype(int)
-        n_chunks = int(n_chunks.iloc[0])
-        if n_chunks == 0:
-            n_chunks = 1
-
-        return n_chunks, total_rows, chunk_size
+    n_chunks = max(1, ceil(total_rows / chunk_size))
+    return n_chunks, total_rows, chunk_size
 
 
 def _process_chunk(params):
@@ -467,12 +460,8 @@ def _load_pd(
             print(f"{os.path.basename(file)} empty after column selection")
             return df
     except pyarrow.lib.ArrowInvalid as e:
-        folder_path = os.path.dirname(file)
-        if os.path.exists(folder_path) and os.path.isdir(folder_path):
-            shutil.rmtree(folder_path)
-
         raise ValueError(
-            f"Error reading {os.path.basename(file)} folder and sub files {folder_path} has been removed): {e}"
+            f"Error reading {os.path.basename(file)}; source files were retained: {e}"
         ) from e
     except Exception as e:
         raise ValueError(f"Error reading file: {e}") from e
@@ -690,6 +679,14 @@ def _read_csv_chunk(params):
     except Exception as e:
         raise ValueError(f"Error while reading chunk: {e}") from e
 
+    return _filter_csv_table(
+        df, file, select_cols, col_index, date_query, bvd_query, query, query_args
+    )
+
+
+def _filter_csv_table(
+    df, file, select_cols, col_index, date_query, bvd_query, query, query_args
+):
     if select_cols is not None:
         df = df.iloc[:, col_index]
         df.columns = select_cols
@@ -745,6 +742,11 @@ def _load_csv_table(
     query_args: list | None = None,
     num_workers: int = -1,
 ):
+    """Read logical CSV records in bounded batches within the current worker.
+
+    ``num_workers`` remains an upper budget, not a request for a nested pool.
+    Date/BvD filters run per batch; user queries run on the retained whole table.
+    """
     if date_query is None:
         date_query = [None, None, None, "remove"]
 
@@ -761,94 +763,37 @@ def _load_csv_table(
             missing_cols = set(select_cols) - set(available_cols)
             raise ValueError(f"Columns not found in file: {missing_cols}")
 
-        # Find indices of select_cols
+        # pandas usecols follows source order; restore the requested output order.
+        available_cols = [col for col in available_cols if col in select_cols]
         col_index = [available_cols.index(col) for col in select_cols]
         select_cols = [available_cols[i] for i in col_index]
 
         return select_cols, col_index
 
-    if num_workers < 1:
-        num_workers = int(psutil.virtual_memory().total / (1024**3) / 12)
-
     # check if the requested columns exist
     select_cols, col_index = check_cols(file, select_cols)
 
-    if num_workers == 1:
-        return _read_csv_chunk(
-            (
-                file,
-                0,
-                None,
-                select_cols,
-                col_index,
-                date_query,
-                bvd_query,
-                query,
-                query_args,
+    def filtered_chunks(reader):
+        for chunk in reader:
+            yield _filter_csv_table(
+                chunk, file, select_cols, col_index, date_query, bvd_query, None, None
             )
-        )
 
-    # Step 1: Determine the total number of rows using subprocess
-    if sys.platform.startswith("linux") or sys.platform == "darwin":
-        safe_file_path = shlex.quote(file)
-        num_lines = (
-            int(
-                subprocess.check_output(f"wc -l {safe_file_path}", shell=True).split()[
-                    0
-                ]
-            )
-            - 1
-        )
-    elif sys.platform == "win32":
+    try:
+        # Parser-defined records preserve headers, quoted newlines, and the tail.
+        with pd.read_csv(
+            file, low_memory=False, usecols=select_cols or None, chunksize=100_000
+        ) as reader:
+            df = pd.concat(filtered_chunks(reader))
+    except Exception as e:
+        raise ValueError(f"Error while reading chunk: {e}") from e
 
-        def count_lines_chunk(file_path):
-            # Open the file in binary mode for faster reading
-            with open(file_path, "rb") as f:
-                # Use os.read to read large chunks of the file at once (64KB in this case)
-                buffer_size = 1024 * 64  # 64 KB
-                read_chunk = f.read(buffer_size)
-                count = 0
-                while read_chunk:
-                    # Count the number of newlines in each chunk
-                    count += read_chunk.count(b"\n")
-                    read_chunk = f.read(buffer_size)
-            return count
+    if df.empty and (all(date_query) or bvd_query is not None):
+        return df
 
-        num_lines = count_lines_chunk(file) - 1
-
-    # Step 2: Calculate the chunk size to create 64 chunks
-    chunk_size = num_lines // num_workers
-
-    # Step 3: Prepare the params_list
-    params_list = [
-        (
-            file,
-            i,
-            chunk_size,
-            select_cols,
-            col_index,
-            date_query,
-            bvd_query,
-            query,
-            query_args,
-        )
-        for i in range(num_workers)
-    ]
-
-    # Step 4: Use _run_parallel to read the DataFrame in parallel
-    chunks = _run_parallel(
-        _read_csv_chunk,
-        params_list,
-        n_total=num_workers,
-        num_workers=num_workers,
-        pool_method="process",
-        msg="Reading chunks",
+    return _filter_csv_table(
+        df, file, None, None, [None, None, None, "remove"], None, query, query_args
     )
-
-    # Step 5: Concatenate all chunks into a single DataFrame
-    df = pd.concat(chunks, ignore_index=True)
-
-    return df
 
 
 def _save_to(df, filename, format: SaveFormat | bool = None):
@@ -1946,6 +1891,8 @@ def _read_pd(file, select_cols):
             df = read_function(file, usecols=select_cols)
         elif file_ext in ["parquet", "orc"]:
             df = read_function(file, columns=select_cols)
+        elif file_ext == "avro":
+            df = read_function(file).loc[:, select_cols]
     return df
 
 
