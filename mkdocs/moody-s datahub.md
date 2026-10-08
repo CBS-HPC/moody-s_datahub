@@ -90,6 +90,13 @@ packaged definitions. For local source files, `dry_run=True` validates required
 columns against that schema; it never downloads remote files merely to inspect
 their schema.
 
+Every requested file must resolve; invalid inputs raise instead of producing
+partial extracts. Existing explicit local files and preexisting profile caches
+are preserved, and reader errors never remove source folders. Remote discovery
+keeps marker files; export cleanup is a separate authorized operation.
+Non-interactive invalid selections fail explicitly. A local-only extraction
+uses `<output_root>/<timestamp>_output` when no destination or table is supplied.
+
 Use `process_all()` when you want automatic backend selection with a pandas
 return type. Use `pandas_all()` when you need pandas-only query semantics
 explicitly, and `polars_all()` when you want the native Polars path and return

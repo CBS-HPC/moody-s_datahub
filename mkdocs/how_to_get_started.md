@@ -7,25 +7,25 @@ https://github.com/CBS-HPC/moody-s_datahub/blob/main/mkdocs/how_to_get_started.i
 
 **The pip wheel can be manually downloaded using the link below:**
 
-https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.12/moodys_datahub-1.4.12-py3-none-any.whl
+https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.13/moodys_datahub-1.4.13-py3-none-any.whl
 
 
 Or directly to the working folder by running the line below:
 
 
 ```python
-!curl -s -L -o moodys_datahub-1.4.12-py3-none-any.whl https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.12/moodys_datahub-1.4.12-py3-none-any.whl
+!curl -s -L -o moodys_datahub-1.4.13-py3-none-any.whl https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.13/moodys_datahub-1.4.13-py3-none-any.whl
 ```
 
 ## Installation
 
-Install the package "moodys_datahub-1.4.12-py3-none-any.whl":
+Install the package "moodys_datahub-1.4.13-py3-none-any.whl":
 
 
 
 ```python
 
-!pip install moodys_datahub-1.4.12-py3-none-any.whl
+!pip install moodys_datahub-1.4.13-py3-none-any.whl
 ```
 
 The package pins `paramiko==3.5.1` because the current `pysftp` dependency is
@@ -319,6 +319,20 @@ For local source files, dry-run also checks that required selected and filter
 columns exist in the file schema. It deliberately does not download remote
 files only to inspect schemas; the preflight report warns when that check is
 deferred.
+
+All requested files must resolve; a missing filename now raises instead of
+silently returning a partial extraction. Explicit existing local files are
+protected from remote cache replacement and read-error cleanup. For scripts,
+invalid product/table settings raise rather than leaving an old selection active.
+`process_one()` without `files` plans and reads just the first shard; a string or
+`Path` also identifies one shard. With only local files and no selected table,
+generated output uses `<output_root>/<timestamp>_output`.
+
+Use `async_mode=False` for an awaited download in a batch script. Windows uses
+bounded download threads; Unix uses process workers. Pandas CSV parsing no
+longer nests row-parser pools inside file workers and retains multiline records
+and final rows. Polars CPU threads require `POLARS_MAX_THREADS` before import;
+do not run concurrent extractions sharing one cache.
 
 
 ```python

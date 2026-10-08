@@ -72,6 +72,18 @@ arguments so workbook-driven searches can reuse the layered BvD filter model.
 - `dry_run=True` returns a preflight report without downloading, processing,
   saving, or deleting files. Local source schemas validate selected and filter
   columns; remote files are not downloaded merely for schema validation.
+- Requested inputs are resolved individually; missing inputs now raise instead
+  of producing partial results. Explicit local files and existing profile caches
+  are preserved. Read errors never delete source directories.
+- Non-interactive invalid selections raise; rejected BvD/date updates retain the
+  previous valid filter. Changing exports keeps the active table catalog aligned
+  with the selected export.
+- Pandas CSV parsing retains complete logical records without nested parser
+  pools. `num_workers` caps file/download workers, not Polars' native CPU pool.
+  Configure `POLARS_MAX_THREADS` before import for that pool. Concurrent
+  extractions sharing a cache remain unsupported.
+- All-files profiling cleans only newly staged files, including on failure;
+  empty Parquet shards participate in schema-drift checks.
 
 ## Generated reference
 

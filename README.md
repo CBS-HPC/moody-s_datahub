@@ -107,6 +107,38 @@ For local source files, `dry_run=True` also validates selected and filter
 columns against the source schema. It never downloads remote files merely to
 inspect their schema, and reports a warning when that validation is deferred.
 
+### File safety and validation
+
+Explicit existing local inputs are read as supplied: they are not replaced
+because a selected remote file has the same name but a different size. Read
+errors preserve source files and sibling folders. Managed downloads still
+validate non-empty content and remote size when available; `delete_files=True`
+can remove managed inputs after successful processing.
+
+Every requested file must resolve. Mixed local paths and cache/remote filenames
+are supported, but unknown inputs raise rather than silently returning a partial
+dataset. Invalid non-interactive product/table selections also raise. Rejected
+`bvd_list` or `time_period` assignments preserve the previous valid filter.
+
+All-files profiling preserves preexisting source/cache files and cleans only
+files staged by that scan, including on failure. Discovery uses its own temporary
+marker download and does not delete remote markers; `server_cleanup=False`
+disables the separate export cleanup workflow.
+
+Dry-run reports validate paths and backend choice without network calls, worker
+pools, directory creation, or selection prompts. They cannot verify remote
+schemas or current remote file sizes without connecting. A local-only extraction
+with no table selection uses `<output_root>/<timestamp>_output` unless an explicit
+`destination` is supplied.
+
+The pandas CSV fallback parses logical records in bounded batches within each
+file worker, without nested parser pools. It retains quoted multiline records,
+headers, and final/remainder rows. `num_workers` is an upper worker budget, not a
+promise to use every CPU. Prefer Polars for supported high-volume workloads;
+its native CPU pool is configured separately with `POLARS_MAX_THREADS` before
+importing Polars or this package. Concurrent extractions sharing a cache are not
+yet supported.
+
 ## Processing backends
 
 Use `process_all()` as the default high-level API. It auto-selects the backend
@@ -278,7 +310,7 @@ If you want a pinned wheel from a specific GitHub release, install it directly
 from the release assets:
 
 ```bash
-pip install https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.12/moodys_datahub-1.4.12-py3-none-any.whl
+pip install https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.13/moodys_datahub-1.4.13-py3-none-any.whl
 ```
 
 ### Install from a local wheel
@@ -287,7 +319,7 @@ Build the package locally and install the wheel from `dist/`:
 
 ```bash
 python -m build
-pip install dist/moodys_datahub-1.4.12-py3-none-any.whl
+pip install dist/moodys_datahub-1.4.13-py3-none-any.whl
 ```
 
 The package pins `paramiko==3.5.1` because the current `pysftp` dependency is

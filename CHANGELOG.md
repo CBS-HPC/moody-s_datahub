@@ -2,7 +2,7 @@
 
 All notable changes to this project should be documented in this file.
 
-## [Unreleased]
+## [1.4.13] - 2026-10-08
 
 ### Added
 - `resolve_cache_file(file)` exposes read-only source/cache path resolution
@@ -15,6 +15,53 @@ All notable changes to this project should be documented in this file.
 - Changing `remote_path` clears the previous export timestamp and resolves
   matching export metadata from the full inventory, keeping cache versions
   separate even when the active inventory was narrowed to an older export.
+- Parquet/Arrow read errors preserve sources and sibling directories. Explicit
+  local inputs are no longer deleted or replaced by unrelated remote size checks.
+- All-files profiling preserves preexisting managed caches, cleans only owned
+  staging on success/failure, and checks schema drift in empty Parquet shards.
+- Discovery uses an owned temporary marker file and no longer deletes remote
+  marker files before cleanup authorization. Local discovery accepts empty
+  repositories and ignores ordinary root files.
+- Every requested local/cache/remote input is resolved independently. Unknown
+  inputs raise instead of silently producing partial extracts; parallel pandas
+  filenames are returned intact.
+- Pandas CSV parsing retains headers, quoted multiline records, remainders,
+  and final rows using bounded logical-record batches without nested pools.
+  Projection and date/BvD filters are applied before retained chunks are
+  concatenated; custom queries run on the retained whole-file table.
+- Batch AND/OR filters survive product/table resets. Missing templates are
+  created at their requested paths without overwriting unrelated defaults.
+- Non-interactive invalid/ambiguous selections fail explicitly, failed BvD/date
+  assignments retain valid filters, and cancelled BvD prompts retain prior state.
+- Cache/output planning is shared by execution and dry-run. Local-only default
+  outputs use a timestamped `output` suffix; explicit destinations still win.
+- Preflight blocks invalid engines, unresolved inputs, incomplete cache settings,
+  empty explicit inputs, and overlong paths; it checks required columns in every
+  local shard. Explicit backend reports match execution. Profiling dry-run
+  resolves cached inventory without SFTP and reports unknown remote listings.
+- `process_one()` handles string/Path inputs and plans only the first default
+  shard. National identifier helpers no longer launch selection UI internally.
+- Windows downloads use bounded threads. Auto worker defaults never resolve to
+  zero on small-memory hosts. Avro projection and Excel/IPC chunk sizing work.
+- Python 3.9 imports no longer evaluate unsupported union annotations.
+
+### Maintenance
+- Added regression coverage for source ownership, row/filter parity, export
+  isolation, failure cleanup, interactive cancellation, and read-only preflight.
+- Fixed the repository-wide formatter gate, pinned Ruff for reproducibility,
+  and added Windows/Python 3.13 to the Linux/Python 3.9-3.13 CI matrix.
+- Release distributions are checked with Twine before upload. PyPI publication
+  is opt-in via `PYPI_PUBLISH_ENABLED` after trusted publisher configuration.
+
+### Migration
+- Scripts relying on skipped missing files or silently retained invalid
+  selections must now handle `ValueError` or fix their inputs before extraction.
+- Explicit existing local files are inputs, not replaceable managed downloads.
+  Request remote basenames when cache size validation/re-download is intended.
+- Select a different export via `remote_path` before selecting its tables.
+- `num_workers` caps download/file workers; pandas CSV parsing no longer creates
+  nested parser pools. Configure Polars' native CPU cap before import with
+  `POLARS_MAX_THREADS`. Shared-cache concurrent extractions remain unsupported.
 
 ## [1.4.12] - 2026-09-30
 

@@ -260,6 +260,40 @@ For local source files, dry-run also validates required columns against the
 schema. It does not download remote files to inspect schemas and reports that
 limitation as a warning.
 
+Dry-run uses the same read-only file and destination resolvers as execution.
+Unknown inputs, incomplete cache selection, empty explicit files, invalid
+backend names, and excessive path lengths block execution. Explicit
+`pandas_all()` reports pandas; explicit `polars_all()` plans its concatenating
+behavior even if `concat_files=False`. `process_one()` defaults to only the
+first file and accepts a filename, `Path`, list, or file index.
+
+### File ownership and migration notes
+
+- Every requested file must resolve; mixed local/cache/remote inputs are kept
+  in request order. Unknown filenames now raise instead of being skipped.
+- Explicit existing local files are never deleted or replaced by remote size
+  checks. Empty explicit files raise; managed partial caches may be re-downloaded.
+- Reader errors never delete source directories. `delete_files=True` still
+  permits cleanup of managed inputs after successful processing.
+- `file_scope="all_files"` profiling preserves preexisting files, cleans its own
+  staged downloads and scratch database on failure, and checks schema drift in
+  empty Parquet shards too.
+- Remote discovery preserves marker files and uses a unique local temporary
+  directory. Export deletion remains a separately authorized cleanup operation.
+- Invalid or ambiguous non-interactive selections raise rather than retaining
+  an unrelated selection. Select an export with `remote_path` before choosing
+  another table in that export. Failed BvD/date updates retain valid filters.
+- Missing batch templates are created at the requested paths, without
+  overwriting unrelated default templates. Layered batch filters are reapplied
+  after each product/table selection.
+
+Pandas CSV parsing uses logical-record batches in the current file worker, not
+nested row-parser pools. Multiple files can still use bounded file workers.
+Windows downloads use bounded threads; Unix downloads retain process workers.
+Polars' process-wide native thread pool is not resized by `num_workers`: set
+`POLARS_MAX_THREADS` before import if an explicit CPU cap is required. Avoid
+concurrent extractions using the same cache until cache locking is implemented.
+
 ## Backend selection reasons
 
 After `process_all()`, inspect:

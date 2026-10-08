@@ -1,5 +1,21 @@
 # TODO
 
+## Reliability follow-up validation
+
+- Run a live DataHub/UCloud extraction and all-files profiling smoke test after
+  the reliability release. Synthetic regression tests cannot prove remote
+  permissions, scratch capacity, or production throughput.
+- Benchmark bounded pandas CSV parsing against Polars on large selective
+  BvD/date workloads, including peak memory and file-worker CPU budgets.
+- Before supporting concurrent extractions, add owned partial download files,
+  atomic completion/rename, and cache locking. A positive file size alone is
+  not proof that another downloader has finished.
+- Extend profiling drift checks to physical dtype changes, including empty
+  Avro shards, and preflight remote scratch capacity without exposing records.
+- Enable GitHub repository variable `PYPI_PUBLISH_ENABLED=true` only after
+  configuring the PyPI trusted publisher. GitHub release-wheel delivery does
+  not depend on PyPI publication.
+
 ## Replace `pysftp` with native `paramiko`
 
 Goal: remove the brittle `pysftp` dependency and stop relying on the `paramiko==3.5.1` compatibility pin for runtime stability.
