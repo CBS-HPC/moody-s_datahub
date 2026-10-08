@@ -1272,7 +1272,7 @@ class _Process(_Selection):
             destination=destination,
             select_cols=select_cols,
             date_query=date_query,
-            bvd_query=bvd_query,
+            bvd_query=raw_bvd_query,
             query=query,
         )
 
@@ -2016,7 +2016,9 @@ class _Process(_Selection):
         has_select_cols = select_cols is not None and len(select_cols) > 0
         has_query = query is not None
         has_date_query = date_query is not None and all(date_query)
-        has_bvd_query = bvd_query is not None
+        has_bvd_query = (
+            bvd_query is not None or self._compose_bvd_filters()[0] is not None
+        )
 
         flag = (
             any(

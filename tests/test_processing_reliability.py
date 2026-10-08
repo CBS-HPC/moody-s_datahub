@@ -372,3 +372,22 @@ def test_interactive_bvd_cancel_preserves_previous_filter(client, monkeypatch):
 
     asyncio.run(scenario())
     assert (client.bvd_list, client.select_cols) == previous
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_structured_bvd_query_retains_filter_columns_with_projection(
+    client, tmp_path, engine
+):
+    source = tmp_path / "source.csv"
+    source.write_text("value,bvd_id\n1,DK111\n2,DK222\n", encoding="utf-8")
+    options = dict(
+        files=[str(source)],
+        select_cols=["value"],
+        bvd_query=[["DK111"], "bvd_id"],
+        engine=engine,
+    )
+    report = client.process_all(**options, dry_run=True)
+    assert report.ok
+    assert set(report.required_columns) == {"value", "bvd_id"}
+    result, _ = client.process_all(**options, num_workers=1)
+    assert result["value"].tolist() == [1]
