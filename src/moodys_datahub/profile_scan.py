@@ -7,6 +7,7 @@ import re
 import sqlite3
 import uuid
 from collections.abc import Callable, Iterator
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
 
@@ -32,12 +33,12 @@ def _read_profile_sample(path: Path, *, sample_rows: int) -> pd.DataFrame:
     if suffix == ".csv":
         return pd.read_csv(path, nrows=sample_rows)
     if suffix == ".parquet":
-        parquet_file = pq.ParquetFile(path)
-        batches = parquet_file.iter_batches(batch_size=sample_rows)
-        try:
-            return next(batches).to_pandas()
-        except StopIteration:
-            return pd.DataFrame(columns=parquet_file.schema.names)
+        with path.open("rb") as handle, pq.ParquetFile(handle) as parquet_file:
+            batches = parquet_file.iter_batches(batch_size=sample_rows)
+            try:
+                return next(batches).to_pandas()
+            except StopIteration:
+                return pd.DataFrame(columns=parquet_file.schema_arrow.names)
     if suffix == ".avro":
         with path.open("rb") as handle:
             records = []
@@ -58,9 +59,11 @@ def _iter_profile_chunks(path: Path, *, chunk_rows: int) -> Iterator[pd.DataFram
         yield from pd.read_csv(path, chunksize=chunk_rows)
         return
     if suffix == ".parquet":
-        parquet_file = pq.ParquetFile(path)
-        for batch in parquet_file.iter_batches(batch_size=chunk_rows):
-            yield batch.to_pandas()
+        with path.open("rb") as handle, pq.ParquetFile(handle) as parquet_file:
+            if parquet_file.metadata.num_rows == 0:
+                yield parquet_file.schema_arrow.empty_table().to_pandas()
+            for batch in parquet_file.iter_batches(batch_size=chunk_rows):
+                yield batch.to_pandas()
         return
     if suffix == ".avro":
         with path.open("rb") as handle:
@@ -150,6 +153,41 @@ def profile_all_files(
     strict_schema: bool = True,
     scratch_dir: str | os.PathLike[str] | None = None,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Profile all shards, preserving existing files and cleaning owned staging."""
+    with ExitStack() as cleanup:
+        def resolve_owned_file(file: str) -> tuple[Path, bool]:
+            path, preexisting = resolve_file(file)
+            if not preexisting:
+                cleanup.callback(path.unlink, missing_ok=True)
+            return path, preexisting
+
+        return _scan_profile_files(
+            files,
+            data_product=data_product,
+            table=table,
+            resolve_file=resolve_owned_file,
+            operation_hints=operation_hints,
+            sample_rows=sample_rows,
+            chunk_rows=chunk_rows,
+            canonical_bvd_column=canonical_bvd_column,
+            strict_schema=strict_schema,
+            scratch_dir=scratch_dir,
+        )
+
+
+def _scan_profile_files(
+    files: list[str],
+    *,
+    data_product: str | None,
+    table: str | None,
+    resolve_file: Callable[[str], tuple[Path, bool]],
+    operation_hints: bool,
+    sample_rows: int = DEFAULT_PROFILE_SAMPLE_ROWS,
+    chunk_rows: int = DEFAULT_PROFILE_CHUNK_ROWS,
+    canonical_bvd_column: str | None = None,
+    strict_schema: bool = True,
+    scratch_dir: str | os.PathLike[str] | None = None,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Profile every file sequentially and return a sample profile plus totals.
 
     ``resolve_file`` returns a local path and whether it existed before this
@@ -206,7 +244,11 @@ def profile_all_files(
     scratch_root = Path(scratch_dir) if scratch_dir is not None else first_path.parent
     scratch_root.mkdir(parents=True, exist_ok=True)
     database_path = scratch_root / f".profile-{uuid.uuid4().hex}.sqlite3"
-    connection = sqlite3.connect(database_path)
+    try:
+        connection = sqlite3.connect(database_path)
+    except BaseException:
+        database_path.unlink(missing_ok=True)
+        raise
     try:
         connection.execute("CREATE TABLE canonical_bvd_ids(value TEXT PRIMARY KEY)")
         for index, remote_file in enumerate(files):

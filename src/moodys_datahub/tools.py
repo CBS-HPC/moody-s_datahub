@@ -16,6 +16,7 @@ from .company_country import (
     resolve_country_filters,
 )
 from .load_data import _table_dictionary
+from .preflight import _candidate_local_path, _resolve_files
 from .process import _Process
 from .profile_scan import (
     DEFAULT_PROFILE_CHUNK_ROWS,
@@ -83,6 +84,13 @@ class Sftp(_Process):
                 them as exact IDs instead of raising.
         """
 
+        if local_repo:
+            local_repo = os.path.abspath(local_repo)
+            if not os.path.isdir(local_repo):
+                raise ValueError(
+                    f"Provided local_repo must be an existing directory: {local_repo}"
+                )
+
         # Initialize mixins
         _Process.__init__(self)
 
@@ -118,15 +126,7 @@ class Sftp(_Process):
             self.hostname: str = hostname
             self.username: str = username
 
-        if local_repo:
-            local_repo = os.path.abspath(local_repo)
-            if os.path.exists(local_repo):
-                self._local_repo = local_repo
-            else:
-                print(f"Provided local_repo does not exist: {local_repo}")
-                return
-        else:
-            self._local_repo: str = None
+        self._local_repo: str = local_repo or None
 
         self._object_defaults()
 
@@ -151,10 +151,15 @@ class Sftp(_Process):
         if not offline:
             self._server_clean_up(to_delete, prompt_response=server_cleanup)
 
-    def copy_obj(self):
-        """Return a deep copy with defaults restored and interactive data selection triggered."""
+    def _copy_without_selection(self):
+        """Return an independent helper session without launching selection UI."""
         SFTP = copy.deepcopy(self)
         SFTP._object_defaults()
+        return SFTP
+
+    def copy_obj(self):
+        """Return a deep copy with defaults restored and interactive data selection triggered."""
+        SFTP = self._copy_without_selection()
         SFTP.select_data()
 
         return SFTP
@@ -380,6 +385,109 @@ class Sftp(_Process):
         table_name = self._safe_report_name(table or self.set_table)
         return str(base / product / f"{table_name}_profile.xlsx")
 
+    def _profile_table_preflight(
+        self, data_product, table, file, file_scope, save_report, report_path
+    ):
+        """Plan from cached inventory and local paths, without selection setters."""
+        profiler = copy.copy(self)
+        product = data_product if data_product is not None else self.set_data_product
+        selected_table = table if table is not None else self.set_table
+        if data_product is not None and product != self.set_data_product and table is None:
+            selected_table = None
+        if selected_table is None:
+            raise ValueError("profile_table() dry-run requires data_product/table selection.")
+
+        if (product, selected_table) != (self.set_data_product, self.set_table):
+            inventory = self._tables_backup
+            if inventory is None or inventory.empty:
+                raise ValueError("No cached table inventory is available for profiling dry-run.")
+            matches = inventory.loc[inventory["Table"].eq(selected_table)]
+            if product is not None:
+                matches = matches.loc[matches["Data Product"].eq(product)]
+            matches = matches.drop_duplicates()
+            if len(matches) != 1:
+                raise ValueError(
+                    "Profiling dry-run requires one unambiguous cached inventory entry "
+                    f"for data_product={product!r}, table={selected_table!r}."
+                )
+            selection = matches.iloc[0]
+            profiler._set_data_product = selection["Data Product"]
+            profiler._set_table = selection["Table"]
+            base = selection["Base Directory"]
+            profiler._remote_path = str(base) if pd.notna(base) else None
+            timestamp = selection.get("Timestamp")
+            profiler._time_stamp = timestamp if pd.notna(timestamp) else None
+            profiler._local_path = None
+            profiler._local_files = []
+            profiler._remote_files = []
+
+            if profiler._local_repo and profiler._remote_path:
+                local_source = Path(profiler._remote_path)
+                if local_source.is_file():
+                    profiler._local_path = str(local_source.parent)
+                    profiler._remote_path = str(local_source.parent)
+                    profiler._remote_files = [local_source.name]
+                elif local_source.is_dir():
+                    profiler._local_path = str(local_source)
+                    profiler._remote_files = [
+                        path.name for path in local_source.iterdir() if path.is_file()
+                    ]
+            else:
+                cache = _candidate_local_path(profiler)
+                if cache is not None and Path(cache).is_dir():
+                    profiler._local_path = cache
+                    profiler._local_files = [
+                        path.name for path in Path(cache).iterdir() if path.is_file()
+                    ]
+
+        if profiler.set_data_product is None:
+            raise ValueError("profile_table() dry-run requires data_product/table selection.")
+        available = list(profiler._remote_files or profiler._local_files)
+        if isinstance(file, int):
+            if not available:
+                raise ValueError("Cannot resolve a file index without cached source filenames.")
+            selected_file = available[file]
+        else:
+            selected_file = file if file is not None else (available[0] if available else None)
+        files = available if file_scope == "all_files" else (
+            [selected_file] if selected_file is not None else []
+        )
+        would_list_remote = bool(
+            profiler._remote_path and not profiler._local_repo
+            and not profiler._remote_files and file is None
+        )
+        if not files and not would_list_remote:
+            raise ValueError("No local or remote source files are known for profiling dry-run.")
+        _, missing, warnings, errors = _resolve_files(profiler, files)
+        if missing or errors:
+            raise ValueError(f"Cannot plan profiling: {errors + missing}")
+        would_download = (
+            any("would be downloaded" in warning for warning in warnings)
+            if files else None
+        )
+        plan = pd.DataFrame(
+            [{
+                "data_product": profiler.set_data_product,
+                "table": profiler.set_table,
+                "file_name": os.path.basename(selected_file) if selected_file is not None else None,
+                "sample_strategy": file_scope,
+                "source_file_count": (
+                    None if would_list_remote and file_scope == "all_files" or not files
+                    else len(files)
+                ),
+                "would_download": would_download,
+                "would_list_remote": would_list_remote,
+                "would_profile": True,
+                "would_write_report": bool(save_report or report_path),
+                "report_path": report_path or (
+                    self._default_profile_report_path(profiler.set_data_product, profiler.set_table)
+                    if save_report else None
+                ),
+            }]
+        )
+        plan.attrs["warnings"] = warnings
+        return plan
+
     def profile_table(
         self,
         data_product: str = None,
@@ -409,6 +517,11 @@ class Sftp(_Process):
         if file_scope == "all_files" and file is not None:
             raise ValueError("file cannot be combined with file_scope='all_files'.")
 
+        if dry_run:
+            return self._profile_table_preflight(
+                data_product, table, file, file_scope, save_report, report_path
+            )
+
         profiler = copy.deepcopy(self)
         if data_product is not None:
             profiler.set_data_product = data_product
@@ -431,37 +544,20 @@ class Sftp(_Process):
         else:
             selected_file = file
 
-        if dry_run:
-            return pd.DataFrame(
-                [
-                    {
-                        "data_product": profiler.set_data_product,
-                        "table": profiler.set_table,
-                        "file_name": os.path.basename(selected_file),
-                        "sample_strategy": file_scope,
-                        "source_file_count": len(profiler.remote_files)
-                        if file_scope == "all_files"
-                        else 1,
-                        "would_download": selected_file in profiler.remote_files,
-                        "would_profile": True,
-                        "would_write_report": bool(save_report or report_path),
-                        "report_path": report_path
-                        or (
-                            self._default_profile_report_path(
-                                profiler.set_data_product, profiler.set_table
-                            )
-                            if save_report
-                            else None
-                        ),
-                    }
-                ]
-            )
-
         if file_scope == "all_files":
             def resolve_file(candidate: str) -> tuple[Path, bool]:
                 files, _ = profiler._check_args([candidate])
-                local_file, preexisting = profiler._get_file(files[0])
-                return Path(local_file), bool(preexisting)
+                resolve_path = getattr(profiler, "resolve_cache_file", lambda value: value)
+                local_path = Path(resolve_path(files[0]))
+                # _get_file's flag describes direct input, not cache ownership.
+                preexisting = local_path.exists()
+                try:
+                    local_file, _ = profiler._get_file(files[0])
+                except BaseException:
+                    if not preexisting:
+                        local_path.unlink(missing_ok=True)
+                    raise
+                return Path(local_file), preexisting
 
             profile, table_summary = profile_all_files(
                 list(profiler.remote_files),
@@ -749,22 +845,22 @@ class Sftp(_Process):
                 )
                 with (
                     products_file.open("rb") as src,
-                    open("products.xlsx", "wb") as target_file,
+                    open(products, "xb") as target_file,
                 ):
                     shutil.copyfileobj(src, target_file)
-                    files.append(target_file)
+                    files.append(str(products))
             if not os.path.exists(bvd_numbers):
                 bvd_file = (
                     pkg_resources.files("moodys_datahub.data") / "bvd_numbers.txt"
                 )
                 with (
                     bvd_file.open("rb") as src,
-                    open("bvd_numbers.txt", "wb") as target_file,
+                    open(bvd_numbers, "xb") as target_file,
                 ):
                     shutil.copyfileobj(src, target_file)
-                    files.append(target_file)
+                    files.append(str(bvd_numbers))
             print(
-                f"The following input templates have been create: {files}. Please fill out and re-run the function"
+                f"The following input templates have been created: {files}. Please fill out and re-run the function"
             )
             return
 
@@ -780,8 +876,6 @@ class Sftp(_Process):
 
         SFTP = copy.deepcopy(self)
         SFTP._object_defaults()
-        SFTP.AND_bvd_list = AND_bvd_list
-        SFTP.OR_bvd_list = OR_bvd_list
 
         in_complete = []
         # Loop through both lists together
@@ -801,6 +895,8 @@ class Sftp(_Process):
                 print(f"{n} : {data_product} : {table}")
                 SFTP.set_data_product = data_product
                 SFTP.set_table = table
+                SFTP.AND_bvd_list = AND_bvd_list
+                SFTP.OR_bvd_list = OR_bvd_list
 
                 if SFTP._set_table is not None:
                     available_cols = SFTP.get_column_names()
