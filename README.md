@@ -76,6 +76,23 @@ When `download_root` is not set, downloaded files use the existing default
 relative path: `Data Products/<data_product>/<table>`. When it is set, only the
 root is replaced: `<download_root>/<data_product>/<table>`.
 
+When the selected export has a timestamp, its product folder includes
+`_exported YYYY-MM-DD_HH-MM-SS` to keep export versions separate. You can
+inspect a source file's planned cache path before downloading it:
+
+```python
+from pathlib import Path
+
+cache_file = Path(SFTP.resolve_cache_file(SFTP.remote_files[0]))
+print(cache_file, cache_file.is_file())
+```
+
+`resolve_cache_file()` returns an absolute path without creating directories,
+downloading, or changing selection. Existing explicit local files and a
+configured `local_path` take precedence. Without either, select a remote
+product and table first; incomplete selection raises a clear `ValueError`.
+File existence alone does not verify download completeness or integrity.
+
 When `output_root` is set, auto-generated processed outputs are written below
 that root. Explicit `destination` values in `process_all()` still take
 precedence and keep the existing behavior.
@@ -137,8 +154,8 @@ The stable public API is centered on `moodys_datahub.Sftp`:
 - filtering: `select_cols`, `select_columns()`, `bvd_list`, `AND_bvd_list`,
   `OR_bvd_list`, `time_period`
 - processing: `process_one()`, `process_all(dry_run=True)`, `pandas_all()`,
-  `polars_all()`, `download_all(dry_run=True)`, `profile_table()`,
-  `profile_tables()`
+  `polars_all()`, `download_all(dry_run=True)`, `resolve_cache_file()`,
+  `profile_table()`, `profile_tables()`
 - diagnostics: `download_finished`, `last_process_engine`,
   `last_process_reason`
 - helper workflows: `search_company_names()`, `search_bvd_changes()`,

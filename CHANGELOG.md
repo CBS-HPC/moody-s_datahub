@@ -2,6 +2,20 @@
 
 All notable changes to this project should be documented in this file.
 
+## [Unreleased]
+
+### Added
+- `resolve_cache_file(file)` exposes read-only source/cache path resolution
+  before downloads without creating directories or changing selection.
+
+### Fixed
+- Early cache lookup now derives the same versioned directory as dry-run and
+  runtime downloads when `local_path` is unset. Incomplete remote selection
+  raises an actionable `ValueError` instead of a `Path(None)` `TypeError`.
+- Changing `remote_path` clears the previous export timestamp and resolves
+  matching export metadata from the full inventory, keeping cache versions
+  separate even when the active inventory was narrowed to an older export.
+
 ## [1.4.12] - 2026-09-30
 
 ### Added

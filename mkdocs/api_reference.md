@@ -57,6 +57,8 @@ processing raises rather than returning unfiltered data when it does not.
 - `polars_all()`: force the native Polars backend explicitly and return Polars.
 - `download_all()`: download missing files into the local cache.
 - `download_all(dry_run=True)`: validate which files would be downloaded.
+- `resolve_cache_file(file)`: return the absolute local source/cache path
+  before downloading, without creating folders or changing selection.
 - `profile_table()`: inspect one first file by default, or use
   `file_scope="all_files"` for bounded aggregate profiling across every source
   file for one table.
@@ -206,6 +208,36 @@ If `download_root` is not set, remote downloads use the current default:
 `Data Products/<data_product>/<table>`. If it is set, the same product/table
 layout is created below the custom root:
 `<download_root>/<data_product>/<table>`.
+
+For a timestamped export, the product directory is
+`<data_product>_exported YYYY-MM-DD_HH-MM-SS`. Switching table or export
+invalidates the old local cache selection and uses the newly selected version.
+
+### Read-only cache inspection
+
+Use the public resolver before a download when a script needs to inspect a
+source cache file:
+
+```python
+from pathlib import Path
+
+cached_source = Path(SFTP.resolve_cache_file(SFTP.remote_files[0]))
+print(cached_source, cached_source.is_file())
+```
+
+`resolve_cache_file(file)` returns a string containing the absolute path.
+An existing explicit local file takes precedence; otherwise it uses
+`local_path`, or derives the selected product/export/table directory under
+`download_root` (default `Data Products`). The path may not exist yet.
+Resolution never downloads, creates directories, opens prompts, or changes
+selection. Without an explicit local file, configured `local_path`, or
+complete remote selection, it raises `ValueError` listing missing settings.
+The existing platform path-length limit also applies.
+
+This replaces private `_file_exist(file)[0]` calls for pre-download inspection.
+Check `Path(...).is_file()` for presence and verify byte size separately when
+needed. The private method's boolean identifies directly supplied local files;
+it is not a cache-existence or integrity guarantee.
 
 If `output_root` is set, generated processed outputs use that root. Explicit
 `destination` values passed to `process_all()`, `pandas_all()`, or

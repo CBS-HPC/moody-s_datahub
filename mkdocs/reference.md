@@ -16,8 +16,8 @@ For the maintained API documentation, see `api_reference.md`.
 - filtering: `select_cols`, `select_columns()`, `bvd_list`, `AND_bvd_list`,
   `OR_bvd_list`, `time_period`
 - processing: `process_one()`, `process_all(dry_run=True)`, `pandas_all()`,
-  `polars_all()`, `download_all(dry_run=True)`, `profile_table()`,
-  `profile_tables()`
+  `polars_all()`, `download_all(dry_run=True)`, `resolve_cache_file()`,
+  `profile_table()`, `profile_tables()`
 - diagnostics: `download_finished`, `last_process_engine`,
   `last_process_reason`
 - helper workflows: `search_company_names()`, `search_bvd_changes()`,
@@ -60,6 +60,9 @@ arguments so workbook-driven searches can reuse the layered BvD filter model.
 - string queries belong on the pandas path.
 - `download_root` controls where remote files are cached. If it is not set, the
   default remains `Data Products/<data_product>/<table>`.
+- `resolve_cache_file(file)` returns an absolute source/cache path without
+  downloads, directory creation, or selection changes. Timestamped export
+  folders remain separate; incomplete selection raises a clear `ValueError`.
 - `output_root` controls where auto-generated processed outputs are saved.
   Explicit `destination` values still take precedence.
 - `get_column_names()` uses dictionary metadata first and falls back to the
