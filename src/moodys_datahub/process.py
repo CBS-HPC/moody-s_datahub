@@ -2,9 +2,11 @@ import asyncio
 import os
 import re
 import time
+from copy import deepcopy
 from datetime import datetime
 from multiprocessing import Process, cpu_count
 from pathlib import Path
+from threading import Thread
 
 import numpy as np
 import pandas as pd
@@ -13,8 +15,9 @@ import psutil
 
 from .load_data import _country_codes, _table_dates, _table_dictionary
 from .preflight import (
-    PreflightReport,
     _candidate_local_path,
+    _resolve_destination,
+    _resolve_files,
     build_download_preflight,
     build_process_preflight,
 )
@@ -82,6 +85,15 @@ class _Process(_Selection):
 
     @bvd_list.setter
     def bvd_list(self, bvd_list=None):
+        previous = deepcopy((self._bvd_list, self._select_cols))
+        try:
+            self._set_bvd_list(bvd_list)
+        except Exception:
+            self._bvd_list, self._select_cols = previous
+            raise
+
+    def _set_bvd_list(self, bvd_list=None):
+        previous = deepcopy((self._bvd_list, self._select_cols))
         def load_bvd_list(file_path, df_bvd, delimiter="\t"):
             # Get the file extension
             file_extension = file_path.split(".")[-1].lower()
@@ -226,6 +238,7 @@ class _Process(_Selection):
                 self._bvd_list[0] = bvd_list + non_matching_items
 
             elif answer == "cancel":
+                self._bvd_list, self._select_cols = previous
                 print("Adding the bvd list has been canceled")
                 return
             else:
@@ -457,6 +470,14 @@ class _Process(_Selection):
 
     @time_period.setter
     def time_period(self, years: list = None):
+        previous = deepcopy((self._time_period, self._select_cols))
+        try:
+            self._set_time_period(years)
+        except Exception:
+            self._time_period, self._select_cols = previous
+            raise
+
+    def _set_time_period(self, years: list = None):
         previous_required = self._required_filter_columns()
         interactive = getattr(self, "_interactive", True)
 
@@ -905,29 +926,23 @@ class _Process(_Selection):
         collection to avoid materializing the full filtered result.
         """
 
-        if dry_run:
-            if isinstance(files, int):
-                remote_files = list(getattr(self, "_remote_files", []))
-                if 0 <= files < len(remote_files):
-                    files = [remote_files[files]]
-                else:
-                    return PreflightReport(
-                        ok=False,
-                        engine="blocked",
-                        reason="Requested file index is out of range.",
-                        files=[],
-                        missing_files=[],
-                        warnings=[],
-                        errors=["Requested file index is out of range."],
-                        required_columns=None,
-                        resolved_date_column=None,
-                        resolved_bvd_columns=None,
-                        destination=None,
-                        would_prompt=False,
-                        would_download=False,
-                        would_write=False,
-                    )
+        default_selection = files is None
+        if files is None:
+            if not dry_run and (self._set_data_product is None or self._set_table is None):
+                self.select_data()
+            files = list(getattr(self, "_remote_files", []))[:1]
+        elif isinstance(files, int):
+            available = list(getattr(self, "_remote_files", []))
+            try:
+                files = [available[files]]
+            except IndexError as exc:
+                if not dry_run:
+                    raise ValueError("Requested file index is out of range.") from exc
+                files = []
+        elif isinstance(files, (str, os.PathLike)):
+            files = [os.fspath(files)]
 
+        if dry_run:
             report = build_process_preflight(
                 self,
                 files=files,
@@ -939,7 +954,7 @@ class _Process(_Selection):
                 engine="auto",
                 row_limit=n_rows,
             )
-            if files is None and (
+            if default_selection and (
                 self._set_data_product is None or self._set_table is None
             ):
                 report.ok = False
@@ -953,13 +968,6 @@ class _Process(_Selection):
                     "process_one() would normally prompt for data product/table selection."
                 )
             return report
-
-        if files is None:
-            if self._set_data_product is None or self._set_table is None:
-                self.select_data()
-            files = [self.remote_files[0]]
-        elif isinstance(files, int):
-            files = [self.remote_files[files]]
 
         _, polars_bvd_query = self._compose_bvd_filters()
         chosen_engine, _ = self._choose_process_engine(
@@ -1201,7 +1209,9 @@ class _Process(_Selection):
 
             file_names = [elem[1] for elem in lists]
             file_names = [
-                file_name[0] for file_name in file_names if file_name is not None
+                path
+                for file_name in file_names if file_name is not None
+                for path in (file_name if isinstance(file_name, list) else [file_name])
             ]
 
             dfs = [elem[0] for elem in lists]
@@ -1437,6 +1447,7 @@ class _Process(_Selection):
                 query_args=query_args,
                 engine="polars",
                 row_limit=row_limit,
+                explicit_polars=True,
             )
 
         self._record_process_backend("polars", "direct")
@@ -1515,38 +1526,33 @@ class _Process(_Selection):
         if dry_run:
             return build_download_preflight(self, files=files)
 
-        files = files or self.remote_files
-
-        if hasattr(os, "fork"):
-            pool_method = "fork"
-        else:
-            print("Function only works on Unix systems right now")
-            return
-
-        if self._set_data_product is None or self._set_table is None:
-            self.select_data()
+        files = self.remote_files if files is None else files
+        if isinstance(files, (str, os.PathLike)):
+            files = [os.fspath(files)]
+        files, _ = self._check_args(files)
+        pool_method = "fork" if hasattr(os, "fork") else "threading"
 
         # Set num_workers
         num_workers = set_workers(num_workers, int(cpu_count() - 2))
 
-        _, _ = self._check_args(files)
-
         self._download_finished = None
 
-        remote_sizes = self._remote_file_sizes(files)
+        managed_files = [file for file in files if not self._file_exist(file)[1]]
+        remote_sizes = self._remote_file_sizes(managed_files) if managed_files else {}
         missing_files = [
             file
             for file in files
             if not self._local_file_ready(
                 self._file_exist(file)[0],
-                remote_size=remote_sizes.get(os.path.basename(file)),
+                remote_size=remote_sizes.get(os.path.basename(file)) if file in managed_files else None,
             )
         ]
 
         if missing_files:
             print(f"Downloading {len(missing_files)} of {len(files)} files ")
             if async_mode:
-                process = Process(
+                background = Process if pool_method == "fork" else Thread
+                process = background(
                     target=_run_parallel,
                     kwargs={
                         "fnc": self._get_file,
@@ -1649,6 +1655,10 @@ class _Process(_Selection):
         if isinstance(file, tuple):
             file, remote_size = file
         local_file, flag = self._file_exist(file)
+        if flag:
+            if not self._local_file_ready(local_file):
+                raise ValueError(f"Explicit local source is empty or incomplete: {local_file}")
+            return local_file, flag
         if remote_size is None:
             remote_size = self._remote_file_sizes([file]).get(os.path.basename(file))
 
@@ -1806,8 +1816,8 @@ class _Process(_Selection):
 
                 if df is not None:
                     dfs.append(df)
-                else:
-                    file_names.append(file_name)
+                elif file_name is not None:
+                    file_names.extend(file_name if isinstance(file_name, list) else [file_name])
             except ValueError as e:
                 errors.append(f"{file}: {e}")
 
@@ -1898,77 +1908,18 @@ class _Process(_Selection):
         return [df, file_name, flag]
 
     def _check_args(self, files: list, destination=None, flag: bool = False):
-        def _detect_files(files):
-            if isinstance(files, str):
-                files = [files]
-            elif isinstance(files, list) and len(files) == 0:
-                raise ValueError("'files' is a empty list")
-            elif not isinstance(files, list):
-                raise ValueError("'files' should be str or list formats")
+        if isinstance(files, (str, os.PathLike)):
+            files = [files]
+        if not isinstance(files, (list, tuple)) or not files:
+            raise ValueError("'files' must be a non-empty filename or list of filenames")
+        files = [os.fspath(file) for file in files]
+        _, missing_files, _, errors = _resolve_files(self, files)
+        if missing_files or errors:
+            raise ValueError("Requested files cannot be resolved: " + "; ".join([*errors, *missing_files]))
+        if not self._local_path and any(not os.path.exists(file) for file in files):
+            self.local_path = _candidate_local_path(self, required=True)
 
-            existing_files = [file for file in files if os.path.exists(file)]
-            missing_files = [file for file in files if not os.path.exists(file)]
-
-            if not existing_files:
-                if not self.local_files and not self.remote_files:
-                    raise ValueError("No local or remote files detected")
-
-                if self._local_path is None and self._remote_path is not None:
-                    if self.set_table is None:
-                        raise ValueError(
-                            "Table is not set. Please select a table first "
-                            "before calling process_all (e.g. via define_options/select_columns)."
-                        )
-
-                    if self.set_data_product is None:
-                        raise ValueError(
-                            "Data Product is not set. Please select a data product and table first "
-                            "before calling process_all (e.g. via define_options/select_columns)."
-                        )
-
-                    self.local_path = _candidate_local_path(self, required=True)
-
-                missing_files = [
-                    file
-                    for file in files
-                    if file not in self._remote_files and file not in self.local_files
-                ]
-                existing_files = [
-                    file
-                    for file in files
-                    if file in self._remote_files or file in self.local_files
-                ]
-
-            if not existing_files:
-                raise ValueError("Requested files cannot be found locally or remotely")
-
-            return existing_files, missing_files
-
-        files, missing_files = _detect_files(files)
-
-        if missing_files:
-            print("Missing files:")
-            for file in missing_files:
-                print(file)
-
-        if destination is None and flag:
-            current_time = datetime.now()
-            timestamp_str = current_time.strftime("%y%m%d%H%M")
-
-            if self._remote_path is not None:
-                suffix = os.path.basename(self._remote_path)
-            else:
-                suffix = os.path.basename(self._local_path)
-
-            destination = f"{timestamp_str}_{suffix}"
-
-            base_path = getattr(self, "_output_root", None)
-            if base_path is None:
-                base_path = os.getcwd()
-                base_path = base_path.replace("\\", "/")
-
-            destination = str(Path(base_path) / destination)
-            # destination = base_path + "/" + destination
+        destination, _, _ = _resolve_destination(self, destination, write_required=bool(flag))
 
         if self.concat_files is False and destination is not None:
             if not os.path.exists(destination):
@@ -1983,7 +1934,8 @@ class _Process(_Selection):
 
     def _check_download(self, files):
         # To handle executing when download_all() have not finished!
-        remote_sizes = self._remote_file_sizes(files)
+        managed_files = [file for file in files if not os.path.isfile(file)]
+        remote_sizes = self._remote_file_sizes(managed_files) if managed_files else {}
 
         def files_are_ready():
             return all(
@@ -2032,7 +1984,8 @@ class _Process(_Selection):
         has_bvd_query = bvd_query is not None
 
         flag = (
-            any([has_select_cols, has_query, has_date_query, has_bvd_query])
+            any([has_select_cols, has_query, has_date_query, has_bvd_query,
+                 any(os.path.isfile(file) for file in files)])
             and self.output_format
         )
         files, destination = self._check_args(files, destination, flag)
@@ -2048,6 +2001,6 @@ def set_workers(num_workers, default_value: int):
         num_workers = -1
 
     if num_workers < 1:
-        num_workers = default_value
+        num_workers = max(1, default_value)
 
     return num_workers

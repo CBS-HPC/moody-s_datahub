@@ -710,8 +710,10 @@ def test_batch_bvd_search_creates_input_templates_when_missing(monkeypatch, tmp_
 
     Sftp.batch_bvd_search(object(), products="missing_products.xlsx", bvd_numbers="missing_ids.txt")
 
-    assert (tmp_path / "products.xlsx").exists()
-    assert (tmp_path / "bvd_numbers.txt").exists()
+    assert (tmp_path / "missing_products.xlsx").read_bytes() == products_template.read_bytes()
+    assert (tmp_path / "missing_ids.txt").read_bytes() == bvd_template.read_bytes()
+    assert not (tmp_path / "products.xlsx").exists()
+    assert not (tmp_path / "bvd_numbers.txt").exists()
 
 
 def test_sftp_init_uses_cbs_fallback_credentials(monkeypatch):
@@ -1478,7 +1480,7 @@ def test_check_args_generates_destination_when_flag_is_true(tmp_path, monkeypatc
     existing_file.write_text("value\n1\n", encoding="utf-8")
     proc._local_path = str(tmp_path / "Dummy Product" / "dummy_table")
 
-    monkeypatch.setattr("moodys_datahub.process.datetime", type("FixedDatetime", (), {
+    monkeypatch.setattr("moodys_datahub.preflight.datetime", type("FixedDatetime", (), {
         "now": staticmethod(lambda: pd.Timestamp("2026-03-24 12:34:00").to_pydatetime())
     }))
 
@@ -1495,7 +1497,7 @@ def test_check_args_uses_output_root_for_generated_destination(tmp_path, monkeyp
     proc._local_path = str(tmp_path / "Dummy Product" / "dummy_table")
     proc._output_root = str(tmp_path / "outputs")
 
-    monkeypatch.setattr("moodys_datahub.process.datetime", type("FixedDatetime", (), {
+    monkeypatch.setattr("moodys_datahub.preflight.datetime", type("FixedDatetime", (), {
         "now": staticmethod(lambda: pd.Timestamp("2026-03-24 12:34:00").to_pydatetime())
     }))
 
