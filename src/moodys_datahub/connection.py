@@ -365,7 +365,7 @@ class _Connection:
                     data_product, tables = _table_match(tables)
 
                 # Append a dictionary with export, timestamp, and modified_list to the list
-                for full_path, table in zip(full_paths, tables):
+                for full_path, table in zip(full_paths, tables, strict=False):
                     data.append(
                         {
                             "Data Product": data_product,

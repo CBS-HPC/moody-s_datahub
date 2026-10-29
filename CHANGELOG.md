@@ -5,6 +5,9 @@ All notable changes to this project should be documented in this file.
 ## [1.4.14] - 2026-10-29
 
 ### Removed
+- Dropped Python 3.9, which reached end-of-life in October 2025. The package
+  now requires Python 3.10 or newer; Python 3.9 environments keep 1.4.13. CI
+  no longer tests 3.9, since GitHub's current Ubuntu runner cannot install it.
 - Retired the CBS CSV SFTP account: no automatic fallback, explicit legacy
   connections are rejected, and the account is excluded from server cleanup.
   Removed its 154 product-catalog rows, retaining all 154 existing Parquet entries.

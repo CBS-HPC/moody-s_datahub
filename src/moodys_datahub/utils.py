@@ -1394,7 +1394,9 @@ def fuzzy_query(
     # Score each name once, while retaining every distinct identifier for it.
     choice_to_index = defaultdict(list)
     seen_pairs = set()
-    for index, (choice, identifier) in enumerate(zip(choices, df[return_column])):
+    for index, (choice, identifier) in enumerate(
+        zip(choices, df[return_column], strict=False)
+    ):
         key = (choice, None if pd.isna(identifier) else identifier)
         if key not in seen_pairs:
             seen_pairs.add(key)

@@ -305,7 +305,9 @@ class Sftp(_Process):
 
         found = []
         not_found = []
-        for heading, heading_processed in zip(headings, headings_processed):
+        for heading, heading_processed in zip(
+            headings, headings_processed, strict=False
+        ):
             df_sel = df.query(f"`letters_only` == '{heading_processed}'")
 
             if df_sel.empty:
@@ -927,7 +929,7 @@ class Sftp(_Process):
         # Loop through both lists together
         n = 0
         for data_product, table, column, to_run in zip(
-            data_products, tables, columns, to_runs
+            data_products, tables, columns, to_runs, strict=False
         ):
             if to_run:
                 n = n + 1

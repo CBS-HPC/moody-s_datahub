@@ -357,7 +357,7 @@ that pin intact unless the SFTP backend is migrated away from `pysftp`.
 
 ## Requirements
 
-- Python 3.9+
+- Python 3.10+
 - Access to a Moody's DataHub SFTP export
 - For CBS users: a personal private key (`.pem`) issued for the CBS SFTP setup
 

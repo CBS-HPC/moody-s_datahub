@@ -243,7 +243,9 @@ def test_dictionary_backfilled_remarks_stay_in_scope(filename):
 
     citations = df["Column"].eq("citingpatpublnr")
     if filename == "data_dict.xlsx":
-        by_table = dict(zip(df.loc[citations, "Table"], remarks[citations]))
+        by_table = dict(
+            zip(df.loc[citations, "Table"], remarks[citations], strict=False)
+        )
         assert "cited by the selected patent" in by_table["patents_backwardcitations"]
         assert "citing the selected patent" in by_table["patents_forwardcitations"]
     else:

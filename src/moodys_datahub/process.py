@@ -697,7 +697,8 @@ class _Process(_Selection):
 
         async def f(self, column, definition):
             combined = [
-                f"{col}  -----  {defn}" for col, defn in zip(column, definition)
+                f"{col}  -----  {defn}"
+                for col, defn in zip(column, definition, strict=False)
             ]
 
             Select_obj = _SelectMultiple(combined, "Columns:", "Select Table Columns")

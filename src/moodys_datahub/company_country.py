@@ -90,7 +90,7 @@ def match_country_candidates(
 ):
     """Match each input against its country subset and preserve input positions."""
     grouped_inputs = defaultdict(list)
-    for index, (name, code) in enumerate(zip(names, country_codes)):
+    for index, (name, code) in enumerate(zip(names, country_codes, strict=False)):
         grouped_inputs[code].append((index, name))
 
     results = []
