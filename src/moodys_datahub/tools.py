@@ -239,6 +239,13 @@ class Sftp(_Process):
                 "notes": "Downloads missing files from SFTP.",
             },
             {
+                "method": "delete_top_level_directories",
+                "offline_safe": False,
+                "local_repo_safe": False,
+                "server_required": True,
+                "notes": "Dry run by default; deleting needs dry_run=False and confirm=True.",
+            },
+            {
                 "method": "tables_available",
                 "offline_safe": "packaged_catalog",
                 "local_repo_safe": True,

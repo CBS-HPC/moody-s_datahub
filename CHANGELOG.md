@@ -41,6 +41,13 @@ All notable changes to this project should be documented in this file.
   that they are information validity dates, not export dates; and the broad
   dictionary clarifies citation direction for `citingpatpublnr` in the
   backward/forward citation tables.
+- Added `Sftp.delete_top_level_directories()` to remove whole top-level
+  directories from the SFTP server. It is a dry run by default, reporting the
+  data product, tables, file count and size per directory; deleting requires
+  `dry_run=False` and `confirm=True`. Names must be exact top-level directory or
+  data product names directly under the login directory, and every name must
+  resolve before anything is deleted. Each directory is re-checked afterwards
+  and reported as `deleted` or `failed`.
 
 ### Changed
 - `Ownership History (Semi-Annual)` catalog rows now point to the top-level
@@ -51,6 +58,12 @@ All notable changes to this project should be documented in this file.
 - Repaired UTF-8 mojibake (garbled curly quotes, dashes and arrows) in 69
   imported Remarks cells and 10 pre-existing Definition cells in
   `data_dict.xlsx`, and 66 Remarks cells in `data_dict_available.xlsx`.
+- Server export cleanup now removes emptied folders: folder deletion previously
+  called file removal on subfolders and never removed the folder itself.
+  Folders that an object-store backed server drops implicitly are tolerated.
+- Remote folder deletion (shared by export cleanup and the new directory
+  deletion) no longer fails with a division by zero when a folder tree contains
+  no files, or on machines with fewer than three CPUs.
 
 ## [1.4.13] - 2026-10-08
 

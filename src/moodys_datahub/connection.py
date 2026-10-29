@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import contextlib
 import json
 import os
 import re
@@ -10,6 +11,7 @@ import time
 from datetime import datetime
 from multiprocessing import cpu_count
 from pathlib import Path
+from stat import S_ISDIR
 from tempfile import TemporaryDirectory
 from typing import Literal
 
@@ -29,6 +31,24 @@ from .widgets import _CustomQuestion, _Multi_dropdown
 
 _CBS_HOSTNAME = "s-f2112b8b980e44f9a.server.transfer.eu-west-1.amazonaws.com"
 _CBS_USERNAME = "D2vdz8elTWKyuOcC2kMSnw"
+
+_DELETE_PLAN_COLUMNS = [
+    "requested",
+    "top_level_directory",
+    "data_product",
+    "tables",
+    "files",
+    "size_mb",
+    "status",
+]
+
+
+def _is_remote_dir(sftp, attr, path):
+    """Return whether a ``listdir_attr`` entry is a directory."""
+    mode = getattr(attr, "st_mode", None)
+    if mode is None:
+        return sftp.isdir(path)
+    return S_ISDIR(mode)
 
 
 # Defining Sftp Class
@@ -429,6 +449,208 @@ class _Connection:
         if prompt_response is None:
             asyncio.ensure_future(f(self, to_delete))
 
+    def delete_top_level_directories(
+        self,
+        directories: str | list[str],
+        dry_run: bool = True,
+        confirm: bool = False,
+        num_workers: int | None = None,
+    ) -> pd.DataFrame:
+        """Plan or permanently delete whole top-level directories on the SFTP server.
+
+        Args:
+            directories: Exact top-level directory names (the ``Top-level
+                Directory`` column of ``tables_available()``) or exact ``Data
+                Product`` names, which resolve to their top-level directories.
+                Only folders directly under the SFTP login directory qualify.
+            dry_run: When ``True`` (default), only report what would be deleted.
+            confirm: Must be ``True`` together with ``dry_run=False`` to delete.
+                Deletion removes every export, table and marker file in the
+                directory and cannot be undone.
+            num_workers: Optional number of parallel file-deletion batches.
+
+        Returns:
+            DataFrame with one row per requested directory: the requested name,
+            data product, tables, file count, size in MB and status
+            (``would_delete``, ``deleted``, ``failed``, ``not_found`` or
+            ``not_a_directory``).
+
+        Raises:
+            ValueError: Invalid names, a non-SFTP session, missing confirmation,
+                or (when deleting) any name that cannot be resolved. Nothing is
+                deleted in these cases.
+            RuntimeError: Deletion started but a directory still exists afterwards.
+        """
+        if isinstance(directories, str):
+            directories = [directories]
+        if not isinstance(directories, (list, tuple)) or not all(
+            isinstance(name, str) for name in directories
+        ):
+            raise ValueError("directories must be a string or a list of strings.")
+        requested = list(dict.fromkeys(directories))
+        if not requested:
+            raise ValueError(
+                "Provide at least one top-level directory or data product name."
+            )
+
+        invalid = [
+            name
+            for name in requested
+            if not name.strip()
+            or name.strip() in {".", ".."}
+            or "/" in name
+            or "\\" in name
+        ]
+        if invalid:
+            raise ValueError(
+                "Top-level directories must be exact names directly under the SFTP "
+                f"login directory, without path separators: {invalid}"
+            )
+
+        if getattr(self, "_offline", False) or self._local_repo:
+            raise ValueError(
+                "Deleting top-level directories requires an SFTP session; offline "
+                "and local_repo sessions cannot delete remote directories."
+            )
+
+        if not dry_run and not confirm:
+            raise ValueError(
+                "Deleting top-level directories is permanent. Review the dry run, "
+                "then call again with dry_run=False and confirm=True."
+            )
+
+        overview = (
+            self._tables_backup
+            if self._tables_backup is not None
+            else self._tables_available
+        )
+        if overview is None or "Top-level Directory" not in overview.columns:
+            overview = _table_names()
+
+        rows = []
+        seen = set()
+        with self._connect() as sftp:
+            top_level = set(sftp.listdir())
+            for name in requested:
+                if name in top_level:
+                    targets = [name]
+                else:
+                    matches = overview.loc[
+                        overview["Data Product"] == name, "Top-level Directory"
+                    ]
+                    targets = sorted(
+                        d for d in matches.dropna().unique() if d in top_level
+                    )
+
+                if not targets:
+                    rows.append({"requested": name, "status": "not_found"})
+                    continue
+
+                for directory in targets:
+                    if directory in seen:
+                        continue
+                    seen.add(directory)
+                    row = {"requested": name, "top_level_directory": directory}
+
+                    if not sftp.isdir(directory):
+                        rows.append({**row, "status": "not_a_directory"})
+                        continue
+
+                    in_dir = overview["Top-level Directory"] == directory
+                    products = overview.loc[in_dir, "Data Product"].dropna()
+                    tables = (
+                        overview.loc[in_dir, "Table"].dropna()
+                        if "Table" in overview.columns
+                        else pd.Series(dtype=str)
+                    )
+                    n_files, n_bytes = self._directory_inventory(sftp, directory)
+                    rows.append(
+                        {
+                            **row,
+                            "data_product": ", ".join(
+                                sorted(products.astype(str).unique())
+                            )
+                            or None,
+                            "tables": ", ".join(sorted(tables.astype(str).unique()))
+                            or None,
+                            "files": n_files,
+                            "size_mb": round(n_bytes / 1024**2, 1),
+                            "status": "would_delete",
+                        }
+                    )
+
+        plan = pd.DataFrame(rows, columns=_DELETE_PLAN_COLUMNS)
+        to_delete = plan["status"].eq("would_delete")
+        targets = plan.loc[to_delete, "top_level_directory"].tolist()
+        unresolved = plan.loc[~to_delete, "requested"].tolist()
+
+        if dry_run:
+            print(
+                f"Dry run: {len(targets)} top-level directories "
+                f"({int(plan.loc[to_delete, 'files'].sum())} files, "
+                f"{plan.loc[to_delete, 'size_mb'].sum():.1f} MB) would be deleted. "
+                "Nothing was deleted."
+            )
+            if unresolved:
+                print(f"Not found or not a directory: {unresolved}")
+            return plan
+
+        if unresolved:
+            raise ValueError(
+                "Nothing was deleted. These names did not resolve to top-level "
+                f"directories on the SFTP server: {unresolved}"
+            )
+
+        print(f"------------------  DELETING {len(targets)} TOP-LEVEL DIRECTORIES")
+        error = None
+        try:
+            self._remove_exports(targets, num_workers=num_workers)
+        except Exception as exc:
+            error = exc
+
+        with self._connect() as sftp:
+            remaining = {directory for directory in targets if sftp.exists(directory)}
+
+        plan.loc[to_delete, "status"] = plan.loc[to_delete, "top_level_directory"].map(
+            lambda directory: "failed" if directory in remaining else "deleted"
+        )
+
+        deleted = set(targets) - remaining
+        for attr in ("_tables_available", "_tables_backup"):
+            df = getattr(self, attr, None)
+            if df is not None and "Top-level Directory" in df.columns:
+                setattr(
+                    self, attr, df.loc[~df["Top-level Directory"].isin(deleted)].copy()
+                )
+
+        if remaining:
+            raise RuntimeError(
+                f"Deletion did not complete for: {sorted(remaining)}. Deleted: "
+                f"{sorted(deleted)}. Run the dry run again to see what remains."
+            ) from error
+        if error is not None:
+            print(f"Deletion reported an error but no directories remain: {error}")
+
+        print(f"Deleted {len(deleted)} top-level directories: {sorted(deleted)}")
+        return plan
+
+    @staticmethod
+    def _directory_inventory(sftp, path):
+        """Count files and bytes below a remote directory."""
+        n_files = 0
+        n_bytes = 0
+        pending = [path]
+        while pending:
+            current = pending.pop()
+            for attr in sftp.listdir_attr(current):
+                full_path = _join_remote_path(current, attr.filename)
+                if _is_remote_dir(sftp, attr, full_path):
+                    pending.append(full_path)
+                else:
+                    n_files += 1
+                    n_bytes += int(getattr(attr, "st_size", 0) or 0)
+        return n_files, n_bytes
+
     def _remove_exports(self, to_delete=None, num_workers=None):
         def batch_list(input_list, num_batches):
             """Splits the input list into a specified number of batches."""
@@ -466,19 +688,19 @@ class _Connection:
 
         if isinstance(num_workers, (int, float, complex)) and num_workers != 1:
             num_workers = int(num_workers)
+        num_workers = max(1, num_workers)
 
-        # Batch files to delete
-        batches = batch_list(file_paths, num_workers)
+        # Batch and delete files; a folder tree may contain no files at all.
+        if file_paths:
+            batches = batch_list(file_paths, num_workers)
+            _run_parallel(
+                fnc=self._delete_files,
+                params_list=batches,
+                n_total=len(batches),
+                msg="Deleting files",
+            )
 
-        # Deleting files
-        _run_parallel(
-            fnc=self._delete_files,
-            params_list=batches,
-            n_total=len(batches),
-            msg="Deleting files",
-        )
-
-        # Deleting empty folders
+        # Deleting the remaining (empty) folder trees
         _run_parallel(
             fnc=self._delete_folders,
             params_list=to_delete,
@@ -512,20 +734,35 @@ class _Connection:
                 sftp.remove(file)
 
     def _delete_folders(self, folder_path: str = None):
+        """Delete a remote folder tree: files first, then folders deepest-first."""
+
         def recursive_delete(sftp, path):
-            for file_attr in sftp.listdir_attr(path):
-                # full_path = str(Path(path) / file_attr.filename)
+            try:
+                entries = sftp.listdir_attr(path)
+            except FileNotFoundError:
+                return False
+            for file_attr in entries:
                 full_path = _join_remote_path(path, file_attr.filename)
-                sftp.remove(full_path)
+                if _is_remote_dir(sftp, file_attr, full_path):
+                    recursive_delete(sftp, full_path)
+                else:
+                    with contextlib.suppress(FileNotFoundError):
+                        sftp.remove(full_path)
+            # Object-store backed servers may drop empty folders implicitly.
+            with contextlib.suppress(FileNotFoundError):
+                sftp.rmdir(path)
+            return True
 
         with self._connect() as sftp:
             try:
-                recursive_delete(sftp, folder_path)
-                print(f"Folder {folder_path} deleted successfully")
-            except FileNotFoundError:
-                print(f"Folder {folder_path} not found")
+                existed = recursive_delete(sftp, folder_path)
             except Exception as e:
                 print(f"Failed to delete folder {folder_path}: {e}")
+                return
+        if existed:
+            print(f"Folder {folder_path} deleted successfully")
+        else:
+            print(f"Folder {folder_path} not found")
 
     def _specify_data_products(self):
         def extract_options(row):

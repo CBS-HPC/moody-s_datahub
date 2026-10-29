@@ -106,6 +106,33 @@ confirms an exact snapshot cutoff or revision policy.
 - `last_process_engine`: inspect the backend used most recently.
 - `last_process_reason`: inspect why the backend was chosen.
 
+### Server maintenance
+
+- `delete_top_level_directories(directories)`: dry run (default) listing the
+  data product, tables, file count and size of each top-level directory that
+  would be deleted. Nothing is deleted.
+- `delete_top_level_directories(directories, dry_run=False, confirm=True)`:
+  permanently delete the whole directory, including every export, table and
+  marker file. Every name must resolve first, otherwise nothing is deleted.
+  Afterwards each directory is re-checked on the server and reported as
+  `deleted` or `failed`; a directory left behind raises `RuntimeError`.
+- `directories` accepts exact `Top-level Directory` names from
+  `tables_available()` or exact `Data Product` names. Only folders directly
+  under the SFTP login directory qualify; paths, offline sessions and
+  `local_repo` sessions are rejected.
+- `server_cleanup` (set when creating the session) is a separate workflow: it
+  removes superseded exports inside each top-level directory and keeps the
+  newest one. Both workflows remove the emptied folders as well as their files.
+
+```python
+plan = SFTP.delete_top_level_directories(["OLD_EXPORT_DIRECTORY"])
+print(plan[["top_level_directory", "data_product", "files", "size_mb", "status"]])
+
+SFTP.delete_top_level_directories(
+    ["OLD_EXPORT_DIRECTORY"], dry_run=False, confirm=True
+)
+```
+
 ### Higher-level helpers
 
 - `search_company_names()`: fuzzy-match company names with the indexed

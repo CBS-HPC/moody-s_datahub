@@ -1,5 +1,6 @@
 import asyncio
 import json
+import stat
 from pathlib import PureWindowsPath
 
 import fastavro
@@ -1039,41 +1040,288 @@ def test_server_clean_up_non_interactive_skips_prompt_when_response_unspecified(
     assert called == {}
 
 
-def test_delete_files_and_folders_use_sftp_remove(monkeypatch, capsys):
-    class FakeAttr:
-        def __init__(self, filename):
-            self.filename = filename
+class _FakeAttr:
+    def __init__(self, filename, node):
+        self.filename = filename
+        is_dir = isinstance(node, dict)
+        self.st_mode = (stat.S_IFDIR if is_dir else stat.S_IFREG) | 0o755
+        self.st_size = 0 if is_dir else node
 
-    class FakeSftp:
-        def __init__(self):
-            self.removed = []
 
-        def __enter__(self):
-            return self
+class _FakeTreeSftp:
+    """In-memory SFTP tree: folders are dicts and files are byte sizes."""
 
-        def __exit__(self, exc_type, exc, tb):
+    def __init__(self, tree):
+        self.tree = tree
+        self.calls = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def _node(self, path):
+        node = self.tree
+        for part in [p for p in str(path).split("/") if p not in ("", ".")]:
+            if not isinstance(node, dict) or part not in node:
+                raise FileNotFoundError(path)
+            node = node[part]
+        return node
+
+    def _parent(self, path):
+        parent, _, name = path.rpartition("/")
+        node = self._node(parent) if parent else self.tree
+        if name not in node:
+            raise FileNotFoundError(path)
+        return node, name
+
+    def listdir(self, path="."):
+        return list(self._node(path))
+
+    def listdir_attr(self, path="."):
+        return [_FakeAttr(name, node) for name, node in self._node(path).items()]
+
+    def isdir(self, path):
+        return self.exists(path) and isinstance(self._node(path), dict)
+
+    def exists(self, path):
+        try:
+            self._node(path)
+        except FileNotFoundError:
             return False
+        return True
 
-        def remove(self, path):
-            self.removed.append(path)
+    def remove(self, path):
+        parent, name = self._parent(path)
+        if isinstance(parent[name], dict):
+            raise OSError(f"{path} is a directory")
+        self.calls.append(("remove", path))
+        del parent[name]
 
-        def listdir_attr(self, path):
-            if path == "missing":
-                raise FileNotFoundError
-            return [FakeAttr("one.csv"), FakeAttr("two.csv")]
+    def rmdir(self, path):
+        parent, name = self._parent(path)
+        if parent[name]:
+            raise OSError(f"{path} is not empty")
+        self.calls.append(("rmdir", path))
+        del parent[name]
 
-    fake_sftp = FakeSftp()
+
+class _ObjectStoreSftp(_FakeTreeSftp):
+    """Mimics S3-backed SFTP: empty folders vanish once their last file is gone."""
+
+    def remove(self, path):
+        super().remove(path)
+        parts = path.split("/")[:-1]
+        while parts:
+            node = self._node("/".join(parts))
+            if node:
+                break
+            parent = self._node("/".join(parts[:-1])) if len(parts) > 1 else self.tree
+            del parent[parts[-1]]
+            parts.pop()
+
+
+def _rmdir_order(fake):
+    return [path for call, path in fake.calls if call == "rmdir"]
+
+
+def test_delete_files_and_folders_remove_nested_folders_deepest_first(
+    monkeypatch, capsys
+):
+    fake = _FakeTreeSftp(
+        {
+            "a.csv": 1,
+            "b.csv": 1,
+            "folder_a": {"one.csv": 1, "sub": {"two.csv": 1, "deeper": {}}},
+        }
+    )
     conn = object.__new__(_Connection)
-
-    monkeypatch.setattr(_Connection, "_connect", lambda self: fake_sftp)
+    monkeypatch.setattr(_Connection, "_connect", lambda self: fake)
 
     conn._delete_files(["a.csv", "b.csv"])
     conn._delete_folders("folder_a")
     conn._delete_folders("missing")
 
-    assert fake_sftp.removed[:2] == ["a.csv", "b.csv"]
-    assert "folder_a/one.csv" in fake_sftp.removed
-    assert "Folder folder_a deleted successfully" in capsys.readouterr().out
+    assert fake.tree == {}
+    assert fake.calls[:2] == [("remove", "a.csv"), ("remove", "b.csv")]
+    assert _rmdir_order(fake) == [
+        "folder_a/sub/deeper",
+        "folder_a/sub",
+        "folder_a",
+    ]
+    out = capsys.readouterr().out
+    assert "Folder folder_a deleted successfully" in out
+    assert "Folder missing not found" in out
+
+
+def test_delete_folders_tolerates_object_store_implicit_folders(monkeypatch, capsys):
+    fake = _ObjectStoreSftp({"export_a": {"table": {"part-0.parquet": 1}}})
+    conn = object.__new__(_Connection)
+    monkeypatch.setattr(_Connection, "_connect", lambda self: fake)
+
+    conn._delete_folders("export_a")
+
+    assert fake.tree == {}
+    out = capsys.readouterr().out
+    assert "Folder export_a deleted successfully" in out
+    assert "Failed" not in out
+
+
+def _ownership_tree():
+    return {
+        "DIR_OWN": {
+            "tnfs": {"export.tnf": 10},
+            "export_2026": {
+                "entities": {"part-0.parquet": 1024**2},
+                "links_2025": {"part-0.parquet": 2 * 1024**2},
+            },
+        },
+        "DIR_BVD": {"export_a": {"bvd_id_changes": {"part-0.parquet": 5}}},
+        "EMPTY": {"sub": {}},
+        "loose_file.txt": 3,
+    }
+
+
+def _deletion_conn(monkeypatch, fake):
+    conn = object.__new__(_Connection)
+    conn._offline = False
+    conn._local_repo = None
+    conn._tables_available = pd.DataFrame(
+        {
+            "Data Product": [
+                "Ownership History (Semi-Annual)",
+                "Ownership History (Semi-Annual)",
+                "BvD ID Changes",
+            ],
+            "Table": ["entities", "links_2025", "bvd_id_changes"],
+            "Top-level Directory": ["DIR_OWN", "DIR_OWN", "DIR_BVD"],
+        }
+    )
+    conn._tables_backup = conn._tables_available.copy()
+    monkeypatch.setattr(_Connection, "_connect", lambda self: fake)
+    monkeypatch.setattr(
+        "moodys_datahub.connection._run_parallel",
+        lambda fnc, params_list, n_total, msg, **kwargs: [fnc(p) for p in params_list],
+    )
+    return conn
+
+
+def test_delete_top_level_directories_dry_run_is_default_and_deletes_nothing(
+    monkeypatch, capsys
+):
+    fake = _FakeTreeSftp(_ownership_tree())
+    conn = _deletion_conn(monkeypatch, fake)
+
+    plan = conn.delete_top_level_directories("Ownership History (Semi-Annual)")
+
+    assert plan.to_dict("records") == [
+        {
+            "requested": "Ownership History (Semi-Annual)",
+            "top_level_directory": "DIR_OWN",
+            "data_product": "Ownership History (Semi-Annual)",
+            "tables": "entities, links_2025",
+            "files": 3,
+            "size_mb": 3.0,
+            "status": "would_delete",
+        }
+    ]
+    assert fake.calls == []
+    assert fake.tree == _ownership_tree()
+    assert "Nothing was deleted" in capsys.readouterr().out
+
+
+def test_delete_top_level_directories_requires_confirm_before_connecting(
+    monkeypatch,
+):
+    conn = _deletion_conn(monkeypatch, None)
+    monkeypatch.setattr(
+        _Connection, "_connect", lambda self: pytest.fail("Connected before confirm")
+    )
+
+    with pytest.raises(ValueError, match="dry_run=False and confirm=True"):
+        conn.delete_top_level_directories("DIR_OWN", dry_run=False)
+
+
+def test_delete_top_level_directories_removes_whole_directory(monkeypatch):
+    fake = _FakeTreeSftp(_ownership_tree())
+    conn = _deletion_conn(monkeypatch, fake)
+
+    plan = conn.delete_top_level_directories(["DIR_OWN"], dry_run=False, confirm=True)
+
+    assert plan["status"].tolist() == ["deleted"]
+    assert set(fake.tree) == {"DIR_BVD", "EMPTY", "loose_file.txt"}
+    rmdirs = _rmdir_order(fake)
+    assert rmdirs[-1] == "DIR_OWN"
+    assert rmdirs.index("DIR_OWN/export_2026/entities") < rmdirs.index(
+        "DIR_OWN/export_2026"
+    )
+    for attr in ("_tables_available", "_tables_backup"):
+        assert getattr(conn, attr)["Top-level Directory"].tolist() == ["DIR_BVD"]
+
+
+def test_delete_top_level_directories_handles_folders_without_files(monkeypatch):
+    fake = _FakeTreeSftp(_ownership_tree())
+    conn = _deletion_conn(monkeypatch, fake)
+
+    plan = conn.delete_top_level_directories("EMPTY", dry_run=False, confirm=True)
+
+    assert plan[["files", "status"]].to_dict("records") == [
+        {"files": 0, "status": "deleted"}
+    ]
+    assert "EMPTY" not in fake.tree
+
+
+def test_delete_top_level_directories_unresolved_names_block_deletion(monkeypatch):
+    fake = _FakeTreeSftp(_ownership_tree())
+    conn = _deletion_conn(monkeypatch, fake)
+    names = ["DIR_BVD", "missing", "loose_file.txt"]
+
+    plan = conn.delete_top_level_directories(names)
+    assert plan["status"].tolist() == ["would_delete", "not_found", "not_a_directory"]
+
+    with pytest.raises(ValueError, match=r"Nothing was deleted.*missing"):
+        conn.delete_top_level_directories(names, dry_run=False, confirm=True)
+    assert fake.calls == []
+    assert fake.tree == _ownership_tree()
+
+
+@pytest.mark.parametrize("name", ["DIR_OWN/export_2026", "..", " ", "a\\b"])
+def test_delete_top_level_directories_rejects_path_like_names(monkeypatch, name):
+    conn = _deletion_conn(monkeypatch, _FakeTreeSftp(_ownership_tree()))
+
+    with pytest.raises(ValueError, match="without path separators"):
+        conn.delete_top_level_directories(name)
+
+
+@pytest.mark.parametrize("session", [{"_offline": True}, {"_local_repo": "C:/exports"}])
+def test_delete_top_level_directories_requires_sftp_session(monkeypatch, session):
+    conn = _deletion_conn(monkeypatch, _FakeTreeSftp(_ownership_tree()))
+    for attr, value in session.items():
+        setattr(conn, attr, value)
+
+    with pytest.raises(ValueError, match="requires an SFTP session"):
+        conn.delete_top_level_directories("DIR_OWN")
+
+
+def test_delete_top_level_directories_reports_directories_left_behind(monkeypatch):
+    class LockedSftp(_FakeTreeSftp):
+        def rmdir(self, path):
+            if path == "DIR_BVD":
+                raise PermissionError("permission denied")
+            super().rmdir(path)
+
+    fake = LockedSftp(_ownership_tree())
+    conn = _deletion_conn(monkeypatch, fake)
+
+    with pytest.raises(RuntimeError, match=r"did not complete for: \['DIR_BVD'\]"):
+        conn.delete_top_level_directories(
+            ["DIR_OWN", "DIR_BVD"], dry_run=False, confirm=True
+        )
+
+    assert "DIR_OWN" not in fake.tree
+    assert fake.tree["DIR_BVD"] == {}
+    assert conn._tables_available["Top-level Directory"].tolist() == ["DIR_BVD"]
 
 
 def test_object_defaults_resets_runtime_state():

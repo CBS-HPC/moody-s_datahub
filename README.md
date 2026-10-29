@@ -214,6 +214,7 @@ The stable public API is centered on `moodys_datahub.Sftp`:
   `last_process_reason`
 - helper workflows: `search_company_names()`, `search_bvd_changes()`,
   `batch_bvd_search()`, `orbis_to_moodys()`
+- server maintenance: `delete_top_level_directories()` (dry run by default)
 
 `search_company_names()` uses the Firmographics `bvd_id_and_name` table and an
 indexed RapidFuzz matcher. It checks exact matches first, narrows fuzzy
@@ -377,6 +378,26 @@ the corresponding authentication credentials.
 When connecting to an SFTP server, the package detects export folders and tries
 to match them to DataHub products automatically. If multiple products share the
 same table name, manual selection is required.
+
+### Deleting whole top-level directories
+
+`delete_top_level_directories()` removes an entire product directory from the
+SFTP server, including every export, table and marker file in it. It is a dry
+run by default and returns one row per directory with its data product, tables,
+file count and size:
+
+```python
+plan = SFTP.delete_top_level_directories(["OLD_EXPORT_DIRECTORY"])
+plan = SFTP.delete_top_level_directories(
+    ["OLD_EXPORT_DIRECTORY"], dry_run=False, confirm=True
+)
+```
+
+Pass exact names from the `Top-level Directory` column of `tables_available()`
+or exact `Data Product` names. Only folders directly under the SFTP login
+directory qualify. Deleting requires both `dry_run=False` and `confirm=True`,
+and every name must resolve first; otherwise nothing is deleted. Deletion cannot
+be undone. Offline and `local_repo` sessions cannot use it.
 
 ## Format Recommendation
 

@@ -26,6 +26,8 @@ and [selection walkthrough](how_to_get_started.md#select-the-2025-ownership-hist
   `last_process_reason`
 - helper workflows: `search_company_names()`, `search_bvd_changes()`,
   `batch_bvd_search()`, `orbis_to_moodys()`
+- server maintenance: `delete_top_level_directories()` (dry run by default; see
+  the [API reference](api_reference.md#server-maintenance))
 
 `search_company_names()` uses indexed RapidFuzz matching with exact-match
 short-circuiting, prefix/token/length candidate blocking, and optional scorer
