@@ -1,5 +1,24 @@
 # TODO
 
+## Urgent: package the confirmed 2025 ownership export
+
+- [x] DSET-001: Export `Ownership History (Semi-Annual)` / `links_2025` to CBS
+  SFTP. The CBS SFTP owner confirmed delivery on 2026-10-29. This supersedes
+  the 2026-10-27 absence report; no independent live check was run here.
+- [ ] DSET-002: Finish the metadata release. The user added `links_2025` to
+  `data_products.xlsx`. Both dictionaries, date metadata and batch template
+  now include it using the existing annual-link metadata, with regression
+  tests and README/MkDocs updates. Validate against the delivered physical
+  schema, finish release checks, then build and release a new wheel/sdist.
+  The published 1.4.13 wheel predates these metadata updates.
+- Confirm and record the provider's exact snapshot cutoff and revision policy.
+  Do not rename `links_current` to `links_2025` or infer the snapshot's effective
+  date from the export confirmation date. The package ships metadata, not the
+  ownership records.
+
+The living [dataset roadmap](ROADMAP.md) tracks these dependencies and the
+ongoing checks needed to catch new, removed or changed datasets.
+
 ## Reliability follow-up validation
 
 - Run a live DataHub/UCloud extraction and all-files profiling smoke test after

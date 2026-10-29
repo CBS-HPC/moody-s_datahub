@@ -629,6 +629,44 @@ def test_connect_passes_credentials_to_pysftp(monkeypatch):
     }
 
 
+@pytest.mark.parametrize("cbs_host", [True, False])
+def test_retired_csv_credentials_are_rejected_only_on_cbs_host(monkeypatch, cbs_host):
+    calls = []
+    sentinel = object()
+    monkeypatch.setattr(
+        "moodys_datahub.connection.pysftp.Connection",
+        lambda **kwargs: calls.append(kwargs) or sentinel,
+    )
+    conn = object.__new__(_Connection)
+    conn.hostname = (
+        "s-f2112b8b980e44f9a.server.transfer.eu-west-1.amazonaws.com"
+        if cbs_host
+        else "custom.example.invalid"
+    )
+    conn.username = "aN54UkFxQPCOIEtmr0FmAQ"
+    conn.port = 22
+    conn.privatekey = "key.pem"
+    conn._cnopts = object()
+    if cbs_host:
+        with pytest.raises(ValueError, match="CSV SFTP.*decommissioned.*Parquet"):
+            conn._connect()
+        assert not calls
+    else:
+        assert conn._connect() is sentinel
+        assert len(calls) == 1
+
+
+def test_retired_csv_account_is_not_allowed_to_clean_exports(monkeypatch):
+    conn = object.__new__(_Connection)
+    conn.hostname = "s-f2112b8b980e44f9a.server.transfer.eu-west-1.amazonaws.com"
+    conn.username = "aN54UkFxQPCOIEtmr0FmAQ"
+    monkeypatch.setattr("moodys_datahub.connection.cpu_count", lambda: 128)
+    monkeypatch.setattr(
+        conn, "_remove_exports", lambda paths: pytest.fail("Retired service cleanup")
+    )
+    conn._server_clean_up(["old_export"], prompt_response=True)
+
+
 def test_pool_method_rejects_invalid_value():
     conn = object.__new__(_Connection)
 

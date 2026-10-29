@@ -727,17 +727,19 @@ def test_batch_bvd_search_creates_input_templates_when_missing(monkeypatch, tmp_
     assert not (tmp_path / "bvd_numbers.txt").exists()
 
 
-def test_sftp_init_uses_cbs_fallback_credentials(monkeypatch):
+@pytest.mark.parametrize("connection_fails", [False, True])
+def test_sftp_init_uses_only_cbs_parquet_credentials(monkeypatch, connection_fails):
     monkeypatch.setattr(
         "moodys_datahub.connection.pysftp.CnOpts",
         lambda: type("C", (), {"hostkeys": None})(),
     )
     monkeypatch.setattr(Sftp, "_object_defaults", lambda self: None)
-    monkeypatch.setattr(
-        Sftp,
-        "tables_available",
-        lambda self, product_overview=None: (pd.DataFrame(), []),
-    )
+
+    def discover(self, product_overview=None):
+        self._connect()
+        return pd.DataFrame(), []
+
+    monkeypatch.setattr(Sftp, "tables_available", discover)
     monkeypatch.setattr(
         Sftp,
         "_server_clean_up",
@@ -748,19 +750,25 @@ def test_sftp_init_uses_cbs_fallback_credentials(monkeypatch):
 
     def fake_connect(self):
         attempts.append(self.username)
-        if self.username == "D2vdz8elTWKyuOcC2kMSnw":
-            raise ValueError("first credential fails")
+        if connection_fails:
+            raise PermissionError("Parquet authentication failed")
         return object()
 
     monkeypatch.setattr(Sftp, "_connect", fake_connect)
 
+    if connection_fails:
+        with pytest.raises(PermissionError, match="Parquet authentication failed"):
+            Sftp(privatekey="key.pem")
+        assert attempts == ["D2vdz8elTWKyuOcC2kMSnw"]
+        return
+
     sftp = Sftp(privatekey="key.pem")
 
-    assert attempts == ["D2vdz8elTWKyuOcC2kMSnw", "aN54UkFxQPCOIEtmr0FmAQ"]
+    assert attempts == ["D2vdz8elTWKyuOcC2kMSnw"]
     assert (
         sftp.hostname == "s-f2112b8b980e44f9a.server.transfer.eu-west-1.amazonaws.com"
     )
-    assert sftp.username == "aN54UkFxQPCOIEtmr0FmAQ"
+    assert sftp.username == "D2vdz8elTWKyuOcC2kMSnw"
 
 
 def test_sftp_init_forwards_server_cleanup_mode(monkeypatch):

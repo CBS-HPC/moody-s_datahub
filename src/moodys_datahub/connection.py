@@ -27,6 +27,9 @@ from .utils import (
 )
 from .widgets import _CustomQuestion, _Multi_dropdown
 
+_CBS_HOSTNAME = "s-f2112b8b980e44f9a.server.transfer.eu-west-1.amazonaws.com"
+_CBS_USERNAME = "D2vdz8elTWKyuOcC2kMSnw"
+
 
 # Defining Sftp Class
 class _Connection:
@@ -126,6 +129,11 @@ class _Connection:
 
     def _connect(self):
         """Create and return a configured SFTP connection."""
+        if self.hostname == _CBS_HOSTNAME and self.username == "aN54UkFxQPCOIEtmr0FmAQ":
+            raise ValueError(
+                "The CBS CSV SFTP service has been decommissioned. "
+                "Use the default CBS Parquet service instead."
+            )
         sftp = pysftp.Connection(
             host=self.hostname,
             username=self.username,
@@ -399,9 +407,8 @@ class _Connection:
         if len(to_delete) == 0:
             return
         should_prompt = (
-            self.hostname
-            == "s-f2112b8b980e44f9a.server.transfer.eu-west-1.amazonaws.com"
-            and self.username in ["D2vdz8elTWKyuOcC2kMSnw", "aN54UkFxQPCOIEtmr0FmAQ"]
+            self.hostname == _CBS_HOSTNAME
+            and self.username == _CBS_USERNAME
             and int(cpu_count()) >= 32
         )
 

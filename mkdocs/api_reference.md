@@ -41,11 +41,46 @@ public API is `moodys_datahub.Sftp` / `moodys_datahub.tools.Sftp`.
 - `table_dates()`: inspect date-like columns for the active table.
 - `search_country_codes()`: search packaged country-code metadata.
 
+CBS private-key-only connections use the Parquet service. The retired CBS CSV
+account is not a fallback and is rejected if explicitly used on the CBS host.
+Custom SFTP credentials, local CSV processing and CSV output remain supported.
+The dictionary/date helpers recognize both `statushistory` (Parquet) and the
+legacy `status_history` spelling for Firmographics (Monthly).
+
 Dictionary metadata is preferred for column definitions. When it has no entry
 for a source table, column selection and explicit BvD/date settings can inspect
 the first CSV, Parquet, ORC, Avro, or Excel source file. File-derived columns
 have no packaged definitions. An explicitly requested date column must exist;
 processing raises rather than returning unfiltered data when it does not.
+
+`search_dictionary()` also returns `Type` and `Remarks` from the supplied
+provider dictionary where available. Types retain their original declarations
+(for example, `string - 50`), not inferred pandas/Polars dtypes. Remarks include
+labeled product/table context when present. Blank fields mean that the source
+has no matching metadata; use source-file profiling to verify physical types.
+Shared financial schemas can reuse field types without inheriting another
+product's historical-coverage limits.
+
+### Ownership History availability
+
+The CBS SFTP owner confirmed the export of `Ownership History (Semi-Annual)` /
+`links_2025` on 2026-10-29. The source `data_products.xlsx` catalog now covers
+`entities`, `links_2007` through `links_2025`, and `links_current`; this metadata
+update is not yet in the published 1.4.13 wheel. Both source dictionary
+workbooks include `links_2025` in their shared ownership-link schema, preserving
+definitions, `Type`, `Remarks` and availability flags. The date helper includes
+`information_date`; new batch templates include the table with
+`subsidiary_bvd_id,shareholder_bvd_id`, following the existing annual-link
+entries. Existing user-edited batch workbooks are not automatically expanded.
+This reuses existing provider metadata, not an independently inspected remote
+physical schema.
+
+Use a fresh session's `tables_available()` result and select the matching
+`Base Directory` with `remote_path` when export selection is ambiguous. See the
+[non-interactive selection example](how_to_get_started.md#select-the-2025-ownership-history-table).
+`reset=True` restores cached inventory, not a live refresh. `links_current`
+remains distinct from `links_2025`; neither the export date nor the table name
+confirms an exact snapshot cutoff or revision policy.
 
 ### Processing
 

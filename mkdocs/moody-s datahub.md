@@ -117,9 +117,26 @@ private key used to authenticate against the CBS SFTP server.
 For non-CBS SFTP servers, you also need the server `hostname`, `username`, and
 the corresponding authentication credentials.
 
+CBS access now uses the Parquet service only; the retired CSV service is no
+longer a fallback or part of the bundled product catalog. CSV file processing
+and CSV output remain supported, including on custom SFTP/local workflows.
+
 When connecting to an SFTP server, the package detects export folders and tries
 to match them to DataHub products automatically. If multiple products share the
 same table name, manual selection is required.
+
+## Ownership History availability
+
+The CBS SFTP owner confirmed on 2026-10-29 that `Ownership History (Semi-Annual)`
+now has a `links_2025` export. The source product catalog includes `entities`,
+`links_2007` through `links_2025`, and `links_current`. A new package release
+with this catalog update is pending; the published 1.4.13 wheel predates it.
+
+Use a fresh session's inventory to select the exact table/export; see the
+[2025 ownership walkthrough](how_to_get_started.md#select-the-2025-ownership-history-table).
+Keep `links_current` separate from the year-named tables. The provider's exact
+snapshot cutoff and revision policy remain unconfirmed; the export
+confirmation date is not the effective snapshot date.
 
 ## Format recommendation
 

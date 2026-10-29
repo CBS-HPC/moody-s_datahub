@@ -2,6 +2,56 @@
 
 All notable changes to this project should be documented in this file.
 
+## [Unreleased]
+
+### Removed
+- Retired the CBS CSV SFTP account: no automatic fallback, explicit legacy
+  connections are rejected, and the account is excluded from server cleanup.
+  Removed its 154 product-catalog rows, retaining all 154 existing Parquet entries.
+- CBS credentials are selected without a preliminary login probe; discovery
+  authenticates once and propagates Parquet login failures without retrying CSV.
+
+### Compatibility
+- CSV readers, processing functions, output formats and custom SFTP support
+  remain unchanged. Firmographics (Monthly) metadata uses the Parquet
+  `statushistory` table name, with `status_history` retained as a dictionary/date
+  alias for local archives. Broad dictionary coverage and provider Type/Remarks
+  metadata are preserved.
+
+### Added
+- Added `Ownership History (Semi-Annual)` / `links_2025` to the source Parquet
+  product catalog after the CBS SFTP owner confirmed export on 2026-10-29.
+  Updated README, MkDocs and the dataset roadmap with availability and exact
+  export-selection guidance. Extended both dictionaries' shared ownership-link
+  table lists to `links_2025`, preserving definitions, types, remarks and
+  availability flags. Added its `information_date` metadata and enabled batch
+  template row using both subsidiary/shareholder BvD columns. Added regressions
+  for catalog, dictionary, date and batch-template coverage. A new package
+  release and live schema validation remain pending. The snapshot cutoff and
+  revision policy are not inferred from the export confirmation date or
+  `links_current`.
+- Restored provider `Type` and `Remarks` metadata from the supplied Orbis Data
+  Dictionary v1 in both repository dictionaries, including labeled table/product
+  notes. Existing rows, definitions and availability flags are preserved;
+  entries without source coverage remain blank.
+- Backfilled targeted dictionary remarks: the Detailed Financials (Monthly)
+  nine-table note now also covers the industry and insurance tables (current
+  and decommissioned-2024 products, not Financials History or Interim
+  Financials); all seven Key Ownership `*_information_date` columns explain
+  that they are information validity dates, not export dates; and the broad
+  dictionary clarifies citation direction for `citingpatpublnr` in the
+  backward/forward citation tables.
+
+### Changed
+- `Ownership History (Semi-Annual)` catalog rows now point to the top-level
+  export directory `Xd0wpsp9TCSp6AdYQYSBTQ`, which holds the 2025 re-export of
+  all its tables, replacing `xc6HcO9JThev59gTXaW2Og`.
+
+### Fixed
+- Repaired UTF-8 mojibake (garbled curly quotes, dashes and arrows) in 69
+  imported Remarks cells and 10 pre-existing Definition cells in
+  `data_dict.xlsx`, and 66 Remarks cells in `data_dict_available.xlsx`.
+
 ## [1.4.13] - 2026-10-08
 
 ### Added

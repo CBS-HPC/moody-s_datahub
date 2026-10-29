@@ -107,6 +107,26 @@ For local source files, `dry_run=True` also validates selected and filter
 columns against the source schema. It never downloads remote files merely to
 inspect their schema, and reports a warning when that validation is deferred.
 
+### Ownership History: `links_2025`
+
+The CBS SFTP owner confirmed on 2026-10-29 that `links_2025` has been exported
+under `Ownership History (Semi-Annual)`. The source `data_products.xlsx` catalog
+now lists `entities`, `links_2007` through `links_2025`, and `links_current`:
+19 year-named link tables, one current link table and one entities table.
+This catalog update is not yet included in the published 1.4.13 wheel.
+
+Both dictionary workbooks include `links_2025` in the shared ownership-link
+schema, preserving existing definitions, types and remarks. Date metadata
+includes `information_date`, and new batch-search templates include both
+`subsidiary_bvd_id` and `shareholder_bvd_id` for this table. Existing customized
+batch workbooks are not automatically expanded.
+
+Use a fresh session's `tables_available()` inventory to select the exact table
+and export. See the [2025 ownership selection example](mkdocs/how_to_get_started.md#select-the-2025-ownership-history-table).
+`links_current` remains a separate, changing table, not a substitute for
+`links_2025`. The provider's exact snapshot cutoff and revision policy still
+need confirmation; the export confirmation date is not the snapshot date.
+
 ### File safety and validation
 
 Explicit existing local inputs are read as supplied: they are not replaced
@@ -294,9 +314,15 @@ The package and repository include metadata workbooks under
 
 - `data_dict.xlsx`: broad Moody's DataHub data dictionary. It may include
   products that are not licensed or available in the current SFTP export.
+  `Type` preserves the provider's declared type/length; `Remarks` retains
+  column notes and labeled product/table context from the supplied dictionary.
+  Missing source metadata remains blank. These declarations do not replace
+  profiling the actual source-file schema. Product-specific coverage notes are
+  not inherited merely because another product shares the same column schema.
 - `data_dict_available.xlsx`: repository workbook with an overview of the data
   products available to the current setup/license. It is intentionally excluded
-  from the built wheel unless packaging rules are changed.
+  from the built wheel unless packaging rules are changed. It retains the same
+  `Type` and `Remarks` metadata for matching entries.
 - `data_products.xlsx`: packaged product metadata used by the helper loaders.
 - `date_cols.xlsx`: known date columns used by date filtering helpers.
 - `country_codes.xlsx`: country-code metadata used by country/prefix BvD
@@ -338,6 +364,12 @@ that pin intact unless the SFTP backend is migrated away from `pysftp`.
 
 CBS users should contact CBS staff to obtain a personal private key used to
 authenticate against the CBS SFTP server.
+
+CBS connections use the Parquet service only. The CBS CSV service is retired:
+the package no longer falls back to its account or advertises its catalog
+entries. Replace explicit legacy CSV-service credentials with the standard
+`Sftp(privatekey=...)` setup. CSV file processing and CSV output remain supported,
+as do explicitly configured third-party SFTP servers.
 
 For non-CBS SFTP servers, you also need the server `hostname`, `username`, and
 the corresponding authentication credentials.

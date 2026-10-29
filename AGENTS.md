@@ -91,6 +91,20 @@ Important MkDocs pages:
 - `mkdocs/api_reference.md`: public API reference.
 - `mkdocs/reference.md`: compatibility reference page.
 
+## Dataset Availability Maintenance
+
+- Track reported dataset additions/removals and export requests in `ROADMAP.md`
+  and keep urgent dependencies visible in `TODO.md`.
+- Before a metadata release, review unresolved availability items and record
+  the evidence/date of the latest inventory check. Do not imply a live check
+  occurred if it was not performed.
+- Confirm a new CBS SFTP export before marking its tables as available in
+  packaged metadata. Metadata updates do not create or synchronize server data.
+- Keep provider publication, CBS export/version and package release dates
+  separate. Never infer a historical snapshot from `links_current` alone.
+- Preserve broad dictionary coverage and intentional consumer scope approvals;
+  do not blindly replace them with the current licensed inventory.
+
 ## Packaged Data Files
 
 Packaged resources live in `src/moodys_datahub/data`.
@@ -114,6 +128,9 @@ changed deliberately.
 
 ## Behavior Notes
 
+- CBS defaults use the Parquet SFTP service only. Do not restore the retired CSV
+  account fallback or its catalog rows. This does not remove CSV readers,
+  processing functions, CSV output or custom SFTP support.
 - `paramiko==3.5.1` is pinned because `pysftp` is incompatible with newer
   Paramiko releases. Long-term, replacing `pysftp` with native Paramiko is the
   preferred fix.

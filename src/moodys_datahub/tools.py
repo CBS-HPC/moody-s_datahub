@@ -17,6 +17,7 @@ from .company_country import (
     match_country_candidates,
     resolve_country_filters,
 )
+from .connection import _CBS_HOSTNAME, _CBS_USERNAME
 from .load_data import _table_dictionary
 from .preflight import _candidate_local_path, _resolve_files
 from .process import _Process
@@ -108,22 +109,13 @@ class Sftp(_Process):
             os.path.abspath(output_root) if output_root else None
         )
 
-        # Try connecting to CBS servers unless explicitly running offline.
+        # Discovery opens the connection; the retired CSV account is not a fallback.
         if offline:
             self.hostname = hostname
             self.username = username
         elif privatekey and all([hostname, username]) is False:
-            usernames = ["D2vdz8elTWKyuOcC2kMSnw", "aN54UkFxQPCOIEtmr0FmAQ"]
-            for username in usernames:
-                self.hostname: str = (
-                    "s-f2112b8b980e44f9a.server.transfer.eu-west-1.amazonaws.com"
-                )
-                self.username: str = username
-                try:
-                    self._connect()
-                    break
-                except Exception:
-                    pass
+            self.hostname = _CBS_HOSTNAME
+            self.username = _CBS_USERNAME
         else:
             self.hostname: str = hostname
             self.username: str = username

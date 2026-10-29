@@ -42,6 +42,11 @@ from moodys_datahub import Sftp
 
 For CBS associates want to connect to the "CBS server" the user needs only to provide the "privatkey" (.pem) provided by CBS Staff.
 
+The default CBS connection now uses only the Parquet service; the CSV service
+has been retired. Remove explicit legacy CSV-account settings and use the
+private-key-only connection below. Reading local CSV files and writing CSV
+results are still supported.
+
 To connec to other servers the user needs to provide "hostname", "username","port" and "privatkey".
 
 
@@ -143,6 +148,53 @@ SFTP.select_data()
 
     HBox(children=(Button(description='OK', style=ButtonStyle()), Button(description='Cancel', style=ButtonStyle()…
 
+
+### Select the 2025 ownership history table
+
+The CBS SFTP owner confirmed on 2026-10-29 that `links_2025` has been exported
+for `Ownership History (Semi-Annual)`. The source product catalog includes
+`entities`, `links_2007` through `links_2025`, and `links_current`. The published
+1.4.13 wheel predates this catalog update; a new package release is pending.
+
+For a non-interactive workflow, start a fresh session and select the table's
+exact path from its live inventory. This avoids assuming that an older export
+or an already narrowed product selection contains the new table:
+
+```python
+from moodys_datahub import Sftp
+
+ownership = Sftp(
+    privatekey="user_provided-ssh-key.pem",
+    interactive=False,
+    server_cleanup=False,
+)
+inventory, _ = ownership.tables_available()
+matches = inventory.loc[
+    inventory["Data Product"].eq("Ownership History (Semi-Annual)")
+    & inventory["Table"].eq("links_2025")
+]
+if len(matches) != 1:
+    raise ValueError("Expected one links_2025 export; inspect the inventory first.")
+
+ownership.remote_path = matches.iloc[0]["Base Directory"]
+plan = ownership.process_all(dry_run=True)
+print(plan)
+
+# After reviewing the plan and setting the required columns/filters:
+# df, files = ownership.process_all()
+```
+
+Session construction discovers the server inventory, and selecting
+`remote_path` lists the selected table's files. The subsequent dry-run does
+not download records or validate an uncached remote schema. Calling
+`tables_available(reset=True)` restores the session's cached inventory; it
+does not fetch a fresh server listing. Use a new session after export changes.
+
+`links_current` is separate from `links_2025` and can change between runs.
+Do not use it as a replacement for a year-named snapshot. The exact historical
+cutoff and revision policy remain unconfirmed; record the selected export
+and extraction date separately rather than treating 2026-10-29 as the
+snapshot's effective date.
 
 ### Overview of Remote Files
 

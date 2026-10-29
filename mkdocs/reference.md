@@ -6,6 +6,10 @@ This page is kept for compatibility with existing links.
 
 For the maintained API documentation, see `api_reference.md`.
 
+For `Ownership History (Semi-Annual)` / `links_2025` availability and export
+selection, see the [current API reference](api_reference.md#ownership-history-availability)
+and [selection walkthrough](how_to_get_started.md#select-the-2025-ownership-history-table).
+
 ## Public API overview
 
 `moodys_datahub` exposes one stable public entry point: `Sftp`.
