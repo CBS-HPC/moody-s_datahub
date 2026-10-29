@@ -65,8 +65,8 @@ product's historical-coverage limits.
 
 The CBS SFTP owner confirmed the export of `Ownership History (Semi-Annual)` /
 `links_2025` on 2026-10-29. The source `data_products.xlsx` catalog now covers
-`entities`, `links_2007` through `links_2025`, and `links_current`; this metadata
-update is not yet in the published 1.4.13 wheel. Both source dictionary
+`entities`, `links_2007` through `links_2025`, and `links_current`; release
+1.4.14 is the first release with this metadata. Both source dictionary
 workbooks include `links_2025` in their shared ownership-link schema, preserving
 definitions, `Type`, `Remarks` and availability flags. The date helper includes
 `information_date`; new batch templates include the table with

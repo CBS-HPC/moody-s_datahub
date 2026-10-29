@@ -113,7 +113,7 @@ The CBS SFTP owner confirmed on 2026-10-29 that `links_2025` has been exported
 under `Ownership History (Semi-Annual)`. The source `data_products.xlsx` catalog
 now lists `entities`, `links_2007` through `links_2025`, and `links_current`:
 19 year-named link tables, one current link table and one entities table.
-This catalog update is not yet included in the published 1.4.13 wheel.
+Release 1.4.14 is the first release that includes this catalog update.
 
 Both dictionary workbooks include `links_2025` in the shared ownership-link
 schema, preserving existing definitions, types and remarks. Date metadata
@@ -339,7 +339,7 @@ If you want a pinned wheel from a specific GitHub release, install it directly
 from the release assets:
 
 ```bash
-pip install https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.13/moodys_datahub-1.4.13-py3-none-any.whl
+pip install https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.14/moodys_datahub-1.4.14-py3-none-any.whl
 ```
 
 ### Install from a local wheel
@@ -348,7 +348,7 @@ Build the package locally and install the wheel from `dist/`:
 
 ```bash
 python -m build
-pip install dist/moodys_datahub-1.4.13-py3-none-any.whl
+pip install dist/moodys_datahub-1.4.14-py3-none-any.whl
 ```
 
 The package pins `paramiko==3.5.1` because the current `pysftp` dependency is

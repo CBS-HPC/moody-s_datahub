@@ -16,16 +16,17 @@ run checks or send notifications; no scheduled monitor is deployed by this plan.
   exported. This supersedes the earlier absence report. No independent live
   SFTP check was run by the agent; the exact export completion date, snapshot
   cutoff and revision policy have not been supplied.
-- Release 1.4.13's packaged metadata has no `links_2025` entry. Package version,
-  upstream publication and CBS export freshness are separate facts.
+- Release 1.4.13's packaged metadata has no `links_2025` entry; release 1.4.14
+  adds it. Package version, upstream publication and CBS export freshness are
+  separate facts.
 - The user updated the source `data_products.xlsx` catalog with the Parquet
   `links_2025` table. Local workbook inspection on 2026-10-29 confirms that
   Ownership History now lists `entities`, `links_2007` through `links_2025`,
   and `links_current`: 21 catalog entries, including 19 year-named link tables.
   Both dictionaries, date metadata, batch template and README/MkDocs are now
   updated, with focused regressions. Shared metadata is inherited from the
-  existing annual-link entries; independent live schema validation and a new
-  release are still pending.
+  existing annual-link entries. Release 1.4.14 packages these updates;
+  independent live schema validation is still pending.
 - Do not assume `links_current` represents 2025 or the extraction date. Confirm
   its effective date and the historical tables' cutoff/revision policy with the
   provider. Export/marker timestamps and row-level `information_date` values
@@ -36,10 +37,10 @@ run checks or send notifications; no scheduled monitor is deployed by this plan.
 | ID | Priority | Work | Status / dependency | Responsible role |
 | --- | --- | --- | --- | --- |
 | DSET-001 | Urgent | Deliver the 2025 Ownership History export to CBS SFTP | Done: CBS SFTP owner confirmed delivery on 2026-10-29; provider snapshot semantics remain a follow-up | CBS data/SFTP owner with Moody's contact |
-| DSET-002 | Urgent | Incorporate verified table metadata, tests and docs into a new release | In progress: catalog, dictionaries, date/batch metadata, docs and regressions updated; live schema validation and release pending | Package maintainer |
+| DSET-002 | Urgent | Incorporate verified table metadata, tests and docs into a new release | In progress: catalog, dictionaries, date/batch metadata, docs and regressions packaged in release 1.4.14; authorized live check of export marker/path and `links_2025` schema pending | Package maintainer |
 | DSET-003 | High | Establish an approved inventory baseline and read-only drift report | Planned; can proceed independently of the 2025 delivery | Package maintainer with CBS data owner |
 | DSET-004 | High | Automate recurring inventory checks and actionable alerts | Planned; requires DSET-003, an approved runner and credential handling | CBS operations with package maintainer |
-| DSET-005 | High | Retire CBS CSV-service connections/catalog entries while preserving CSV file processing | Implemented locally; validation and release pending | Package maintainer |
+| DSET-005 | High | Retire CBS CSV-service connections/catalog entries while preserving CSV file processing | Implemented with regression tests; included in release 1.4.14 | Package maintainer |
 
 ## Export first, package second
 
@@ -107,6 +108,7 @@ metadata mismatches and connection failures without exposing source records.
 | 2026-10-29 | User decision: retire CBS CSV service. Remove its fallback account and catalog entries; keep Parquet and local/custom CSV workflows. No live SFTP check or server-side deletion performed. | Validate package changes and include in the next release; track the 2025 export separately. |
 | 2026-10-29 | CBS SFTP owner confirmed `links_2025` has been exported. Local inspection confirms the user's new Parquet catalog row and 21 Ownership History entries. README/MkDocs updated; no independent live SFTP check performed. | DSET-001 delivery complete. Finish DSET-002 metadata/schema reconciliation, tests and release; obtain provider snapshot cutoff/revision details. |
 | 2026-10-29 | Extended the 18 shared ownership-link column entries in each dictionary to `links_2025`; added its date-helper and batch-template rows from existing annual-link metadata. Preserved user catalog edits, types, remarks, flags and native Excel formatting/filters. Validation: 24 metadata tests and all 490 repository tests passed; Ruff passed for the updated tests, and offline public dictionary/date lookups succeeded. No live schema check performed. | Build/release and perform an authorized live schema smoke check. Existing custom batch workbooks remain unchanged. |
+| 2026-10-29 | Release 1.4.14 prepared. The user confirmed that all 21 Ownership History catalog rows now point to top-level directory `Xd0wpsp9TCSp6AdYQYSBTQ` (2025 re-export of the whole product, replacing `xc6HcO9JThev59gTXaW2Og`). Validation before build: all 507 repository tests and Ruff passed. Latest inventory evidence remains the CBS SFTP owner's 2026-10-29 export confirmation; no independent live SFTP or schema check performed. | Run an authorized live check recording the export marker/path and readable `links_2025` schema; obtain provider snapshot cutoff/revision details. |
 
 After each review, append evidence here and update the delivery queue. On
 completion, record the export reference/effective date and package release,

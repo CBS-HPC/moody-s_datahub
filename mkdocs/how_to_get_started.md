@@ -7,25 +7,25 @@ https://github.com/CBS-HPC/moody-s_datahub/blob/main/mkdocs/how_to_get_started.i
 
 **The pip wheel can be manually downloaded using the link below:**
 
-https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.13/moodys_datahub-1.4.13-py3-none-any.whl
+https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.14/moodys_datahub-1.4.14-py3-none-any.whl
 
 
 Or directly to the working folder by running the line below:
 
 
 ```python
-!curl -s -L -o moodys_datahub-1.4.13-py3-none-any.whl https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.13/moodys_datahub-1.4.13-py3-none-any.whl
+!curl -s -L -o moodys_datahub-1.4.14-py3-none-any.whl https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.14/moodys_datahub-1.4.14-py3-none-any.whl
 ```
 
 ## Installation
 
-Install the package "moodys_datahub-1.4.13-py3-none-any.whl":
+Install the package "moodys_datahub-1.4.14-py3-none-any.whl":
 
 
 
 ```python
 
-!pip install moodys_datahub-1.4.13-py3-none-any.whl
+!pip install moodys_datahub-1.4.14-py3-none-any.whl
 ```
 
 The package pins `paramiko==3.5.1` because the current `pysftp` dependency is
@@ -153,8 +153,8 @@ SFTP.select_data()
 
 The CBS SFTP owner confirmed on 2026-10-29 that `links_2025` has been exported
 for `Ownership History (Semi-Annual)`. The source product catalog includes
-`entities`, `links_2007` through `links_2025`, and `links_current`. The published
-1.4.13 wheel predates this catalog update; a new package release is pending.
+`entities`, `links_2007` through `links_2025`, and `links_current`. Release
+1.4.14 is the first release that includes this catalog update.
 
 For a non-interactive workflow, start a fresh session and select the table's
 exact path from its live inventory. This avoids assuming that an older export

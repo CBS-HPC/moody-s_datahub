@@ -8,9 +8,9 @@
 - [ ] DSET-002: Finish the metadata release. The user added `links_2025` to
   `data_products.xlsx`. Both dictionaries, date metadata and batch template
   now include it using the existing annual-link metadata, with regression
-  tests and README/MkDocs updates. Validate against the delivered physical
-  schema, finish release checks, then build and release a new wheel/sdist.
-  The published 1.4.13 wheel predates these metadata updates.
+  tests and README/MkDocs updates. Release 1.4.14 packages these updates.
+  Remaining: an authorized live check recording the export marker/path and
+  the readable `links_2025` schema.
 - Confirm and record the provider's exact snapshot cutoff and revision policy.
   Do not rename `links_current` to `links_2025` or infer the snapshot's effective
   date from the export confirmation date. The package ships metadata, not the

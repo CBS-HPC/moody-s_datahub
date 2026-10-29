@@ -2,7 +2,7 @@
 
 All notable changes to this project should be documented in this file.
 
-## [Unreleased]
+## [1.4.14] - 2026-10-29
 
 ### Removed
 - Retired the CBS CSV SFTP account: no automatic fallback, explicit legacy
@@ -26,8 +26,8 @@ All notable changes to this project should be documented in this file.
   table lists to `links_2025`, preserving definitions, types, remarks and
   availability flags. Added its `information_date` metadata and enabled batch
   template row using both subsidiary/shareholder BvD columns. Added regressions
-  for catalog, dictionary, date and batch-template coverage. A new package
-  release and live schema validation remain pending. The snapshot cutoff and
+  for catalog, dictionary, date and batch-template coverage. Live schema
+  validation against the delivered files remains pending. The snapshot cutoff and
   revision policy are not inferred from the export confirmation date or
   `links_current`.
 - Restored provider `Type` and `Remarks` metadata from the supplied Orbis Data

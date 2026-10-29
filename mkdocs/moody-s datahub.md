@@ -129,8 +129,8 @@ same table name, manual selection is required.
 
 The CBS SFTP owner confirmed on 2026-10-29 that `Ownership History (Semi-Annual)`
 now has a `links_2025` export. The source product catalog includes `entities`,
-`links_2007` through `links_2025`, and `links_current`. A new package release
-with this catalog update is pending; the published 1.4.13 wheel predates it.
+`links_2007` through `links_2025`, and `links_current`. Release 1.4.14 is the
+first release that includes this catalog update.
 
 Use a fresh session's inventory to select the exact table/export; see the
 [2025 ownership walkthrough](how_to_get_started.md#select-the-2025-ownership-history-table).
