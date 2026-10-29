@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: moodys_datahub
-Version: 1.4.13
+Version: 1.4.14
 Summary: Python tools for accessing and processing Moody's DataHub exports via SFTP.
 Author-email: Kristoffer Gulmark Poulsen <kgp.lib@cbs.dk>
 License-Expression: MIT
@@ -152,6 +152,26 @@ For local source files, `dry_run=True` also validates selected and filter
 columns against the source schema. It never downloads remote files merely to
 inspect their schema, and reports a warning when that validation is deferred.
 
+### Ownership History: `links_2025`
+
+The CBS SFTP owner confirmed on 2026-10-29 that `links_2025` has been exported
+under `Ownership History (Semi-Annual)`. The source `data_products.xlsx` catalog
+now lists `entities`, `links_2007` through `links_2025`, and `links_current`:
+19 year-named link tables, one current link table and one entities table.
+Release 1.4.14 is the first release that includes this catalog update.
+
+Both dictionary workbooks include `links_2025` in the shared ownership-link
+schema, preserving existing definitions, types and remarks. Date metadata
+includes `information_date`, and new batch-search templates include both
+`subsidiary_bvd_id` and `shareholder_bvd_id` for this table. Existing customized
+batch workbooks are not automatically expanded.
+
+Use a fresh session's `tables_available()` inventory to select the exact table
+and export. See the [2025 ownership selection example](mkdocs/how_to_get_started.md#select-the-2025-ownership-history-table).
+`links_current` remains a separate, changing table, not a substitute for
+`links_2025`. The provider's exact snapshot cutoff and revision policy still
+need confirmation; the export confirmation date is not the snapshot date.
+
 ### File safety and validation
 
 Explicit existing local inputs are read as supplied: they are not replaced
@@ -239,6 +259,7 @@ The stable public API is centered on `moodys_datahub.Sftp`:
   `last_process_reason`
 - helper workflows: `search_company_names()`, `search_bvd_changes()`,
   `batch_bvd_search()`, `orbis_to_moodys()`
+- server maintenance: `delete_top_level_directories()` (dry run by default)
 
 `search_company_names()` uses the Firmographics `bvd_id_and_name` table and an
 indexed RapidFuzz matcher. It checks exact matches first, narrows fuzzy
@@ -339,9 +360,15 @@ The package and repository include metadata workbooks under
 
 - `data_dict.xlsx`: broad Moody's DataHub data dictionary. It may include
   products that are not licensed or available in the current SFTP export.
+  `Type` preserves the provider's declared type/length; `Remarks` retains
+  column notes and labeled product/table context from the supplied dictionary.
+  Missing source metadata remains blank. These declarations do not replace
+  profiling the actual source-file schema. Product-specific coverage notes are
+  not inherited merely because another product shares the same column schema.
 - `data_dict_available.xlsx`: repository workbook with an overview of the data
   products available to the current setup/license. It is intentionally excluded
-  from the built wheel unless packaging rules are changed.
+  from the built wheel unless packaging rules are changed. It retains the same
+  `Type` and `Remarks` metadata for matching entries.
 - `data_products.xlsx`: packaged product metadata used by the helper loaders.
 - `date_cols.xlsx`: known date columns used by date filtering helpers.
 - `country_codes.xlsx`: country-code metadata used by country/prefix BvD
@@ -357,7 +384,7 @@ If you want a pinned wheel from a specific GitHub release, install it directly
 from the release assets:
 
 ```bash
-pip install https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.13/moodys_datahub-1.4.13-py3-none-any.whl
+pip install https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.14/moodys_datahub-1.4.14-py3-none-any.whl
 ```
 
 ### Install from a local wheel
@@ -366,7 +393,7 @@ Build the package locally and install the wheel from `dist/`:
 
 ```bash
 python -m build
-pip install dist/moodys_datahub-1.4.13-py3-none-any.whl
+pip install dist/moodys_datahub-1.4.14-py3-none-any.whl
 ```
 
 The package pins `paramiko==3.5.1` because the current `pysftp` dependency is
@@ -384,12 +411,38 @@ that pin intact unless the SFTP backend is migrated away from `pysftp`.
 CBS users should contact CBS staff to obtain a personal private key used to
 authenticate against the CBS SFTP server.
 
+CBS connections use the Parquet service only. The CBS CSV service is retired:
+the package no longer falls back to its account or advertises its catalog
+entries. Replace explicit legacy CSV-service credentials with the standard
+`Sftp(privatekey=...)` setup. CSV file processing and CSV output remain supported,
+as do explicitly configured third-party SFTP servers.
+
 For non-CBS SFTP servers, you also need the server `hostname`, `username`, and
 the corresponding authentication credentials.
 
 When connecting to an SFTP server, the package detects export folders and tries
 to match them to DataHub products automatically. If multiple products share the
 same table name, manual selection is required.
+
+### Deleting whole top-level directories
+
+`delete_top_level_directories()` removes an entire product directory from the
+SFTP server, including every export, table and marker file in it. It is a dry
+run by default and returns one row per directory with its data product, tables,
+file count and size:
+
+```python
+plan = SFTP.delete_top_level_directories(["OLD_EXPORT_DIRECTORY"])
+plan = SFTP.delete_top_level_directories(
+    ["OLD_EXPORT_DIRECTORY"], dry_run=False, confirm=True
+)
+```
+
+Pass exact names from the `Top-level Directory` column of `tables_available()`
+or exact `Data Product` names. Only folders directly under the SFTP login
+directory qualify. Deleting requires both `dry_run=False` and `confirm=True`,
+and every name must resolve first; otherwise nothing is deleted. Deletion cannot
+be undone. Offline and `local_repo` sessions cannot use it.
 
 ## Format Recommendation
 
