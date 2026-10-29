@@ -13,7 +13,6 @@ Classifier: Development Status :: 5 - Production/Stable
 Classifier: Intended Audience :: Science/Research
 Classifier: Intended Audience :: Developers
 Classifier: Programming Language :: Python :: 3
-Classifier: Programming Language :: Python :: 3.9
 Classifier: Programming Language :: Python :: 3.10
 Classifier: Programming Language :: Python :: 3.11
 Classifier: Programming Language :: Python :: 3.12
@@ -21,7 +20,7 @@ Classifier: Programming Language :: Python :: 3.13
 Classifier: Operating System :: OS Independent
 Classifier: Topic :: Software Development :: Libraries
 Classifier: Topic :: Scientific/Engineering :: Information Analysis
-Requires-Python: >=3.9
+Requires-Python: >=3.10
 Description-Content-Type: text/markdown
 License-File: LICENSE.md
 Requires-Dist: fastavro
@@ -402,7 +401,7 @@ that pin intact unless the SFTP backend is migrated away from `pysftp`.
 
 ## Requirements
 
-- Python 3.9+
+- Python 3.10+
 - Access to a Moody's DataHub SFTP export
 - For CBS users: a personal private key (`.pem`) issued for the CBS SFTP setup
 
