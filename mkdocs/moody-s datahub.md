@@ -125,6 +125,11 @@ When connecting to an SFTP server, the package detects export folders and tries
 to match them to DataHub products automatically. If multiple products share the
 same table name, manual selection is required.
 
+For non-interactive jobs, unknown exports are skipped with one warning rather
+than blocking all products. Inspect `SFTP.unresolved_exports` for the skipped
+directories, unverified candidate products and table names. Known products
+remain usable; unresolved selections still raise. See [unresolved export diagnostics](api_reference.md#unresolved-export-diagnostics).
+
 ## Ownership History availability
 
 The CBS SFTP owner confirmed on 2026-10-29 that `Ownership History (Semi-Annual)`

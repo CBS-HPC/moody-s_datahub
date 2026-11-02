@@ -1,6 +1,6 @@
 # Dataset Availability Roadmap
 
-Last updated: 2026-10-29.
+Last updated: 2026-11-02.
 
 This is a living maintenance record. Update statuses and evidence after each
 availability review, export delivery and package release. It does not itself
@@ -31,6 +31,11 @@ run checks or send notifications; no scheduled monitor is deployed by this plan.
   its effective date and the historical tables' cutoff/revision policy with the
   provider. Export/marker timestamps and row-level `information_date` values
   are not interchangeable with a confirmed snapshot date.
+- The 2026-11-02 Moody Agent handoff reports that the superseded Ownership
+  History root still exists and blocks 1.4.14 non-interactive construction.
+  The 1.4.15 patch separates unresolved-export diagnostics from selection so
+  unrelated known products remain usable. No independent live SFTP check or
+  server deletion was performed for this patch.
 
 ## Delivery queue
 
@@ -41,6 +46,7 @@ run checks or send notifications; no scheduled monitor is deployed by this plan.
 | DSET-003 | High | Establish an approved inventory baseline and read-only drift report | Planned; can proceed independently of the 2025 delivery | Package maintainer with CBS data owner |
 | DSET-004 | High | Automate recurring inventory checks and actionable alerts | Planned; requires DSET-003, an approved runner and credential handling | CBS operations with package maintainer |
 | DSET-005 | High | Retire CBS CSV-service connections/catalog entries while preserving CSV file processing | Implemented with regression tests; included in release 1.4.14 | Package maintainer |
+| DSET-006 | Urgent | Stop unresolved exports from blocking all non-interactive sessions | Fix and regressions implemented; 1.4.15 release checks pending. Consumer will record diagnostics and rerun the blocked 2025 update after release. | Package maintainer with Moody Agent consumer |
 
 ## Export first, package second
 
@@ -110,6 +116,7 @@ metadata mismatches and connection failures without exposing source records.
 | 2026-10-29 | Extended the 18 shared ownership-link column entries in each dictionary to `links_2025`; added its date-helper and batch-template rows from existing annual-link metadata. Preserved user catalog edits, types, remarks, flags and native Excel formatting/filters. Validation: 24 metadata tests and all 490 repository tests passed; Ruff passed for the updated tests, and offline public dictionary/date lookups succeeded. No live schema check performed. | Build/release and perform an authorized live schema smoke check. Existing custom batch workbooks remain unchanged. |
 | 2026-10-29 | Release 1.4.14 prepared. The user confirmed that all 21 Ownership History catalog rows now point to top-level directory `Xd0wpsp9TCSp6AdYQYSBTQ` (2025 re-export of the whole product, replacing `xc6HcO9JThev59gTXaW2Og`). Validation before build: all 507 repository tests and Ruff passed. Latest inventory evidence remains the CBS SFTP owner's 2026-10-29 export confirmation; no independent live SFTP or schema check performed. | Run an authorized live check recording the export marker/path and readable `links_2025` schema; obtain provider snapshot cutoff/revision details. |
 | 2026-10-30 | Published release 1.4.14 (https://github.com/CBS-HPC/moody-s_datahub/releases/tag/v1.4.14) at the user's request before the live check. It also drops Python 3.9; CI passed on Python 3.10-3.13 (Linux) and 3.13 (Windows). The live check was handed off to a separate agent; no live SFTP or schema check performed here. If the old directory `xc6HcO9JThev59gTXaW2Og` is still on the server, non-interactive 1.4.14 sessions raise an unresolved-product error until it is removed. | Record the handed-off live check results; decide whether to delete `xc6HcO9JThev59gTXaW2Og` with `delete_top_level_directories(..., dry_run=False, confirm=True)`. |
+| 2026-11-02 | Moody Agent reported that unresolved exports block all 1.4.14 batch sessions. Reproduced the constructor error with a fake SFTP server. The 1.4.15 fix reports/skips unresolved roots without accepting heuristic candidates, defers identity errors to selection, preserves templates/interactive flow and excludes skipped roots from automatic cleanup. Validation: all 526 tests passed on Python 3.10 and 3.11, including the real packaged ownership heuristic; Ruff passed. No live SFTP check or deletion performed. | Complete distribution/CI/release checks. Consumer will record `unresolved_exports` and rerun the blocked `links_2025` check after release; DSET-002 remains open. |
 
 After each review, append evidence here and update the delivery queue. On
 completion, record the export reference/effective date and package release,

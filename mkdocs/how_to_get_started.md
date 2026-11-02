@@ -7,25 +7,25 @@ https://github.com/CBS-HPC/moody-s_datahub/blob/main/mkdocs/how_to_get_started.i
 
 **The pip wheel can be manually downloaded using the link below:**
 
-https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.14/moodys_datahub-1.4.14-py3-none-any.whl
+https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.15/moodys_datahub-1.4.15-py3-none-any.whl
 
 
 Or directly to the working folder by running the line below:
 
 
 ```python
-!curl -s -L -o moodys_datahub-1.4.14-py3-none-any.whl https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.14/moodys_datahub-1.4.14-py3-none-any.whl
+!curl -s -L -o moodys_datahub-1.4.15-py3-none-any.whl https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.15/moodys_datahub-1.4.15-py3-none-any.whl
 ```
 
 ## Installation
 
-Install the package "moodys_datahub-1.4.14-py3-none-any.whl":
+Install the package "moodys_datahub-1.4.15-py3-none-any.whl":
 
 
 
 ```python
 
-!pip install moodys_datahub-1.4.14-py3-none-any.whl
+!pip install moodys_datahub-1.4.15-py3-none-any.whl
 ```
 
 The package pins `paramiko==3.5.1` because the current `pysftp` dependency is
@@ -75,6 +75,13 @@ SFTP = Sftp(
 If `download_root` is not provided, downloads use the existing default path:
 `Data Products/<data_product>/<table>`. When `download_root` is provided, only
 the root changes: `<download_root>/<data_product>/<table>`.
+
+Since 1.4.15, an unknown export does not block non-interactive construction.
+One `RuntimeWarning` reports skipped roots; inspect `SFTP.unresolved_exports`
+and include it in your run manifest before selecting a product. Candidates
+remain unverified even when there is only one. Known products remain usable;
+unresolved selections still raise. See [unresolved export diagnostics](api_reference.md#unresolved-export-diagnostics)
+for the report fields and explicit identity-resolution options.
 
 If `output_root` is provided, auto-generated processed outputs are written below
 that root. Explicit `destination` values in processing calls still take

@@ -127,6 +127,33 @@ and export. See the [2025 ownership selection example](mkdocs/how_to_get_started
 `links_2025`. The provider's exact snapshot cutoff and revision policy still
 need confirmation; the export confirmation date is not the snapshot date.
 
+### Unresolved exports in batch jobs
+
+Since 1.4.15, `Sftp(interactive=False)` skips exports whose product identity
+cannot be verified, rather than blocking every session. Discovery emits one
+`RuntimeWarning` and exposes the skipped exports through `unresolved_exports`.
+Include this JSON-serializable metadata in a run manifest:
+
+```python
+manifest = {"unresolved_exports": SFTP.unresolved_exports}
+```
+
+Each entry contains `top_level_directory`, `candidate_products` and `tables`.
+The list is empty when nothing was skipped; candidate/table lists can also be
+empty for an incomplete export. Candidates are guesses, even when there is
+only one. Known, unambiguous products remain selectable, including when an
+unverified candidate happens to share their name. Consumers requiring strict
+inventory approval should review the diagnostics before extracting records.
+
+Selecting an unresolved product, table or remote path still raises `ValueError`.
+Use interactive confirmation or start a fresh session with an explicitly
+verified `data_product_template` mapping to resolve identities. The returned
+diagnostics are copies; editing them does not authorize an export. Cached
+inventory calls, including `tables_available(reset=True)`, retain the report
+without repeating the warning and do not refresh the server inventory.
+Skipped exports are excluded from automatic cleanup. Authentication, network
+and invalid-marker errors are not suppressed. Interactive discovery is unchanged.
+
 ### File safety and validation
 
 Explicit existing local inputs are read as supplied: they are not replaced
@@ -339,7 +366,7 @@ If you want a pinned wheel from a specific GitHub release, install it directly
 from the release assets:
 
 ```bash
-pip install https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.14/moodys_datahub-1.4.14-py3-none-any.whl
+pip install https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.15/moodys_datahub-1.4.15-py3-none-any.whl
 ```
 
 ### Install from a local wheel
@@ -348,7 +375,7 @@ Build the package locally and install the wheel from `dist/`:
 
 ```bash
 python -m build
-pip install dist/moodys_datahub-1.4.14-py3-none-any.whl
+pip install dist/moodys_datahub-1.4.15-py3-none-any.whl
 ```
 
 The package pins `paramiko==3.5.1` because the current `pysftp` dependency is

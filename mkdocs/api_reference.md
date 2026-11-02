@@ -20,6 +20,8 @@ public API is `moodys_datahub.Sftp` / `moodys_datahub.tools.Sftp`.
 - `download_root`: override the root folder used for downloaded remote files.
 - `output_root`: override the root folder for auto-generated processed outputs.
 - `tables_available()`: inspect available products and tables.
+- `unresolved_exports`: inspect exports skipped by non-interactive discovery
+  because their product identity remains unverified.
 - `offline_capabilities()`: list which methods can run offline, with a local
   repository, or only against the SFTP server.
 - `set_data_product` / `set_table`: set the active product and table directly.
@@ -102,6 +104,8 @@ confirms an exact snapshot cutoff or revision policy.
 
 ### Diagnostics and state
 
+- `unresolved_exports`: copied, JSON-serializable discovery diagnostics with
+  `top_level_directory`, `candidate_products` and `tables` per skipped export.
 - `download_finished`: inspect the current download state.
 - `last_process_engine`: inspect the backend used most recently.
 - `last_process_reason`: inspect why the backend was chosen.
@@ -274,6 +278,42 @@ layout is created below the custom root:
 For a timestamped export, the product directory is
 `<data_product>_exported YYYY-MM-DD_HH-MM-SS`. Switching table or export
 invalidates the old local cache selection and uses the newly selected version.
+
+### Unresolved export diagnostics
+
+Since 1.4.15, unknown exports do not abort `Sftp(interactive=False)` construction.
+Discovery excludes them from both the active and resettable inventory, emits
+one `RuntimeWarning` for the skipped roots, and retains their metadata:
+
+```python
+manifest = {"unresolved_exports": SFTP.unresolved_exports}
+```
+
+`unresolved_exports` returns a list of dictionaries with these fields:
+
+| Field | Meaning |
+| --- | --- |
+| `top_level_directory` | Exact top-level directory skipped during discovery. |
+| `candidate_products` | Unverified heuristic product names; possibly empty. A single candidate is not accepted automatically. |
+| `tables` | Observed table names; empty when no completed export/table listing is available. |
+
+The property is read-only and returns independent copies. Editing the result
+does not alter selection or resolve an identity. Reports persist across cached
+`tables_available()` calls, selection resets and `reset=True` without repeating
+the warning. Start a fresh session for a new server inventory.
+
+Known, unambiguous products remain selectable even when an unresolved guess
+shares their name. Consumers can inspect the report and apply stricter scope
+approval rules before extraction. A product/table available only through an
+unresolved export raises on selection; direct `remote_path` selection of a
+skipped root also raises without changing the previous selection. Existing
+ambiguity errors for known exports remain unchanged.
+
+Resolve identities with the existing interactive confirmation flow or a fresh
+session with an explicitly verified `data_product_template`. Interactive
+behavior and single-candidate confirmation are unchanged. Skipped roots are
+excluded from automatic cleanup; this does not delete server data or suppress
+authentication, network or invalid-marker errors.
 
 ### Read-only cache inspection
 

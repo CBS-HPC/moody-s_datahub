@@ -22,7 +22,7 @@ and [selection walkthrough](how_to_get_started.md#select-the-2025-ownership-hist
 - processing: `process_one()`, `process_all(dry_run=True)`, `pandas_all()`,
   `polars_all()`, `download_all(dry_run=True)`, `resolve_cache_file()`,
   `profile_table()`, `profile_tables()`
-- diagnostics: `download_finished`, `last_process_engine`,
+- diagnostics: `unresolved_exports`, `download_finished`, `last_process_engine`,
   `last_process_reason`
 - helper workflows: `search_company_names()`, `search_bvd_changes()`,
   `batch_bvd_search()`, `orbis_to_moodys()`
@@ -56,6 +56,10 @@ invalid-looking values and treat them as exact IDs instead of raising.
 arguments so workbook-driven searches can reuse the layered BvD filter model.
 
 ## Current backend behavior
+
+Non-interactive discovery skips unknown exports with one warning and exposes
+`unresolved_exports`; unresolved selections still raise. See the
+[diagnostics reference](api_reference.md#unresolved-export-diagnostics).
 
 - `process_all()` always returns pandas and may use Polars internally when the
   workload is compatible.

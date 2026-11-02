@@ -2,6 +2,31 @@
 
 All notable changes to this project should be documented in this file.
 
+## [1.4.15] - 2026-11-02
+
+### Fixed
+- Unknown or ambiguously identified SFTP exports no longer abort
+  `Sftp(interactive=False)` during construction. They are excluded from the
+  selectable inventory, allowing unrelated known products to remain usable.
+  Even a single heuristic candidate remains unverified and is not accepted.
+- Selecting an unresolved product, table or remote path raises `ValueError`
+  without changing the previous valid selection. Known ambiguous selections
+  still raise; explicit `data_product_template` mappings and interactive
+  confirmation retain their existing behavior.
+- Empty/incomplete unknown exports are reported without blocking construction.
+  Skipped exports are also excluded from automatic server cleanup; no server
+  directories are removed by this fix.
+
+### Added
+- Read-only `Sftp.unresolved_exports` diagnostics: a JSON-serializable list
+  containing `top_level_directory`, `candidate_products` and `tables` for each
+  skipped export. Discovery emits one `RuntimeWarning` for all skipped roots.
+  Repeated cached inventory calls preserve the diagnostics without repeating
+  the warning. Returned lists are copies, not editable identity mappings.
+- Regression coverage for the superseded-ownership heuristic, zero/single/
+  multiple candidates, unaffected known selections, selection-time failures,
+  explicit templates, interactive confirmation and skipped-export cleanup safety.
+
 ## [1.4.14] - 2026-10-29
 
 ### Removed
