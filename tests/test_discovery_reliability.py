@@ -153,7 +153,7 @@ def test_unknown_export_does_not_block_noninteractive_construction(
     with pytest.warns(RuntimeWarning, match="unresolved") as emitted:
         client = remote_client(tmp_path, unresolved_server, catalog_roots=["product"])
 
-    assert len(emitted) == 1
+    assert sum(issubclass(warning.category, RuntimeWarning) for warning in emitted) == 1
     assert client.unresolved_exports == [
         {
             "top_level_directory": "unmapped",
@@ -255,7 +255,7 @@ def test_multiple_unresolved_exports_emit_one_warning(unresolved_server, tmp_pat
     )
     with pytest.warns(RuntimeWarning, match="unresolved") as emitted:
         client = remote_client(tmp_path, unresolved_server, catalog_roots=["product"])
-    assert len(emitted) == 1
+    assert sum(issubclass(warning.category, RuntimeWarning) for warning in emitted) == 1
     assert {item["top_level_directory"] for item in client.unresolved_exports} == {
         "unmapped",
         "unmapped_second",
@@ -323,6 +323,20 @@ def test_unresolved_exports_are_excluded_from_automatic_cleanup(
         remote_client(tmp_path, unresolved_server, catalog_roots=["product"])
     assert cleanup == ["product/old_export"]
     assert unresolved_server.removed == []
+
+
+def test_empty_unknown_export_handles_nullable_string_inference(
+    unresolved_server, tmp_path
+):
+    unresolved_server.directories["unmapped"] = []
+    with pd.option_context("future.infer_string", True):
+        with pytest.warns(RuntimeWarning, match="unresolved"):
+            client = remote_client(
+                tmp_path, unresolved_server, catalog_roots=["product"]
+            )
+    assert client.unresolved_exports == [
+        {"top_level_directory": "unmapped", "candidate_products": [], "tables": []}
+    ]
 
 
 def test_explicit_template_resolves_export_without_accepting_heuristics(

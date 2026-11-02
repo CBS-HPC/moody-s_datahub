@@ -16,6 +16,8 @@ All notable changes to this project should be documented in this file.
 - Empty/incomplete unknown exports are reported without blocking construction.
   Skipped exports are also excluded from automatic server cleanup; no server
   directories are removed by this fix.
+- Missing export paths use pandas-aware null checks, including nullable string
+  inference, rather than sending a coerced `NaN` value to SFTP listing calls.
 
 ### Added
 - Read-only `Sftp.unresolved_exports` diagnostics: a JSON-serializable list

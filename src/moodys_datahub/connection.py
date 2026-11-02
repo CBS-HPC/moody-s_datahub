@@ -394,7 +394,7 @@ class _Connection:
                 main_directory = row["Top-level Directory"]
                 export = row["Newest Export"]
 
-                if export is None:
+                if pd.isna(export):
                     tables, full_paths = [], []
                 elif sftp:
                     tables = sftp.listdir(export)
