@@ -11,11 +11,11 @@
   tests and README/MkDocs updates. Release 1.4.14 packages these updates.
   Remaining: an authorized live check recording the export marker/path and
   the readable `links_2025` schema.
-- [ ] DSET-006: Release the 1.4.15 discovery fix so unknown/superseded exports
-  do not block unrelated non-interactive sessions. The Moody Agent's
-  2026-11-02 handoff reports this blocker in 1.4.14; source fix and regressions
-  are implemented. After release, the consumer can record unresolved exports
-  and rerun its blocked `links_2025` update. No live check was run here.
+- [x] DSET-006: Published the 1.4.15 discovery fix on 2026-11-02 so
+  unknown/superseded exports do not block unrelated non-interactive sessions.
+  The consumer can release-sync, record `unresolved_exports` and rerun its
+  blocked `links_2025` update. No live check or server deletion was run here;
+  DSET-002 remains open until the authorized live check is reported.
 - Confirm and record the provider's exact snapshot cutoff and revision policy.
   Do not rename `links_current` to `links_2025` or infer the snapshot's effective
   date from the export confirmation date. The package ships metadata, not the
