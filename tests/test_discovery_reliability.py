@@ -1,5 +1,7 @@
+import asyncio
 import json
 import posixpath
+import warnings
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -7,6 +9,7 @@ import pandas as pd
 import pytest
 
 from moodys_datahub import Sftp
+from moodys_datahub.load_data import _table_match
 
 CATALOG_COLUMNS = [
     "Data Product",
@@ -91,16 +94,23 @@ def server(monkeypatch, tmp_path):
     return server
 
 
-def remote_client(tmp_path, server, product_names=None, interactive=False, **kwargs):
+def remote_client(
+    tmp_path,
+    server,
+    product_names=None,
+    interactive=False,
+    catalog_roots=None,
+    **kwargs,
+):
     template = tmp_path / "products.csv"
     product_names = product_names or {}
+    roots = server.directories["."] if catalog_roots is None else catalog_roots
     pd.DataFrame(
         {
             "Data Product": [
-                product_names.get(root, "Synthetic Product")
-                for root in server.directories["."]
+                product_names.get(root, "Synthetic Product") for root in roots
             ],
-            "Top-level Directory": server.directories["."],
+            "Top-level Directory": roots,
         }
     ).to_csv(template, index=False)
     return Sftp(
@@ -112,6 +122,251 @@ def remote_client(tmp_path, server, product_names=None, interactive=False, **kwa
         server_cleanup=False,
         **kwargs,
     )
+
+
+@pytest.fixture
+def unresolved_server(server, monkeypatch):
+    server.directories["."].append("unmapped")
+    server.directories.update(
+        {
+            "unmapped": ["export"],
+            "unmapped/export": ["mystery"],
+            "unmapped/export/mystery": ["part.csv"],
+        }
+    )
+    monkeypatch.setattr(
+        "moodys_datahub.connection._table_match",
+        lambda tables: ("Multiple_Options: ['Candidate Product']", tables),
+    )
+    return server
+
+
+@pytest.mark.parametrize("candidates", [[], ["Candidate Product"], ["First", "Second"]])
+def test_unknown_export_does_not_block_noninteractive_construction(
+    unresolved_server, tmp_path, monkeypatch, candidates
+):
+    marker = f"Multiple_Options: {candidates!r}" if candidates else "Unknown"
+    monkeypatch.setattr(
+        "moodys_datahub.connection._table_match", lambda tables: (marker, tables)
+    )
+
+    with pytest.warns(RuntimeWarning, match="unresolved") as emitted:
+        client = remote_client(tmp_path, unresolved_server, catalog_roots=["product"])
+
+    assert len(emitted) == 1
+    assert client.unresolved_exports == [
+        {
+            "top_level_directory": "unmapped",
+            "candidate_products": candidates,
+            "tables": ["mystery"],
+        }
+    ]
+    inventory, _ = client.tables_available()
+    assert set(inventory["Top-level Directory"]) == {"product"}
+    assert set(client._tables_backup["Top-level Directory"]) == {"product"}
+
+
+def test_unresolved_export_does_not_block_a_known_product_with_same_candidate(
+    unresolved_server, tmp_path
+):
+    with pytest.warns(RuntimeWarning, match="unresolved"):
+        client = remote_client(
+            tmp_path,
+            unresolved_server,
+            product_names={"product": "Candidate Product"},
+            catalog_roots=["product"],
+        )
+
+    client.set_data_product = "Candidate Product"
+    client.set_table = "history"
+    assert client.remote_path == "product/export/history"
+    assert client.remote_files == ["history.csv"]
+
+
+def test_superseded_ownership_tables_are_not_accepted_as_detailed_ownership(
+    unresolved_server, tmp_path, monkeypatch
+):
+    unresolved_server.directories["unmapped/export"] = ["entities", "links_current"]
+    monkeypatch.setattr("moodys_datahub.connection._table_match", _table_match)
+
+    with pytest.warns(RuntimeWarning, match="unresolved"):
+        client = remote_client(tmp_path, unresolved_server, catalog_roots=["product"])
+
+    assert client.unresolved_exports[0]["candidate_products"] == [
+        "Detailed Ownership (Monthly)"
+    ]
+    assert client.unresolved_exports[0]["tables"] == ["entities", "links_current"]
+    with pytest.raises(ValueError, match="unresolved"):
+        client.set_data_product = "Detailed Ownership (Monthly)"
+    client.set_data_product = "Synthetic Product"
+    assert client.set_data_product == "Synthetic Product"
+
+
+@pytest.mark.parametrize(
+    ("attribute", "value"),
+    [
+        ("set_data_product", "Candidate Product"),
+        ("set_table", "mystery"),
+        ("remote_path", "unmapped/export"),
+        ("remote_path", "unmapped/export/mystery"),
+        ("remote_path", r"\unmapped\export\mystery"),
+    ],
+)
+def test_unresolved_export_selection_raises_without_changing_valid_selection(
+    unresolved_server, tmp_path, attribute, value
+):
+    with pytest.warns(RuntimeWarning, match="unresolved"):
+        client = remote_client(tmp_path, unresolved_server, catalog_roots=["product"])
+    client.set_data_product = "Synthetic Product"
+    client.set_table = "history"
+    previous = (client.set_data_product, client.set_table, client.remote_path)
+    previous_connections = unresolved_server.connections
+
+    with pytest.raises(ValueError, match="unresolved.*data_product_template"):
+        setattr(client, attribute, value)
+
+    assert (client.set_data_product, client.set_table, client.remote_path) == previous
+    assert unresolved_server.connections == previous_connections
+
+
+def test_unresolved_export_report_survives_cached_inventory_calls_and_is_a_copy(
+    unresolved_server, tmp_path
+):
+    with pytest.warns(RuntimeWarning, match="unresolved"):
+        client = remote_client(tmp_path, unresolved_server, catalog_roots=["product"])
+    snapshot = client.unresolved_exports
+    assert json.loads(json.dumps(snapshot)) == snapshot
+    client.unresolved_exports[0]["candidate_products"].append("Not Verified")
+    client.unresolved_exports[0]["tables"].clear()
+
+    with warnings.catch_warnings(record=True) as emitted:
+        warnings.simplefilter("always")
+        for reset in (False, True, False):
+            inventory, _ = client.tables_available(reset=reset)
+            assert set(inventory["Top-level Directory"]) == {"product"}
+    assert emitted == []
+    assert client.unresolved_exports == snapshot
+
+
+def test_multiple_unresolved_exports_emit_one_warning(unresolved_server, tmp_path):
+    unresolved_server.directories["."].append("unmapped_second")
+    unresolved_server.directories.update(
+        {"unmapped_second": ["export"], "unmapped_second/export": ["another_table"]}
+    )
+    with pytest.warns(RuntimeWarning, match="unresolved") as emitted:
+        client = remote_client(tmp_path, unresolved_server, catalog_roots=["product"])
+    assert len(emitted) == 1
+    assert {item["top_level_directory"] for item in client.unresolved_exports} == {
+        "unmapped",
+        "unmapped_second",
+    }
+
+
+def test_all_exports_can_be_unresolved_without_blocking_construction(
+    unresolved_server, tmp_path
+):
+    unresolved_server.directories["."] = ["unmapped"]
+    with pytest.warns(RuntimeWarning, match="unresolved"):
+        client = remote_client(tmp_path, unresolved_server, catalog_roots=["product"])
+    inventory, _ = client.tables_available(reset=True)
+    assert inventory.empty
+    assert inventory.columns.tolist() == CATALOG_COLUMNS
+    with pytest.raises(ValueError, match="unresolved"):
+        client.set_data_product = "Candidate Product"
+
+
+@pytest.mark.parametrize("stage", ["empty_root", "empty_export", "no_markers"])
+def test_incomplete_unknown_export_is_reported_with_no_guessed_tables(
+    unresolved_server, tmp_path, stage
+):
+    if stage == "empty_root":
+        unresolved_server.directories["unmapped"] = []
+    elif stage == "empty_export":
+        unresolved_server.directories["unmapped/export"] = []
+    else:
+        unresolved_server.directories["unmapped"] = ["tnfs"]
+        unresolved_server.directories["unmapped/tnfs"] = []
+
+    with pytest.warns(RuntimeWarning, match="unresolved"):
+        client = remote_client(tmp_path, unresolved_server, catalog_roots=["product"])
+
+    assert client.unresolved_exports == [
+        {"top_level_directory": "unmapped", "candidate_products": [], "tables": []}
+    ]
+    client.set_data_product = "Synthetic Product"
+    assert client.set_data_product == "Synthetic Product"
+
+
+def test_unresolved_exports_are_excluded_from_automatic_cleanup(
+    unresolved_server, tmp_path, monkeypatch
+):
+    unresolved_server.directories.update(
+        {
+            "unmapped": ["tnfs", "old_export", "export"],
+            "unmapped/tnfs": ["old.tnf", "new.tnf"],
+        }
+    )
+    unresolved_server.contents.update(
+        {
+            "unmapped/tnfs/old.tnf": json.dumps({"DataFolder": "old_export"}),
+            "unmapped/tnfs/new.tnf": json.dumps({"DataFolder": "export"}),
+        }
+    )
+    unresolved_server.mtimes.update(
+        {"unmapped/tnfs/old.tnf": 100, "unmapped/tnfs/new.tnf": 200}
+    )
+    cleanup = []
+    monkeypatch.setattr(
+        Sftp, "_server_clean_up", lambda self, paths, **kwargs: cleanup.extend(paths)
+    )
+    with pytest.warns(RuntimeWarning, match="unresolved"):
+        remote_client(tmp_path, unresolved_server, catalog_roots=["product"])
+    assert cleanup == ["product/old_export"]
+    assert unresolved_server.removed == []
+
+
+def test_explicit_template_resolves_export_without_accepting_heuristics(
+    unresolved_server, tmp_path, monkeypatch
+):
+    def do_not_guess(tables):
+        raise AssertionError("A mapped export must not use heuristic matching")
+
+    monkeypatch.setattr("moodys_datahub.connection._table_match", do_not_guess)
+    client = remote_client(
+        tmp_path,
+        unresolved_server,
+        product_names={"unmapped": "Confirmed Product"},
+    )
+    assert client.unresolved_exports == []
+    client.set_data_product = "Confirmed Product"
+    client.set_table = "mystery"
+    assert client.remote_path == "unmapped/export/mystery"
+
+
+def test_interactive_unknown_export_still_requires_widget_confirmation(
+    unresolved_server, tmp_path, monkeypatch
+):
+    prompts = []
+
+    class FakeDropdown:
+        def __init__(self, values, directories, title):
+            prompts.append((values, directories))
+
+        async def display_widgets(self):
+            return ["Candidate Product"]
+
+    monkeypatch.setattr("moodys_datahub.connection._Multi_dropdown", FakeDropdown)
+    monkeypatch.setattr(
+        "moodys_datahub.connection.asyncio.ensure_future",
+        lambda coro: asyncio.run(coro),
+    )
+    client = remote_client(
+        tmp_path, unresolved_server, catalog_roots=["product"], interactive=True
+    )
+    assert prompts == [([["Candidate Product"]], ["unmapped"])]
+    assert client.unresolved_exports == []
+    assert "Candidate Product" in client.tables_available()[0]["Data Product"].tolist()
+    assert len(list(tmp_path.glob("*_data_products.csv"))) == 1
 
 
 def test_discovery_preserves_unrelated_marker_and_uses_owned_unique_temps(

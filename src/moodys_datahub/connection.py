@@ -8,6 +8,8 @@ import os
 import re
 import sys
 import time
+import warnings
+from copy import deepcopy
 from datetime import datetime
 from multiprocessing import cpu_count
 from pathlib import Path
@@ -79,6 +81,7 @@ class _Connection:
 
         self._tables_available = None
         self._tables_backup = None
+        self._unresolved_exports: list[dict] = []
         self._table_dictionary = None
         self._table_dates = None
         self.output_format: list = [".csv"]
@@ -123,6 +126,45 @@ class _Connection:
         """Return the most recent download state."""
         return self._download_finished
 
+    @property
+    def unresolved_exports(self) -> list[dict]:
+        """Return a copy of exports skipped during non-interactive discovery.
+
+        Each entry contains ``top_level_directory``, ``candidate_products``
+        and ``tables``. Candidates are unverified guesses, never accepted
+        product identities. This is cached discovery metadata, not a live scan.
+        """
+        return deepcopy(getattr(self, "_unresolved_exports", []))
+
+    def _raise_unresolved_selection(self, *, product=None, table=None, path=None):
+        """Reject selection of an export whose product identity is unverified."""
+        if getattr(self, "_interactive", True):
+            return
+        path = _normalize_remote_path(path)
+        affected = []
+        for export in getattr(self, "_unresolved_exports", []):
+            directory = export["top_level_directory"]
+            prefix = _normalize_remote_path(directory).strip("/")
+            if (
+                (product is not None and product in export["candidate_products"])
+                or (table is not None and table in export["tables"])
+                or (
+                    path is not None
+                    and (
+                        path.strip("/") == prefix
+                        or path.strip("/").startswith(prefix + "/")
+                    )
+                )
+            ):
+                affected.append(directory)
+        if affected:
+            raise ValueError(
+                "Selection refers to unresolved data product exports. "
+                "Run with interactive=True and create a template, then pass it via "
+                "data_product_template. Candidate products are not verified. "
+                f"Affected exports: {affected}"
+            )
+
     def tables_available(
         self,
         product_overview=None,
@@ -142,6 +184,12 @@ class _Connection:
 
         # Specify unknown data product exports
         self._specify_data_products()
+        skipped = {item["top_level_directory"] for item in self.unresolved_exports}
+        to_delete = [
+            path
+            for path in to_delete
+            if _normalize_remote_path(path).strip("/").split("/", 1)[0] not in skipped
+        ]
 
         _save_to(self._tables_available, "tables_available", save_to)
 
@@ -219,6 +267,14 @@ class _Connection:
 
                 export_paths = sftp.listdir(product_path)
 
+                unresolved = sel_product.empty and not getattr(
+                    self, "_interactive", True
+                )
+                if unresolved and not export_paths:
+                    newest_exports.append(None)
+                    time_stamp.append(None)
+                    continue
+
                 if not sftp.exists(tnfs_folder):
                     # path = str(Path(product_path) / export_paths[0])
                     path = _join_remote_path(product_path, export_paths[0])
@@ -231,6 +287,10 @@ class _Connection:
                     f for f in sftp.listdir(tnfs_folder) if f.endswith(".tnf")
                 ]
                 if not tnfs_files:
+                    if unresolved:
+                        newest_exports.append(None)
+                        time_stamp.append(None)
+                        continue
                     print(tnfs_files)
                     print("Error")
 
@@ -334,7 +394,9 @@ class _Connection:
                 main_directory = row["Top-level Directory"]
                 export = row["Newest Export"]
 
-                if sftp:
+                if export is None:
+                    tables, full_paths = [], []
+                elif sftp:
                     tables = sftp.listdir(export)
                     # full_paths  = [str(Path(export) / table) for table in tables]
                     full_paths = [_join_remote_path(export, table) for table in tables]
@@ -362,7 +424,12 @@ class _Connection:
                 ]
 
                 if pd.isna(data_product):
-                    data_product, tables = _table_match(tables)
+                    if tables:
+                        data_product, tables = _table_match(tables)
+                    else:
+                        data_product = "Unknown"
+                        if not getattr(self, "_interactive", True):
+                            tables, full_paths = [None], [export]
 
                 # Append a dictionary with export, timestamp, and modified_list to the list
                 for full_path, table in zip(full_paths, tables, strict=False):
@@ -832,17 +899,55 @@ class _Connection:
 
         df = self._tables_available.copy()
 
+        if not getattr(self, "_interactive", True):
+            products = df["Data Product"].astype("string")
+            unknown = df.loc[
+                products.isna()
+                | products.eq("Unknown")
+                | products.str.startswith("Multiple_Options: ", na=False)
+            ]
+            if unknown.empty:
+                return
+
+            unresolved = []
+            for directory, group in unknown.groupby("Top-level Directory", sort=False):
+                candidates = set()
+                for product in group["Data Product"].dropna().unique():
+                    options = extract_options(str(product))
+                    if isinstance(options, list):
+                        candidates.update(
+                            option for option in options if isinstance(option, str)
+                        )
+                unresolved.append(
+                    {
+                        "top_level_directory": str(directory),
+                        "candidate_products": sorted(candidates),
+                        "tables": sorted(group["Table"].dropna().astype(str).unique()),
+                    }
+                )
+            self._unresolved_exports = unresolved
+            directories = unknown["Top-level Directory"]
+            self._tables_available = df.loc[
+                ~df["Top-level Directory"].isin(directories)
+            ].copy()
+            if self._tables_backup is not None:
+                self._tables_backup = self._tables_backup.loc[
+                    ~self._tables_backup["Top-level Directory"].isin(directories)
+                ].copy()
+            warnings.warn(
+                "Skipped unresolved data product exports: "
+                f"{directories.drop_duplicates().tolist()}. "
+                "Inspect Sftp.unresolved_exports; resolve identities with "
+                "interactive=True or data_product_template before selecting them.",
+                RuntimeWarning,
+                stacklevel=3,
+            )
+            return
+
         # Filter rows where column '1' contains "Multiple_Options: "
         df_multiple = df[df["Data Product"].apply(contains_multiple_options)].copy()
 
         if not df_multiple.empty:
-            if not getattr(self, "_interactive", True):
-                exports = df_multiple["Top-level Directory"].drop_duplicates().tolist()
-                raise ValueError(
-                    "Multiple unresolved data products require interactive selection. "
-                    "Run with interactive=True and create a template, then pass it via "
-                    f"data_product_template. Affected exports: {exports}"
-                )
             asyncio.ensure_future(f(self, df, df_multiple))
 
     def _object_defaults(self):

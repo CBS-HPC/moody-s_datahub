@@ -62,6 +62,7 @@ class _Selection(_Connection):
             )
             if selection_path is None and not getattr(self, "_interactive", True):
                 raise ValueError(f"Remote path is invalid: {path!r}")
+            self._raise_unresolved_selection(path=selection_path)
             metadata = inventory.loc[
                 (inventory["Base Directory"] == selection_path)
                 | (inventory["Export"] == selection_path)
@@ -128,6 +129,7 @@ class _Selection(_Connection):
             df = inventory.loc[inventory["Data Product"] == product]
 
             if df.empty:
+                self._raise_unresolved_selection(product=product)
                 df = inventory.loc[
                     inventory["Data Product"].str.contains(
                         str(product), case=False, na=False, regex=False
@@ -183,6 +185,7 @@ class _Selection(_Connection):
                 df = df.loc[df["Data Product"] == self._set_data_product]
 
             if df.empty:
+                self._raise_unresolved_selection(table=table)
                 if not getattr(self, "_interactive", True):
                     raise ValueError(
                         f"No exact Table match was found for {table!r} in the active "

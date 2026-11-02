@@ -1748,7 +1748,7 @@ def test_specify_data_products_updates_unknown_exports(monkeypatch, tmp_path):
     assert len(saved_templates) == 1
 
 
-def test_specify_data_products_non_interactive_raises_for_unknown_exports():
+def test_specify_data_products_non_interactive_reports_unknown_exports():
     conn = object.__new__(_Connection)
     conn._interactive = False
     conn._tables_available = pd.DataFrame(
@@ -1763,5 +1763,15 @@ def test_specify_data_products_non_interactive_raises_for_unknown_exports():
     )
     conn._tables_backup = conn._tables_available.copy()
 
-    with pytest.raises(ValueError, match="Multiple unresolved data products"):
+    with pytest.warns(RuntimeWarning, match="unresolved"):
         conn._specify_data_products()
+
+    assert conn._tables_available.empty
+    assert conn._tables_backup.empty
+    assert conn.unresolved_exports == [
+        {
+            "top_level_directory": "dir_a",
+            "candidate_products": ["Fallback", "Resolved Product"],
+            "tables": ["table_a"],
+        }
+    ]
