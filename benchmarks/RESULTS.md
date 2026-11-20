@@ -70,7 +70,8 @@ state constant and run competing workloads separately.
   any scan default. This release keeps the normal `scan_parquet` strategy.
 - Authorized UCloud validation with explicit native CPU budgets and known
   download/spill/output storage capacity.
-- Linux CI execution and storage-specific hard-link/failure validation.
+- Manual Linux compatibility and storage-specific hard-link/failure validation.
+  GitHub Actions are disabled by user request; use local/approved compute.
 
 Do not infer a fixed RAM ceiling, a universal speedup, reduced SFTP transfer
 volume, or improved full-table profiling/RapidFuzz throughput from this test.
