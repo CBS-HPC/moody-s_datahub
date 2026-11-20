@@ -10,9 +10,11 @@
   Both local environments pass the full checkpoint suite and expanded export tests.
 - [x] Build/audit the `1.5.0.dev0` candidate and record exploratory synthetic
   memory/timing measurements in `benchmarks/RESULTS.md`. Stable `dist/` is unchanged.
-- [ ] Before stable publication: run the equivalent checks manually, including
-  Linux/UCloud and Python 3.12/3.13 compatibility, and an authorized storage
-  smoke test; complete controlled performance validation, then update stable
+- [x] Manual Windows/Python 3.12.11 and 3.13.5 checks: 570 source tests and
+  43 installed-wheel export tests pass per version, with Polars 2.1.0.
+- [ ] Before stable publication: run an authorized Linux/UCloud storage smoke
+  test (deferred until access is arranged on Monday, 2026-11-23); complete
+  controlled performance validation, then update stable
   version/install links and publish only after approval. Auto/prefiltered scan
   comparisons remain pending; do not change the scan default without evidence.
 - GitHub Actions are disabled repository-wide by user request as of 2026-11-20.

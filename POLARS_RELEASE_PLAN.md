@@ -23,8 +23,10 @@ Planning does not authorize publishing a release.
   dependency-marker and distribution-exclusion audits pass. Python 3.11
   installed-wheel validation passes all 43 export cases and verifies imports
   from site-packages, not the source checkout.
-- [ ] Authorized UCloud/storage smoke test and manual Linux/Python 3.12/3.13
-  compatibility checks (not yet performed for this branch).
+- [x] Manual Windows/Python 3.12 and 3.13 compatibility: 570 source tests and
+  43 installed-wheel export tests pass on each version.
+- [ ] Authorized Linux/UCloud storage smoke test. Deferred by the user until
+  proper UCloud access is arranged on Monday, 2026-11-23.
 - [ ] Final stable version/install-link update, tag and publication after approval.
 
 The working version is `1.5.0.dev0`, not a replacement for published 1.4.15.
@@ -37,6 +39,27 @@ GitHub API. Workflow definitions remain available but must not be re-enabled
 without approval. References below to the CI matrix describe the checks to
 execute manually on local/approved compute, not a requirement to run Actions.
 Build and upload final release artifacts manually while Actions remain off.
+
+### Additional compatibility verification (2026-11-20)
+
+| Platform | Python | Polars | Full source suite | Installed-wheel export suite |
+| --- | --- | --- | --- | --- |
+| Windows | 3.12.11 | 2.1.0 | 570 passed | 43 passed |
+| Windows | 3.13.5 | 2.1.0 | 570 passed | 43 passed |
+
+Both isolated environments use pandas 3.1.1, NumPy 2.5.5 and PyArrow 26.0.1.
+The native Polars budget was set to four threads before import; the pool-budget
+regressions also test their own budgets in fresh subprocesses. Installed-wheel
+runs used `-I` and verified site-packages imports of `1.5.0.dev0`, not source
+checkout imports. Dependency checks, Ruff and `twine check` also pass.
+
+Detailed XML records are `.venv/polars-1.5.0/pytest312.xml`, `pytest313.xml`,
+`wheel312.xml` and `wheel313.xml`. No package-source, workbook or distribution
+changes were required. No GitHub Actions run or UCloud job was started.
+
+These Windows results do not establish Linux/UCloud or production-storage
+compatibility. No UCloud smoke test has been performed; access setup is pending
+the user's Monday arrangements. Do not replace that gate with a local test.
 
 Verification records are under `.venv/polars-1.5.0/`. Tests use short, fresh
 workspace-local `--basetemp` paths: the longer automatic Windows pytest path
