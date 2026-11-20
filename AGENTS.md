@@ -58,6 +58,12 @@ python -m twine check dist/*
 
 ## Release Procedure
 
+GitHub Actions were disabled repository-wide on 2026-11-20 at the user's
+request to avoid CI costs. Do not re-enable them without explicit approval.
+Workflow files are retained for reference, but checks/builds must run locally
+or on approved user-provided compute. Upload release assets manually; the
+release-triggered build/upload/PyPI workflow will not run while Actions are off.
+
 For a stable release:
 
 1. Update `pyproject.toml` version.

@@ -23,12 +23,20 @@ Planning does not authorize publishing a release.
   dependency-marker and distribution-exclusion audits pass. Python 3.11
   installed-wheel validation passes all 43 export cases and verifies imports
   from site-packages, not the source checkout.
-- [ ] Authorized UCloud validation and Linux CI execution (not performed locally).
+- [ ] Authorized UCloud/storage smoke test and manual Linux/Python 3.12/3.13
+  compatibility checks (not yet performed for this branch).
 - [ ] Final stable version/install-link update, tag and publication after approval.
 
 The working version is `1.5.0.dev0`, not a replacement for published 1.4.15.
 Candidate artifacts are under `.venv/polars-1.5.0/dist-final/`, not the stable
 `dist/` directory. No tag, push or release publication has been performed.
+
+GitHub Actions were disabled repository-wide on 2026-11-20 at the user's
+request to avoid CI costs, and the disabled setting was verified through the
+GitHub API. Workflow definitions remain available but must not be re-enabled
+without approval. References below to the CI matrix describe the checks to
+execute manually on local/approved compute, not a requirement to run Actions.
+Build and upload final release artifacts manually while Actions remain off.
 
 Verification records are under `.venv/polars-1.5.0/`. Tests use short, fresh
 workspace-local `--basetemp` paths: the longer automatic Windows pytest path
