@@ -13,6 +13,7 @@ Main source files:
 - `src/moodys_datahub/tools.py`: public `Sftp` class and helper workflows.
 - `src/moodys_datahub/company_country.py`: country-aware company matching.
 - `src/moodys_datahub/process.py`: filtering, pandas/Polars processing, downloads.
+- `src/moodys_datahub/export.py`: file-only streaming Parquet export and preflight.
 - `src/moodys_datahub/preflight.py`: dry-run/preflight report helpers.
 - `src/moodys_datahub/selection.py`: data product/table/path selection.
 - `src/moodys_datahub/connection.py`: SFTP connection and export discovery.
@@ -148,6 +149,16 @@ changed deliberately.
   download, process, save, delete, spawn worker pools, or open widgets.
 - `process_all()` always returns pandas output. `polars_all()` is the explicit
   native Polars path.
+- `export_all()` streams Parquet to one new Parquet file, returns paths and
+  leaves `dfs` unchanged. Its explicit destination is a final filename, not a
+  prefix. It retains all inputs, rejects pandas-only queries and never overwrites
+  outputs. Atomic publication requires hard links; do not add a copy/replace
+  fallback that exposes partial data or replaces another extraction's output.
+- `export_all(dry_run=True)` must not download, collect records, write, delete,
+  create folders, spawn pools or prompt. Local schema reads are allowed.
+- Polars 2.0 supports the Python 3.10 compatibility line; Python 3.11+ uses
+  Polars 2.1+. `num_workers` does not resize Polars' process-wide native pool;
+  set `POLARS_MAX_THREADS` before import and test budgets in fresh subprocesses.
 - String queries and pandas callables belong on the pandas path.
 
 ## Common Pitfalls

@@ -2,6 +2,38 @@
 
 All notable changes to this project should be documented in this file.
 
+## [Unreleased] - planned 1.5.0
+
+### Added
+- `Sftp.export_all()` streams supported Parquet selections to one new Parquet
+  file and returns completed output paths without collecting the full result
+  or converting to pandas. Supports structured exact/prefix/multi-column and
+  AND/OR BvD filters, date selection and Polars-expression queries.
+- Read-only export preflight, source-schema drift checks, zero-row output,
+  source/cache collision protection and owned temporary output staging.
+  Final publication requires hard-link support and never replaces an output.
+  Inputs, including managed cache files, are retained after both success and
+  failure. Pandas strings/callables and non-Parquet inputs fail explicitly.
+- Synthetic local CPU/RSS benchmark and minimum-version Polars CI cases.
+
+### Changed
+- Validate Polars >=2.0,<2.1 for Python 3.10 and >=2.1,<3 for Python 3.11+.
+  The package continues supporting Python 3.10; Polars 2.1 requires 3.11+.
+- Share lazy query construction between collected and file-only paths, use
+  explicit streaming execution and avoid reparsing already typed date columns.
+- Keep expression filter columns through projection, fixing queries that
+  referenced columns not included in the requested output.
+
+### Compatibility
+- `process_all()` still returns pandas; `polars_all()` still returns Polars.
+  Both still collect the complete result. Existing pandas query dispatch,
+  CSV processing, output prefixes, transport and packaged metadata are retained.
+- The new method's explicit destination is a final `.parquet` filename; its
+  generated paths honor `output_root`. It does not use the materialized writer
+  settings `output_format`, `file_size_mb`, `concat_files` or `delete_files`.
+- No GPU support, concurrent-extraction support or fixed memory guarantee is
+  introduced. Live UCloud validation remains a release-readiness follow-up.
+
 ## [1.4.15] - 2026-11-02
 
 ### Fixed

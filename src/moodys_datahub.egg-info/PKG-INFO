@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: moodys_datahub
-Version: 1.4.15
+Version: 1.5.0.dev0
 Summary: Python tools for accessing and processing Moody's DataHub exports via SFTP.
 Author-email: Kristoffer Gulmark Poulsen <kgp.lib@cbs.dk>
 License-Expression: MIT
@@ -29,7 +29,8 @@ Requires-Dist: numpy
 Requires-Dist: openpyxl
 Requires-Dist: pandas
 Requires-Dist: paramiko==3.5.1
-Requires-Dist: polars
+Requires-Dist: polars<2.1,>=2.0; python_version < "3.11"
+Requires-Dist: polars<3,>=2.1; python_version >= "3.11"
 Requires-Dist: psutil
 Requires-Dist: pyarrow
 Requires-Dist: pysftp
@@ -234,6 +235,12 @@ yet supported.
 
 ## Processing backends
 
+### Next release: 1.5.0 (in development)
+
+The development branch targets Polars 2.1 on Python 3.11+ and Polars 2.0 on
+Python 3.10. The stable installation links below remain on 1.4.15 until the
+new release is published. GPU acceleration is not part of this work.
+
 Use `process_all()` as the default high-level API. It auto-selects the backend
 and always returns a pandas `DataFrame` together with `file_names`.
 
@@ -249,6 +256,35 @@ return type. The current Polars path supports:
 - layered `AND_bvd_list` / `OR_bvd_list` filtering
 - year-based `time_period` filtering
 - `pl.Expr` filters
+
+Both DataFrame-returning methods collect the complete result in RAM;
+`process_all()` additionally converts Polars results to pandas. For large
+file-only extractions, the new `export_all()` streams Parquet to Parquet:
+
+```python
+report = SFTP.export_all(destination="results/firms.parquet", dry_run=True)
+if report.ok:
+    output_files = SFTP.export_all(destination="results/firms.parquet", num_workers=8)
+```
+
+It reuses the configured column/BvD/AND/OR/date filters and accepts `pl.Expr`
+queries, but rejects strings/callables and non-Parquet inputs. It returns one
+completed output path in a list, leaves `SFTP.dfs` unchanged, and retains all
+inputs. Unlike the older methods' output prefixes, its explicit `destination`
+is a final `.parquet` filename. When omitted, generated naming uses
+`output_root`; downloads still use `download_root`.
+
+The file-only method ignores the materialized writer settings `output_format`,
+`file_size_mb`, `concat_files` and `delete_files` by design. Existing outputs
+are never overwritten. It checks every source schema, stages a temporary
+sibling file and publishes only a closed, readable output. Atomic publication
+requires filesystem hard-link support; unsupported filesystems fail rather
+than falling back to partial copies or overwriting. Source files survive errors.
+
+Streaming reduces intermediate/result memory pressure; it does not guarantee
+a fixed memory ceiling or remove download/spill disk requirements. `num_workers`
+still controls downloads, not the Polars native CPU pool. Set
+`POLARS_MAX_THREADS` before importing Polars or `moodys_datahub`.
 
 After any `process_all()` call, inspect `SFTP.last_process_engine` and
 `SFTP.last_process_reason` to see which backend was used and why.

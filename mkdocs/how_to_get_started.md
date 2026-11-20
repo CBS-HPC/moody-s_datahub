@@ -462,6 +462,44 @@ SFTP.batch_bvd_search(
 )
 ```
 
+### Stream a large extraction directly to Parquet (1.5.0 development)
+
+Use the new `export_all()` on the development branch when you need files, not
+a complete DataFrame in memory. It uses the selected Parquet sources and
+configured column/BvD/AND/OR/date filters:
+
+```python
+import polars as pl
+
+plan = SFTP.export_all(
+    destination="results/selected_firms.parquet",
+    query=pl.col("bvd_id_number").str.starts_with("DK"),
+    dry_run=True,
+)
+if not plan.ok:
+    raise ValueError(plan.errors)
+
+paths = SFTP.export_all(
+    destination="results/selected_firms.parquet",
+    query=pl.col("bvd_id_number").str.starts_with("DK"),
+    num_workers=8,
+)
+```
+
+This returns a list with one completed Parquet filename; it does not update
+`SFTP.dfs`. The explicit destination is a final filename. If omitted, generated
+paths use `output_root`; downloads continue using `download_root`. Existing
+outputs are rejected. Inputs remain cached, including with `delete_files=True`.
+String queries, callables and non-Parquet sources are rejected rather than
+silently using pandas. See the [API reference](api_reference.md#export_all-150-development)
+for filesystem hard-link requirements and read-only preflight limitations.
+
+To obtain a DataFrame instead, keep using `polars_all()` for Polars or
+`process_all()` for pandas. Both materialize the complete result. Set
+`POLARS_MAX_THREADS` before importing this package if you need a native CPU cap;
+`num_workers` controls downloads, not that pool. Python 3.11+ uses Polars 2.1;
+Python 3.10 uses Polars 2.0. GPU work is not included.
+
 ### Profile table structure before large processing
 
 Use `profile_table()` or `profile_tables()` to inspect the first file for one

@@ -4,12 +4,17 @@ numpy
 openpyxl
 pandas
 paramiko==3.5.1
-polars
 psutil
 pyarrow
 pysftp
 rapidfuzz
 tqdm
+
+[:python_version < "3.11"]
+polars<2.1,>=2.0
+
+[:python_version >= "3.11"]
+polars<3,>=2.1
 
 [dev]
 build

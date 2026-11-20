@@ -92,6 +92,8 @@ confirms an exact snapshot cutoff or revision policy.
   downloading, processing, saving, or deleting files.
 - `pandas_all()`: force the pandas backend explicitly.
 - `polars_all()`: force the native Polars backend explicitly and return Polars.
+- `export_all()` (1.5.0 development): stream Parquet to one Parquet output and
+  return completed paths without collecting the complete result DataFrame.
 - `download_all()`: download missing files into the local cache.
 - `download_all(dry_run=True)`: validate which files would be downloaded.
 - `resolve_cache_file(file)`: return the absolute local source/cache path
@@ -253,6 +255,54 @@ backend supports:
 
 It does not try to emulate every pandas-specific query style. In particular,
 string queries belong on the pandas path.
+
+### `export_all()` (1.5.0 development)
+
+```python
+paths = SFTP.export_all(
+    files=["/scratch/part-0.parquet", "/scratch/part-1.parquet"],
+    destination="results/firms.parquet",
+    select_cols=["bvd_id_number", "name"],
+    num_workers=8,
+)
+```
+
+Parameters: `files=None`, `destination=None`, `num_workers=-1`,
+`select_cols=None`, `date_query=None`, `bvd_query=None`, `query=None`,
+`dry_run=False`. Omitted selections/filters use the object's current settings.
+`files` accepts a filename/Path or a list. Runtime returns `list[str]` with one
+completed path; dry-run returns `PreflightReport`. `self.dfs`, selection and
+the existing return contracts are unchanged.
+
+- Sources must all be Parquet with matching ordered column names and logical
+  Polars dtypes, including empty shards and columns not selected for output.
+- Supports exact/prefix BvD filters, multiple columns, AND/OR layers, date
+  filtering and `pl.Expr` queries. String queries, arbitrary callables and
+  inherited `query_args` are rejected, not evaluated or sent to pandas.
+- An explicit `destination` is a final `.parquet` filename, not the output
+  prefix used by existing DataFrame methods. Generated paths honor
+  `output_root`; source caching independently honors `download_root`.
+- Writes one file, including a schema-preserving file for zero retained rows.
+  `output_format`, `file_size_mb`, `concat_files` and `delete_files` do not
+  control this method. All explicit inputs and managed cache files are retained.
+- Rejects existing outputs and source/cache collisions. A uniquely owned
+  temporary sibling is removed on failure. Only after the sink closes and its
+  footer is readable is the final path published atomically, without overwrite.
+  This requires filesystem hard-link support; unsupported storage raises an
+  OS error. No unsafe copy/replace fallback is used.
+- Dry-run reads local schemas but never downloads, collects records, writes,
+  creates directories, deletes, starts pools or prompts. Remote schemas/query
+  validation are deferred if files are not local. Permissions, disk/spill space
+  and hard-link support cannot be proven by this read-only check.
+
+Polars 2.1 requires Python 3.11+; the Python 3.10 dependency stays on Polars
+2.0. Both supported lines use the streaming engine for the shared lazy path.
+Streaming is not a fixed RAM limit: supported intermediate operations may
+spill, downloads still need storage, and `process_all()` / `polars_all()`
+still materialize their complete result. `process_all()` also converts to pandas.
+`num_workers` does not resize the native Polars pool. Set `POLARS_MAX_THREADS`
+before import and record `pl.thread_pool_size()` in job diagnostics. GPU
+execution and concurrent table extraction are not added in this release.
 
 ## Non-interactive and dry-run workflows
 

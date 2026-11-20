@@ -1,5 +1,22 @@
 # TODO
 
+## Planned: Polars CPU performance release
+
+- [x] Implement the core [1.5.0 development plan](POLARS_RELEASE_PLAN.md):
+  updated dependencies, shared lazy queries, safe Parquet-only streaming
+  `export_all()`, regressions and README/MkDocs documentation. Existing pandas
+  and native Polars return contracts are preserved.
+- [x] Retain Python 3.10 through Polars 2.0; use Polars 2.1 on Python 3.11+.
+  Both local environments pass the full checkpoint suite and expanded export tests.
+- [x] Build/audit the `1.5.0.dev0` candidate and record exploratory synthetic
+  memory/timing measurements in `benchmarks/RESULTS.md`. Stable `dist/` is unchanged.
+- [ ] Before stable publication: run GitHub CI and an authorized UCloud/storage
+  smoke test, complete controlled performance validation, then update stable
+  version/install links and publish only after approval. Auto/prefiltered scan
+  comparisons remain pending; do not change the scan default without evidence.
+- GPU acceleration is deferred by the user. No CUDA dependencies or GPU
+  implementation belongs in this release.
+
 ## Urgent: package the confirmed 2025 ownership export
 
 - [x] DSET-001: Export `Ownership History (Semi-Annual)` / `links_2025` to CBS

@@ -24,6 +24,15 @@ workflow end to end:
 
 ## Typical workflow
 
+The 1.5.0 development branch also adds file-only Parquet extraction through
+`export_all()`. It avoids collecting the full result or converting to pandas,
+returns completed output paths and never overwrites an existing output.
+For details, restrictions and dry-run examples, see the
+[streaming export reference](api_reference.md#export_all-150-development).
+Existing `process_all()` and `polars_all()` return types remain unchanged.
+Python 3.10 uses Polars 2.0; Python 3.11+ uses Polars 2.1. The stable release
+links remain on 1.4.15 until the next release is published. GPU work is deferred.
+
 ### Interactive notebook workflow
 
 ```python
