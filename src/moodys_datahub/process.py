@@ -15,8 +15,10 @@ import pandas as pd
 import polars as pl
 import psutil
 
+from .export import _export_all
 from .load_data import _country_codes, _table_dates, _table_dictionary
 from .preflight import (
+    PreflightReport,
     _candidate_local_path,
     _resolve_destination,
     _resolve_files,
@@ -1538,6 +1540,48 @@ class _Process(_Selection):
             self.concat_files = current_concat_files
 
         return self.dfs, file_names
+
+    def export_all(
+        self,
+        files: str | os.PathLike | list[str | os.PathLike] | None = None,
+        destination: str | os.PathLike | None = None,
+        num_workers: int = -1,
+        select_cols: str | list[str] | None = None,
+        date_query: list | tuple | None = None,
+        bvd_query: list | tuple | dict | None = None,
+        query: pl.Expr | None = None,
+        dry_run: bool = False,
+    ) -> list[str] | PreflightReport:
+        """Stream selected Parquet sources to one new Parquet file.
+
+        Returns a list containing the completed output path, or a PreflightReport
+        with ``dry_run=True``. No complete result DataFrame is collected and
+        ``self.dfs`` is unchanged. Filters default to the configured column,
+        BvD (including AND/OR layers), date and query settings. Only Polars
+        expression queries are accepted; pandas strings/callables are rejected.
+
+        ``destination`` is a final .parquet filename. When omitted, naming uses
+        ``output_root`` (or the working directory). Source downloads independently
+        use ``download_root``. Existing outputs are never overwritten. Publication
+        requires filesystem hard-link support; failure leaves inputs untouched.
+
+        This method retains all inputs, even with ``delete_files=True``. It does
+        not use ``output_format``, ``file_size_mb`` or ``concat_files``. Streaming
+        reduces memory pressure but does not impose a fixed RAM limit. As in
+        ``polars_all()``, ``num_workers`` bounds downloads, not the native Polars
+        thread pool; configure ``POLARS_MAX_THREADS`` before importing the package.
+        """
+        return _export_all(
+            self,
+            files=files,
+            destination=destination,
+            num_workers=num_workers,
+            select_cols=select_cols,
+            date_query=date_query,
+            bvd_query=bvd_query,
+            query=query,
+            dry_run=dry_run,
+        )
 
     def download_all(
         self,

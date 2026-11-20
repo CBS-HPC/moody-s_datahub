@@ -511,7 +511,7 @@ def _load_pd(
     return df
 
 
-def _load_pl(
+def _build_pl_query(
     file_list: list,
     select_cols=None,
     date_query=None,
@@ -520,10 +520,7 @@ def _load_pl(
     query_args=None,
     row_limit: int | None = None,
 ):
-    if date_query is None:
-        date_query = [None, None, None, "remove"]
-    """
-    Load multiple files into a Polars LazyFrame and apply optional filtering.
+    """Build a shared lazy scan/filter/projection without collecting results.
 
     Args:
     - file_list (list): List of file paths.
@@ -536,8 +533,10 @@ def _load_pl(
     - query_args (tuple, optional): Arguments for function-based query.
 
     Returns:
-    - Polars DataFrame
+    - Polars LazyFrame
     """
+    if date_query is None:
+        date_query = [None, None, None, "remove"]
 
     def _normalize_pl_bvd_query(bvd_query):
         if bvd_query is None:
@@ -585,6 +584,9 @@ def _load_pl(
 
         if required_cols is not None and date_col is not None:
             required_cols.append(date_col)
+
+        if required_cols is not None and isinstance(query, pl.Expr):
+            required_cols.extend(query.meta.root_names())
 
         if required_cols is not None:
             required_cols = list(dict.fromkeys(required_cols))
@@ -650,15 +652,32 @@ def _load_pl(
         if row_limit is not None and row_limit >= 0:
             df_lazy = df_lazy.limit(int(row_limit))
 
-        # Collect the results (triggering execution)
-        df = df_lazy.collect()
-
-        return df
+        return df_lazy
 
     except ValueError:
         raise
     except Exception as e:
         raise RuntimeError(f"Error processing files: {file_list}") from e
+
+
+def _load_pl(
+    file_list: list,
+    select_cols=None,
+    date_query=None,
+    bvd_query=None,
+    query=None,
+    query_args=None,
+    row_limit: int | None = None,
+):
+    """Materialize the shared Polars query as a native DataFrame."""
+    try:
+        return _build_pl_query(
+            file_list, select_cols, date_query, bvd_query, query, query_args, row_limit
+        ).collect(engine="streaming")
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise RuntimeError(f"Error processing files: {file_list}") from exc
 
 
 def _read_csv_chunk(params):
@@ -1001,12 +1020,16 @@ def _date_pl(
             f"Requested date column(s) {columns_to_check} were not found in the data"
         )
 
-    df = df.with_columns(
-        pl.col(date_col)
-        .cast(pl.Utf8, strict=False)
-        .str.to_datetime(exact=False, strict=False)
-        .alias(date_col)
-    )
+    date_type = df.collect_schema()[date_col]
+    if date_type == pl.Date:
+        df = df.with_columns(pl.col(date_col).cast(pl.Datetime))
+    elif not isinstance(date_type, pl.Datetime):
+        df = df.with_columns(
+            pl.col(date_col)
+            .cast(pl.Utf8, strict=False)
+            .str.to_datetime(exact=False, strict=False)
+            .alias(date_col)
+        )
 
     year_filter = pl.lit(True)
     if start_year is not None and end_year is not None:

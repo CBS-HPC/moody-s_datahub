@@ -12,9 +12,17 @@ jobs:
       matrix:
         os: [ubuntu-latest]
         python-version: ["3.10", "3.11", "3.12", "3.13"]
+        polars: [latest]
         include:
           - os: windows-latest
             python-version: "3.13"
+            polars: latest
+          - os: ubuntu-latest
+            python-version: "3.10"
+            polars: "2.0.0"
+          - os: ubuntu-latest
+            python-version: "3.11"
+            polars: "2.1.0"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -24,6 +32,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e .[dev]
+      - name: Install minimum supported Polars
+        if: ${{ matrix.polars != 'latest' }}
+        run: python -m pip install "polars==${{ matrix.polars }}"
       - name: Ruff lint
         run: ruff check .
       - name: Ruff format

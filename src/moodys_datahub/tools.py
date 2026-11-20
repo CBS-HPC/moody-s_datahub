@@ -211,6 +211,13 @@ class Sftp(_Process):
                 "notes": "No login needed when files are local or local_repo is configured.",
             },
             {
+                "method": "export_all",
+                "offline_safe": "conditional",
+                "local_repo_safe": True,
+                "server_required": "conditional",
+                "notes": "Streams local Parquet sources to a new Parquet file; no login needed for local inputs.",
+            },
+            {
                 "method": "profile_table/profile_tables",
                 "offline_safe": "conditional",
                 "local_repo_safe": True,
