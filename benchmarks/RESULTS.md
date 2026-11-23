@@ -87,6 +87,26 @@ exact `1.5.0.dev0` preview wheel, SHA-256
 These checks do not establish full-scale throughput or RAM ceilings. This
 package agent did not perform the live runs or inspect source records.
 
+## Final local benchmark smoke check (2026-11-23)
+
+After fixing the layered configuration, the default five workloads completed
+across all three methods (15 fresh subprocesses) on 60,003 synthetic input
+rows, with one native thread and one repetition. Python 3.11.14 / Polars 2.1.0
+were used; every method agreed on row counts and synthetic row-index sums.
+
+| Workload | Retained rows per method |
+| --- | ---: |
+| All rows | 60,003 |
+| 55,000-ID selection | 55,000 |
+| Prefix | 60,003 |
+| Layered base/AND/OR | 56,667 |
+| ID/date selection | 27,500 |
+
+Aggregate report: `.venv/polars-1.5.0/release-smoke.json`. The subprocess unit
+regressions additionally verify exact selected rows, including duplicate and
+nullable inputs. This smoke run overlapped compatibility testing; its timings
+are not controlled performance measurements or speed claims.
+
 ## Follow-up before throughput or scan-default recommendations
 
 - Controlled timing on representative data, including larger shard counts,

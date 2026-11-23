@@ -1,7 +1,7 @@
 # Polars Performance Release Plan
 
-Prepared: 2026-11-20. Updated: 2026-11-23. Status: stable release preparation;
-final artifact checks and publication approval pending.
+Prepared: 2026-11-20. Updated: 2026-11-23. Status: stable artifacts validated
+and committed locally; merge and publication approval pending.
 
 Target: `moodys_datahub` 1.5.0, developed on `codex/polars-1.5.0`.
 This is a minor release because it adds a public file-only extraction method.
@@ -31,13 +31,16 @@ Planning does not authorize publishing a release.
 - [x] Fix the layered benchmark to use supported public filter settings; all
   three public-method subprocess regressions pass after failing before the fix.
 - [x] Prepare stable 1.5.0 version, README/MkDocs installation links and changelog.
-- [ ] Re-run final compatibility checks and build/audit stable wheel and sdist.
+- [x] Re-run final compatibility checks and build/audit stable wheel and sdist:
+  573 source tests and 43 installed-wheel export tests pass on each of Python
+  3.10-3.13. Ruff, dependency checks, Twine and artifact inventory checks pass.
 - [ ] Merge, tag and publish after explicit approval. GitHub Actions stay off.
 
 The working version is `1.5.0`. GitHub's latest public release remains 1.4.15,
 verified through the GitHub API on 2026-11-23. The immutable tested preview
-artifacts remain under `.venv/polars-1.5.0/dist-final/`; stable artifacts will
-be rebuilt in `dist/`. No tag, push or release publication has been performed.
+artifacts remain under `.venv/polars-1.5.0/dist-final/`; `dist/` now contains
+only the audited stable 1.5.0 wheel and sdist, committed as `9b6b703`. Published
+1.4.15 tags/assets are unchanged. No merge, tag, push or publication has occurred.
 
 GitHub Actions were disabled repository-wide on 2026-11-20 at the user's
 request to avoid CI costs, and the disabled setting was verified through the
@@ -101,6 +104,53 @@ No production dependency pin was changed by these consumer tests. Keep
 controlled timing/scan-strategy work as follow-up; make no universal speed or
 fixed-memory promises. Dataset-specific inventory/schema verification such
 as DSET-002 is a separate gate and is not closed by these bounded checks.
+
+### Final stable verification (2026-11-23)
+
+Built from clean commit `06cdcf3` using `python -m build --no-isolation`.
+All 20 runtime/resource files in both distributions match the source checkout
+and exact UCloud-tested preview wheel byte for byte. The final wheel changes
+release metadata/README, not those runtime or package-data files.
+
+| Platform | Python | Polars | Full source suite | Installed-wheel export suite |
+| --- | --- | --- | --- | --- |
+| Windows | 3.10.19 | 2.0.0 | 573 passed | 43 passed |
+| Windows | 3.11.14 | 2.1.0 | 573 passed | 43 passed |
+| Windows | 3.12.11 | 2.1.0 | 573 passed | 43 passed |
+| Windows | 3.13.5 | 2.1.0 | 573 passed | 43 passed |
+
+The final wheel was installed offline into an isolated target directory.
+Each interpreter used `-I`, verified the imported package path and stable
+version, checked active dependency requirements, and ran the export suite
+against that installation rather than the source checkout. All installed
+payload/metadata bytes match the wheel; installers regenerate `RECORD` normally.
+The native pool was configured to four threads before import; subprocess
+regressions independently verify one- and three-thread budgets.
+
+Ruff lint and format checks pass for all 38 Python files. `twine check --strict`
+passes for both artifacts. Exact package inventory, dependency markers,
+license, stable README URLs and distribution exclusions pass; tests, MkDocs,
+`data_dict_available.xlsx` and credentials are not shipped. Existing
+pysftp host-key and pandas deprecation warnings remain visible in test logs.
+
+Final SHA-256 values:
+
+- `dist/moodys_datahub-1.5.0-py3-none-any.whl`:
+  `b3209b8a0e9754ae74b0955f644220aac368fcae9aa032de58eefeff2f7de1ad`
+- `dist/moodys_datahub-1.5.0.tar.gz`:
+  `23b4dd43951235d4b4fc9527fb157a4317836ca8cb0be25579cee2ad910006f4`
+
+Local evidence: `.venv/polars-1.5.0/release-validation.json`,
+`release-artifact-audit.json`, `release-pytest310.xml` through
+`release-pytest313.xml`, and `release-wheel310.xml` through `release-wheel313.xml`.
+The default five-workload benchmark also passes all 15 method/workload checks
+on 60,003 synthetic input rows with one native thread. See `benchmarks/RESULTS.md`.
+
+Only merge/push, tag creation and manual GitHub release/asset publication remain,
+subject to explicit approval. Keep Actions disabled and existing published tags
+unchanged. No PyPI publishing or SFTP modification was performed. In particular,
+the historical-export interactive prompt is not changed by this Polars release;
+server inventory maintenance remains a separate, explicitly confirmed action.
 
 ### Regression record
 

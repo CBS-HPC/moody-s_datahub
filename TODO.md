@@ -19,8 +19,13 @@
 - [x] Fix the layered benchmark's unsupported grouped argument with public
   base/AND/OR settings and add failing-first subprocess tests for all three APIs.
 - [x] Prepare 1.5.0 version, installation links and release documentation.
-- [ ] Re-run final compatibility checks, rebuild/audit stable artifacts, then
-  merge/tag/publish only after approval. Keep Actions disabled.
+- [x] Final stable verification on 2026-11-23: 573 source tests and 43
+  installed-wheel export tests pass on each of Python 3.10-3.13; Ruff, Twine,
+  dependency and package-content checks pass. `dist/` contains only audited
+  1.5.0 wheel/sdist, committed locally as `9b6b703`; runtime/data bytes match
+  the exact UCloud-tested preview. See the release plan for hashes/evidence.
+- [ ] Merge/push, tag and manually publish the 1.5.0 GitHub release after
+  approval. Keep Actions disabled; do not move existing published tags.
 - Controlled throughput and auto/prefiltered scan comparisons remain follow-up
   work; do not change the scan default or claim universal speed gains.
 - GitHub Actions are disabled repository-wide by user request as of 2026-11-20.
