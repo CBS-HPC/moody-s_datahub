@@ -62,11 +62,8 @@ def worker(args):
     if args.workload == "prefix":
         options["bvd_query"] = (["DK"], "bvd_id_number", "prefix")
     if args.workload == "layered":
-        options["bvd_query"] = {
-            "base": options["bvd_query"],
-            "and": [(["SE"], "owner", "prefix")],
-            "or": [(["NO"], "owner", "prefix")],
-        }
+        obj.AND_bvd_list = [(["SE"], "owner", "prefix")]
+        obj.OR_bvd_list = [(["NO"], "owner", "prefix")]
     if args.workload == "dates":
         options["date_query"] = [2024, 2025, "information_date", "remove"]
     timed(obj, "download_all", "download_validation_seconds")

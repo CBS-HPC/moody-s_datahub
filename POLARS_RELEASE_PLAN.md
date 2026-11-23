@@ -68,6 +68,13 @@ test. That was a runner-path problem, not a CSV/download code change.
 
 ### Regression record
 
+- The layered benchmark passed the private grouped-filter representation as
+  public `bvd_query`, which all three public processing methods reject. Keep
+  the base clause in `bvd_query` and configure `AND_bvd_list` / `OR_bvd_list`
+  separately. The subprocess regression in `tests/test_polars_benchmark.py`
+  failed for all three methods before this fix; it checks exact selected rows,
+  duplicate preservation, null non-matches, source retention and the native
+  thread budget. Benchmark examples must exercise supported public inputs.
 - Expression projection originally removed non-output columns before a `pl.Expr`
   filter could use them. The shared builder now retains expression roots until
   filtering finishes; a failing-first regression verifies the behavior.
