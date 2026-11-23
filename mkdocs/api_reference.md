@@ -92,7 +92,7 @@ confirms an exact snapshot cutoff or revision policy.
   downloading, processing, saving, or deleting files.
 - `pandas_all()`: force the pandas backend explicitly.
 - `polars_all()`: force the native Polars backend explicitly and return Polars.
-- `export_all()` (1.5.0 development): stream Parquet to one Parquet output and
+- `export_all()` (added in 1.5.0): stream Parquet to one Parquet output and
   return completed paths without collecting the complete result DataFrame.
 - `download_all()`: download missing files into the local cache.
 - `download_all(dry_run=True)`: validate which files would be downloaded.
@@ -256,7 +256,9 @@ backend supports:
 It does not try to emulate every pandas-specific query style. In particular,
 string queries belong on the pandas path.
 
-### `export_all()` (1.5.0 development)
+### `export_all()`
+
+Added in 1.5.0.
 
 ```python
 paths = SFTP.export_all(
@@ -279,6 +281,10 @@ the existing return contracts are unchanged.
 - Supports exact/prefix BvD filters, multiple columns, AND/OR layers, date
   filtering and `pl.Expr` queries. String queries, arbitrary callables and
   inherited `query_args` are rejected, not evaluated or sent to pandas.
+- Pass a base BvD clause as `bvd_query=[values, columns, mode]`; configure
+  additional layers through `SFTP.AND_bvd_list` / `SFTP.OR_bvd_list`. The
+  internal grouped `{"base": ..., "and": ..., "or": ...}` representation
+  is not a supported public `bvd_query` input.
 - An explicit `destination` is a final `.parquet` filename, not the output
   prefix used by existing DataFrame methods. Generated paths honor
   `output_root`; source caching independently honors `download_root`.

@@ -7,25 +7,25 @@ https://github.com/CBS-HPC/moody-s_datahub/blob/main/mkdocs/how_to_get_started.i
 
 **The pip wheel can be manually downloaded using the link below:**
 
-https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.15/moodys_datahub-1.4.15-py3-none-any.whl
+https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.5.0/moodys_datahub-1.5.0-py3-none-any.whl
 
 
 Or directly to the working folder by running the line below:
 
 
 ```python
-!curl -s -L -o moodys_datahub-1.4.15-py3-none-any.whl https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.15/moodys_datahub-1.4.15-py3-none-any.whl
+!curl -s -L -o moodys_datahub-1.5.0-py3-none-any.whl https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.5.0/moodys_datahub-1.5.0-py3-none-any.whl
 ```
 
 ## Installation
 
-Install the package "moodys_datahub-1.4.15-py3-none-any.whl":
+Install the package "moodys_datahub-1.5.0-py3-none-any.whl":
 
 
 
 ```python
 
-!pip install moodys_datahub-1.4.15-py3-none-any.whl
+!pip install moodys_datahub-1.5.0-py3-none-any.whl
 ```
 
 The package pins `paramiko==3.5.1` because the current `pysftp` dependency is
@@ -462,9 +462,9 @@ SFTP.batch_bvd_search(
 )
 ```
 
-### Stream a large extraction directly to Parquet (1.5.0 development)
+### Stream a large extraction directly to Parquet
 
-Use the new `export_all()` on the development branch when you need files, not
+Use `export_all()` (added in 1.5.0) when you need files, not
 a complete DataFrame in memory. It uses the selected Parquet sources and
 configured column/BvD/AND/OR/date filters:
 
@@ -491,7 +491,7 @@ This returns a list with one completed Parquet filename; it does not update
 paths use `output_root`; downloads continue using `download_root`. Existing
 outputs are rejected. Inputs remain cached, including with `delete_files=True`.
 String queries, callables and non-Parquet sources are rejected rather than
-silently using pandas. See the [API reference](api_reference.md#export_all-150-development)
+silently using pandas. See the [API reference](api_reference.md#export_all)
 for filesystem hard-link requirements and read-only preflight limitations.
 
 To obtain a DataFrame instead, keep using `polars_all()` for Polars or

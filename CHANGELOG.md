@@ -2,7 +2,7 @@
 
 All notable changes to this project should be documented in this file.
 
-## [Unreleased] - planned 1.5.0
+## [1.5.0] - 2026-11-23
 
 ### Added
 - `Sftp.export_all()` streams supported Parquet selections to one new Parquet
@@ -14,7 +14,13 @@ All notable changes to this project should be documented in this file.
   Final publication requires hard-link support and never replaces an output.
   Inputs, including managed cache files, are retained after both success and
   failure. Pandas strings/callables and non-Parquet inputs fail explicitly.
-- Synthetic local CPU/RSS benchmark and minimum-version Polars CI cases.
+- Synthetic local CPU/RSS benchmark and minimum-version Polars test cases.
+  GitHub Actions remain disabled; release checks run locally or on approved compute.
+
+### Fixed
+- The synthetic benchmark's layered workload now uses public `AND_bvd_list` /
+  `OR_bvd_list` settings with a base `bvd_query`, rather than passing the
+  unsupported internal grouped representation to public processing methods.
 
 ### Changed
 - Validate Polars >=2.0,<2.1 for Python 3.10 and >=2.1,<3 for Python 3.11+.
@@ -32,7 +38,9 @@ All notable changes to this project should be documented in this file.
   generated paths honor `output_root`. It does not use the materialized writer
   settings `output_format`, `file_size_mb`, `concat_files` or `delete_files`.
 - No GPU support, concurrent-extraction support or fixed memory guarantee is
-  introduced. Live UCloud validation remains a release-readiness follow-up.
+  introduced. Moody Agent reported bounded real-data parity and synthetic
+  baseline/safety checks passing on UCloud/WekaFS for the exact preview wheel;
+  controlled representative throughput benchmarks remain follow-up work.
 
 ## [1.4.15] - 2026-11-02
 

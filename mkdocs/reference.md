@@ -68,10 +68,10 @@ Non-interactive discovery skips unknown exports with one warning and exposes
   prefix BvD filtering, multi-column BvD filters, layered `AND_bvd_list` /
   `OR_bvd_list` filtering, and year-based `time_period` filtering.
 - string queries belong on the pandas path.
-- The 1.5.0 development branch adds `export_all()` for Parquet-only streaming
+- Version 1.5.0 adds `export_all()` for Parquet-only streaming
   output without a full result DataFrame. It returns completed file paths,
   supports structured BvD/date and Polars-expression filters, retains inputs
-  and refuses overwrites. See the [export reference](api_reference.md#export_all-150-development)
+  and refuses overwrites. See the [export reference](api_reference.md#export_all)
   for destination semantics, hard-link requirements and dry-run limitations.
 - Python 3.11+ targets Polars 2.1; Python 3.10 stays on Polars 2.0. Existing
   DataFrame methods still materialize results; `process_all()` still returns

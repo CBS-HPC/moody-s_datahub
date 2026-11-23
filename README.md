@@ -190,11 +190,11 @@ yet supported.
 
 ## Processing backends
 
-### Next release: 1.5.0 (in development)
+### Polars and file-only extraction in 1.5.0
 
-The development branch targets Polars 2.1 on Python 3.11+ and Polars 2.0 on
-Python 3.10. The stable installation links below remain on 1.4.15 until the
-new release is published. GPU acceleration is not part of this work.
+Version 1.5.0 requires Polars >=2.1,<3 on Python 3.11+ and >=2.0,<2.1 on
+Python 3.10. Existing `process_all()` and `polars_all()` return types are
+unchanged. GPU acceleration is not included.
 
 Use `process_all()` as the default high-level API. It auto-selects the backend
 and always returns a pandas `DataFrame` together with `file_names`.
@@ -401,7 +401,7 @@ If you want a pinned wheel from a specific GitHub release, install it directly
 from the release assets:
 
 ```bash
-pip install https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.4.15/moodys_datahub-1.4.15-py3-none-any.whl
+pip install https://github.com/CBS-HPC/moody-s_datahub/releases/download/v1.5.0/moodys_datahub-1.5.0-py3-none-any.whl
 ```
 
 ### Install from a local wheel
@@ -410,7 +410,7 @@ Build the package locally and install the wheel from `dist/`:
 
 ```bash
 python -m build
-pip install dist/moodys_datahub-1.4.15-py3-none-any.whl
+pip install dist/moodys_datahub-1.5.0-py3-none-any.whl
 ```
 
 The package pins `paramiko==3.5.1` because the current `pysftp` dependency is

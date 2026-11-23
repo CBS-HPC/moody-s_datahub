@@ -12,11 +12,17 @@
   memory/timing measurements in `benchmarks/RESULTS.md`. Stable `dist/` is unchanged.
 - [x] Manual Windows/Python 3.12.11 and 3.13.5 checks: 570 source tests and
   43 installed-wheel export tests pass per version, with Polars 2.1.0.
-- [ ] Before stable publication: run an authorized Linux/UCloud storage smoke
-  test (deferred until access is arranged on Monday, 2026-11-23); complete
-  controlled performance validation, then update stable
-  version/install links and publish only after approval. Auto/prefiltered scan
-  comparisons remain pending; do not change the scan default without evidence.
+- [x] Moody Agent supplied Linux/UCloud validation on 2026-11-23: bounded
+  real-data parity (job `12474603`) and synthetic baseline/export-safety checks
+  (job `12474725`) passed for the exact preview wheel. See the release plan
+  for scope and artifact hash; these are not full-scale performance results.
+- [x] Fix the layered benchmark's unsupported grouped argument with public
+  base/AND/OR settings and add failing-first subprocess tests for all three APIs.
+- [x] Prepare 1.5.0 version, installation links and release documentation.
+- [ ] Re-run final compatibility checks, rebuild/audit stable artifacts, then
+  merge/tag/publish only after approval. Keep Actions disabled.
+- Controlled throughput and auto/prefiltered scan comparisons remain follow-up
+  work; do not change the scan default or claim universal speed gains.
 - GitHub Actions are disabled repository-wide by user request as of 2026-11-20.
   Keep them off; local tests/builds and manual release uploads replace CI.
 - GPU acceleration is deferred by the user. No CUDA dependencies or GPU

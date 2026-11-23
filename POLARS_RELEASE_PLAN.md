@@ -1,6 +1,7 @@
 # Polars Performance Release Plan
 
-Prepared: 2026-11-20. Status: implemented locally; production/release gates pending.
+Prepared: 2026-11-20. Updated: 2026-11-23. Status: stable release preparation;
+final artifact checks and publication approval pending.
 
 Target: `moodys_datahub` 1.5.0, developed on `codex/polars-1.5.0`.
 This is a minor release because it adds a public file-only extraction method.
@@ -25,13 +26,18 @@ Planning does not authorize publishing a release.
   from site-packages, not the source checkout.
 - [x] Manual Windows/Python 3.12 and 3.13 compatibility: 570 source tests and
   43 installed-wheel export tests pass on each version.
-- [ ] Authorized Linux/UCloud storage smoke test. Deferred by the user until
-  proper UCloud access is arranged on Monday, 2026-11-23.
-- [ ] Final stable version/install-link update, tag and publication after approval.
+- [x] External Linux/UCloud storage smoke evidence supplied by Moody Agent on
+  2026-11-23 for the exact preview wheel; bounded parity and hard-link safety pass.
+- [x] Fix the layered benchmark to use supported public filter settings; all
+  three public-method subprocess regressions pass after failing before the fix.
+- [x] Prepare stable 1.5.0 version, README/MkDocs installation links and changelog.
+- [ ] Re-run final compatibility checks and build/audit stable wheel and sdist.
+- [ ] Merge, tag and publish after explicit approval. GitHub Actions stay off.
 
-The working version is `1.5.0.dev0`, not a replacement for published 1.4.15.
-Candidate artifacts are under `.venv/polars-1.5.0/dist-final/`, not the stable
-`dist/` directory. No tag, push or release publication has been performed.
+The working version is `1.5.0`. GitHub's latest public release remains 1.4.15,
+verified through the GitHub API on 2026-11-23. The immutable tested preview
+artifacts remain under `.venv/polars-1.5.0/dist-final/`; stable artifacts will
+be rebuilt in `dist/`. No tag, push or release publication has been performed.
 
 GitHub Actions were disabled repository-wide on 2026-11-20 at the user's
 request to avoid CI costs, and the disabled setting was verified through the
@@ -57,14 +63,44 @@ Detailed XML records are `.venv/polars-1.5.0/pytest312.xml`, `pytest313.xml`,
 `wheel312.xml` and `wheel313.xml`. No package-source, workbook or distribution
 changes were required. No GitHub Actions run or UCloud job was started.
 
-These Windows results do not establish Linux/UCloud or production-storage
-compatibility. No UCloud smoke test has been performed; access setup is pending
-the user's Monday arrangements. Do not replace that gate with a local test.
+These Windows results alone do not establish Linux/UCloud or production-storage
+compatibility. Separate consumer-run UCloud evidence arrived on 2026-11-23;
+see below. This package agent did not start a UCloud job or access live records.
 
 Verification records are under `.venv/polars-1.5.0/`. Tests use short, fresh
 workspace-local `--basetemp` paths: the longer automatic Windows pytest path
 eventually exceeded the host's path limit in an existing timestamped-cache
 test. That was a runner-path problem, not a CSV/download code change.
+
+### External UCloud validation (reported 2026-11-23)
+
+Source: Moody Agent's `docs/handoffs/moodys-datahub-preview-layered-query-2026-11-23.md`
+in the sibling consumer repository. Evidence applies to `1.5.0.dev0` wheel
+SHA-256 `719db140080e9ece2dabc62af94cc17599d9c0583ba637edfa45fc8dd0e025e0`.
+
+- Live-data job `12474603`: `process_all()`, `polars_all()` and `export_all()`
+  agreed on a bounded two-shard ID/date comparison and matched the stable
+  baseline. Publication and safety checks passed on UCloud WekaFS. Only
+  aggregate metrics were retrieved; this is not a full-dataset throughput test.
+- Synthetic-only rerun `12474725`: all three APIs agreed with the 1.4.15
+  baseline on requested columns. Exact/prefix cases retained six rows each;
+  configured AND/OR with dates retained five, including duplicate/nullable
+  inputs. Hard-link publication and export safety passed on Linux/WekaFS,
+  Python 3.12.3, Polars 2.1.0 and one native thread. No SFTP key or production
+  storage was mounted in this rerun; its temporary environments were removed.
+- An earlier synthetic fingerprint mismatch was a consumer-harness false
+  negative: both package versions append helper columns to caller-provided
+  `select_cols`. The fixed harness freezes comparison columns and supplies
+  fresh options. No package runtime change was needed for this finding.
+- The separate layered benchmark issue reproduced locally and is fixed in
+  commit `2972707` without expanding public filter semantics. Its local
+  subprocess regressions cover all three methods, including exact rows and
+  duplicate/null handling. The earlier failing benchmark is not Linux evidence.
+
+No production dependency pin was changed by these consumer tests. Keep
+controlled timing/scan-strategy work as follow-up; make no universal speed or
+fixed-memory promises. Dataset-specific inventory/schema verification such
+as DSET-002 is a separate gate and is not closed by these bounded checks.
 
 ### Regression record
 
