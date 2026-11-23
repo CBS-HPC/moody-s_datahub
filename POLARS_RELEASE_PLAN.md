@@ -1,12 +1,13 @@
 # Polars Performance Release Plan
 
-Prepared: 2026-11-20. Updated: 2026-11-23. Status: stable artifacts validated
-and committed locally; merge and publication approval pending.
+Prepared: 2026-11-20. Updated: 2026-11-23. Status: 1.5.0 published as the latest
+stable GitHub release; package and published-asset verification complete.
 
 Target: `moodys_datahub` 1.5.0, developed on `codex/polars-1.5.0`.
 This is a minor release because it adds a public file-only extraction method.
 Reconfirm the next available version and current worktree before implementation.
 Planning does not authorize publishing a release.
+The user explicitly approved merge, push, tag and publication on 2026-11-23.
 
 ## Implementation progress
 
@@ -34,13 +35,16 @@ Planning does not authorize publishing a release.
 - [x] Re-run final compatibility checks and build/audit stable wheel and sdist:
   573 source tests and 43 installed-wheel export tests pass on each of Python
   3.10-3.13. Ruff, dependency checks, Twine and artifact inventory checks pass.
-- [ ] Merge, tag and publish after explicit approval. GitHub Actions stay off.
+- [x] User-approved fast-forward merge to `main`, push, annotated `v1.5.0` tag
+  and manual stable GitHub publication on 2026-11-23. GitHub Actions stay off.
 
-The working version is `1.5.0`. GitHub's latest public release remains 1.4.15,
-verified through the GitHub API on 2026-11-23. The immutable tested preview
+The working version and latest public release are
+[1.5.0](https://github.com/CBS-HPC/moody-s_datahub/releases/tag/v1.5.0), verified
+through the GitHub API on 2026-11-23. The immutable tested preview
 artifacts remain under `.venv/polars-1.5.0/dist-final/`; `dist/` now contains
-only the audited stable 1.5.0 wheel and sdist, committed as `9b6b703`. Published
-1.4.15 tags/assets are unchanged. No merge, tag, push or publication has occurred.
+only the audited stable 1.5.0 wheel and sdist, committed as `9b6b703`. The
+annotated release tag points to `82629f811f3e770f69fc397b8b9eea34abaf1b94`.
+Published 1.4.15 tags/assets are unchanged; no published tag was moved.
 
 GitHub Actions were disabled repository-wide on 2026-11-20 at the user's
 request to avoid CI costs, and the disabled setting was verified through the
@@ -146,11 +150,35 @@ Local evidence: `.venv/polars-1.5.0/release-validation.json`,
 The default five-workload benchmark also passes all 15 method/workload checks
 on 60,003 synthetic input rows with one native thread. See `benchmarks/RESULTS.md`.
 
-Only merge/push, tag creation and manual GitHub release/asset publication remain,
-subject to explicit approval. Keep Actions disabled and existing published tags
-unchanged. No PyPI publishing or SFTP modification was performed. In particular,
-the historical-export interactive prompt is not changed by this Polars release;
-server inventory maintenance remains a separate, explicitly confirmed action.
+### Publication verification (2026-11-23)
+
+- Fast-forwarded and pushed `main` to the validated release commit `82629f8`,
+  then created/pushed the annotated `v1.5.0` tag without moving existing tags.
+- Created draft release `455521678`, uploaded wheel and sdist manually, checked
+  GitHub's asset digests and re-downloaded both draft assets before publication.
+- Published as the latest stable release, not a prerelease, at
+  `2026-11-23T14:20:25Z`. Re-downloaded both public assets and verified the
+  SHA-256 values above. The GitHub source ZIP matches the tag's 20 runtime/
+  resource files and contains the same audited nested distributions.
+- Rechecked repository Actions permissions after publication: `enabled=false`.
+  The sole run reported for the release commit was GitHub's automatic
+  Dependabot `Graph Update: pip in /.` (`dynamic/dependabot/update-graph`,
+  run `45191877588`), not the project CI or release workflow. No repository
+  workflow was enabled or manually dispatched.
+- GitHub reported the existing pinned Paramiko dependency under the open,
+  low-severity [GHSA-r374-rxx8-8654 advisory](https://github.com/advisories/GHSA-r374-rxx8-8654).
+  The advisory lists versions below 5.0.0 as affected and 5.0.0 as patched.
+  The unchanged `paramiko==3.5.1` pin is needed for the current `pysftp`
+  compatibility strategy. The release notes disclose this unresolved issue;
+  the transport-migration TODO tracks it. No dismissal or dependency change
+  was performed as part of publication.
+
+Local publication evidence is under `.venv/pub150/`: `published-release.json`,
+`publication-audit.json`, `actions-disabled.json`, and downloaded public assets
+including the GitHub source archive. No PyPI publishing or SFTP modification
+was performed. The historical-export interactive prompt is not changed by
+this Polars release; server inventory maintenance remains a separate,
+explicitly confirmed action.
 
 ### Regression record
 

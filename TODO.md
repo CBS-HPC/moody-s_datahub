@@ -1,6 +1,6 @@
 # TODO
 
-## Planned: Polars CPU performance release
+## Published: Polars CPU performance release 1.5.0
 
 - [x] Implement the core [1.5.0 development plan](POLARS_RELEASE_PLAN.md):
   updated dependencies, shared lazy queries, safe Parquet-only streaming
@@ -9,7 +9,8 @@
 - [x] Retain Python 3.10 through Polars 2.0; use Polars 2.1 on Python 3.11+.
   Both local environments pass the full checkpoint suite and expanded export tests.
 - [x] Build/audit the `1.5.0.dev0` candidate and record exploratory synthetic
-  memory/timing measurements in `benchmarks/RESULTS.md`. Stable `dist/` is unchanged.
+  memory/timing measurements in `benchmarks/RESULTS.md`. Stable `dist/` was
+  unchanged at that preview checkpoint.
 - [x] Manual Windows/Python 3.12.11 and 3.13.5 checks: 570 source tests and
   43 installed-wheel export tests pass per version, with Polars 2.1.0.
 - [x] Moody Agent supplied Linux/UCloud validation on 2026-11-23: bounded
@@ -24,8 +25,11 @@
   dependency and package-content checks pass. `dist/` contains only audited
   1.5.0 wheel/sdist, committed locally as `9b6b703`; runtime/data bytes match
   the exact UCloud-tested preview. See the release plan for hashes/evidence.
-- [ ] Merge/push, tag and manually publish the 1.5.0 GitHub release after
-  approval. Keep Actions disabled; do not move existing published tags.
+- [x] User approved publication on 2026-11-23. Fast-forwarded/pushed `main`,
+  tagged `82629f8` as `v1.5.0` and manually published the
+  [latest stable GitHub release](https://github.com/CBS-HPC/moody-s_datahub/releases/tag/v1.5.0).
+  Re-downloaded public wheel/sdist hashes and verified the GitHub source archive
+  against the tag. Actions remain disabled; published tags were not moved.
 - Controlled throughput and auto/prefiltered scan comparisons remain follow-up
   work; do not change the scan default or claim universal speed gains.
 - GitHub Actions are disabled repository-wide by user request as of 2026-11-20.
@@ -79,6 +83,14 @@ ongoing checks needed to catch new, removed or changed datasets.
 ## Replace `pysftp` with native `paramiko`
 
 Goal: remove the brittle `pysftp` dependency and stop relying on the `paramiko==3.5.1` compatibility pin for runtime stability.
+
+Security follow-up recorded 2026-11-23: GitHub Dependabot alert #2 remains open
+for the low-severity [GHSA-r374-rxx8-8654 advisory](https://github.com/advisories/GHSA-r374-rxx8-8654)
+about Paramiko SHA-1 support. The advisory affects versions below 5.0.0,
+including the current 3.5.1 pin, and lists 5.0.0 as patched. Evaluate a fixed
+Paramiko release as part of the transport migration rather than blindly
+breaking `pysftp` compatibility. This issue is disclosed in the 1.5.0 release
+notes; no dependency upgrade or alert dismissal was performed.
 
 Proposed approach:
 - Add a small internal adapter layer, e.g. `src/moodys_datahub/sftp_backend.py`, that wraps `paramiko.SSHClient` and `open_sftp()`.
